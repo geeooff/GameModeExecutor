@@ -49,7 +49,8 @@ says when a game is detected and when it is no longer.
 - [x] Packaged title named after the fix, on both edges
 - [x] Confirm the logon task across a reboot
 - [ ] Measure what happens between closing a game and the writer being released
-- [ ] Log timestamps in local time rather than UTC
+- [x] Log timestamps in local time rather than UTC
+- [x] Logon task registered from XML, without the schtasks defaults that kill it
 
 Done when: a real game session drives the configured commands, start and stop,
 started automatically at logon, with a log file that shows what happened and no
@@ -337,6 +338,8 @@ Recorded so they stop coming back:
 ---
 
 ## Journal
+
+**2026-09-10** — The installed logon task carried three schtasks defaults that were wrong for a watcher meant to run forever, the worst being ExecutionTimeLimit PT72H, which would have had Windows kill it after three days. The two battery settings would have stopped it on an unplugged laptop. Ironic, since the FanControl task definitions written by hand had all three right. install-task now registers from an XML definition like those, and gained a restart-on-failure. Logs moved to local timestamps via GetLocalTime, and the daily rotation was dropped: it only ever bought filenames dated in UTC, which was the confusion being fixed. log_keep_days goes with it, so an existing configuration has to be replaced rather than kept.
 
 **2026-09-10** — Reboot confirmed the autostart chain: FanControl 28 s after boot, the watcher 38 s, both from their own logon tasks and in the right order, with only the hardware-touching tasks elevated. Noticed while reading the log that timestamps and the daily file rotation are UTC, so an event at 00:46 local is filed under the previous day at 22:46. Harmless mechanically, but it works against a log meant to be read by one person correlating it with what they just did.
 

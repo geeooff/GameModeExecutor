@@ -12,11 +12,9 @@
 stop_actions_on_exit = true
 # error | warn | info | debug | trace  (the RUST_LOG env var overrides this)
 log_level = "info"
-# Rolling daily log files (absolute path). When left unset, a hidden instance
-# logs to %APPDATA%\GameModeExecutor\logs and a console instance only logs to
-# the console.
+# Where the log file goes (absolute path). Defaults to
+# %APPDATA%\GameModeExecutor\logs. Timestamps are in local time.
 #log_dir = 'C:\Users\me\AppData\Roaming\GameModeExecutor\logs'
-log_keep_days = 7
 
 [detection]
 # How often to look for the presence writer while no game is running. This is

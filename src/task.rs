@@ -1,7 +1,13 @@
-//! Registration as a per-user logon task, via schtasks.exe.
+//! Registration as a per-user logon task.
+//!
+//! Registered from an XML definition rather than `schtasks` command-line flags,
+//! because the defaults those flags leave behind are wrong for a watcher meant
+//! to run forever: a 72 hour execution limit that kills it after three days,
+//! and battery settings that stop it on an unplugged laptop.
 
 use std::path::Path;
 use std::process::Command;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
@@ -9,22 +15,33 @@ pub const TASK_NAME: &str = "GameModeExecutor";
 
 /// Create (or replace) a logon task that starts the watcher hidden.
 /// Runs only while the user is logged on, so no password and no elevation.
-pub fn install(config_path: &Path, delay: &str) -> Result<()> {
+pub fn install(config_path: &Path, delay: Duration) -> Result<()> {
     let exe = std::env::current_exe().context("cannot locate the running executable")?;
-    let command = format!(
-        "\"{}\" run --hidden --config \"{}\"",
-        exe.display(),
-        config_path.display()
-    );
     let user = current_user().context("cannot determine the current user")?;
+    let xml = definition(
+        &exe.to_string_lossy(),
+        &config_path.to_string_lossy(),
+        &user,
+        delay,
+    );
 
-    run_schtasks(&[
-        "/Create", "/TN", TASK_NAME, "/TR", &command, "/SC", "ONLOGON", "/RU", &user, "/IT", "/RL",
-        "LIMITED", "/DELAY", delay, "/F",
-    ])?;
+    let temp = std::env::temp_dir().join("GameModeExecutor-task.xml");
+    write_utf16(&temp, &xml).with_context(|| format!("cannot write `{}`", temp.display()))?;
+    let result = run_schtasks(&[
+        "/Create",
+        "/TN",
+        TASK_NAME,
+        "/XML",
+        &temp.to_string_lossy(),
+        "/F",
+    ]);
+    let _ = std::fs::remove_file(&temp);
+    result?;
 
     println!("Scheduled task `{TASK_NAME}` created for {user}.");
-    println!("  command: {command}");
+    println!("  program : {}", exe.display());
+    println!("  config  : {}", config_path.display());
+    println!("  delay   : {delay:?} after logon, no execution time limit");
     Ok(())
 }
 
@@ -32,6 +49,89 @@ pub fn uninstall() -> Result<()> {
     run_schtasks(&["/Delete", "/TN", TASK_NAME, "/F"])?;
     println!("Scheduled task `{TASK_NAME}` deleted.");
     Ok(())
+}
+
+fn definition(exe: &str, config: &str, user: &str, delay: Duration) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Watches for a running game and runs the configured commands. Started at logon, unelevated.</Description>
+    <URI>\{name}</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>{user}</UserId>
+      <Delay>{delay}</Delay>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>{user}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{exe}</Command>
+      <Arguments>run --hidden --config "{config}"</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+"#,
+        name = escape(TASK_NAME),
+        user = escape(user),
+        delay = iso8601(delay),
+        exe = escape(exe),
+        config = escape(config),
+    )
+}
+
+/// Task Scheduler durations are ISO 8601. Seconds are enough here.
+fn iso8601(delay: Duration) -> String {
+    format!("PT{}S", delay.as_secs())
+}
+
+fn escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Task Scheduler expects UTF-16 with a BOM, as it exports itself.
+fn write_utf16(path: &Path, text: &str) -> std::io::Result<()> {
+    let mut bytes = vec![0xFF, 0xFE];
+    for unit in text.replace('\n', "\r\n").encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    std::fs::write(path, bytes)
 }
 
 fn current_user() -> Option<String> {
@@ -53,4 +153,39 @@ fn run_schtasks(args: &[&str]) -> Result<()> {
         bail!("schtasks failed: {}", format!("{stdout}{stderr}").trim());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_definition_disables_the_traps() {
+        let xml = definition(
+            r"C:\tools\gamemode-executor.exe",
+            r"C:\config.toml",
+            r"PC\me",
+            Duration::from_secs(15),
+        );
+        // The three settings whose schtasks defaults break a long-running watcher.
+        assert!(xml.contains("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>"));
+        assert!(xml.contains("<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>"));
+        assert!(xml.contains("<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>"));
+        // And it must stay unelevated.
+        assert!(xml.contains("<RunLevel>LeastPrivilege</RunLevel>"));
+        assert!(xml.contains("<Delay>PT15S</Delay>"));
+    }
+
+    #[test]
+    fn xml_special_characters_are_escaped() {
+        let xml = definition("C:\\a&b.exe", "C:\\<config>.toml", "PC\\me", Duration::ZERO);
+        assert!(xml.contains("C:\\a&amp;b.exe"));
+        assert!(xml.contains("&lt;config&gt;"));
+    }
+
+    #[test]
+    fn durations_become_iso8601() {
+        assert_eq!(iso8601(Duration::from_secs(15)), "PT15S");
+        assert_eq!(iso8601(Duration::ZERO), "PT0S");
+    }
 }

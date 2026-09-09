@@ -67,8 +67,8 @@ enum Commands {
     },
     /// Register a per-user logon task that starts the watcher hidden.
     InstallTask {
-        /// Delay after logon, as HHHH:MM.
-        #[arg(long, default_value = "0000:15")]
+        /// Delay after logon, e.g. `15s` or `1m`.
+        #[arg(long, default_value = "15s")]
         delay: String,
     },
     /// Remove the logon task.
@@ -86,8 +86,10 @@ fn main() -> Result<()> {
     match cli.command {
         Some(Commands::Init { force }) => return cmd_init(cli.config.as_deref(), force),
         Some(Commands::InstallTask { delay }) => {
+            let delay = humantime::parse_duration(&delay)
+                .with_context(|| format!("cannot read `{delay}` as a delay"))?;
             let path = resolve_config_path(cli.config.clone())?;
-            return task::install(&path, &delay);
+            return task::install(&path, delay);
         }
         Some(Commands::UninstallTask) => return task::uninstall(),
         Some(Commands::Check { path, pid }) => return cmd_check(path.as_deref(), pid),
@@ -106,11 +108,11 @@ fn main() -> Result<()> {
             Ok(())
         }
         Some(Commands::Status) => {
-            let _guards = logging::init(&level, None, 0, true)?;
+            let _guards = logging::init(&level, None, true)?;
             cmd_status(&config)
         }
         Some(Commands::Trigger { event }) => {
-            let _guards = logging::init(&level, None, 0, true)?;
+            let _guards = logging::init(&level, None, true)?;
             let engine = engine::Engine::new(config)?;
             match event {
                 TriggerEvent::Start => engine.fire_start_manual(),
@@ -136,12 +138,7 @@ fn cmd_run(config: Config, level: &str, hidden: bool) -> Result<()> {
         .log_dir
         .clone()
         .or_else(|| config::roaming_dir().map(|dir| dir.join("logs")));
-    let _guards = logging::init(
-        level,
-        log_dir.as_deref(),
-        config.general.log_keep_days,
-        !hidden,
-    )?;
+    let _guards = logging::init(level, log_dir.as_deref(), !hidden)?;
     let _instance = win::SingleInstance::acquire("GameModeExecutor")?;
 
     let stop = Arc::new(win::StopSignal::new()?);

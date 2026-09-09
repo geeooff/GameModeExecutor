@@ -18,6 +18,7 @@ path = "src/main.rs"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 ctrlc = "3"
+humantime = "2"
 humantime-serde = "1"
 serde = { version = "1", features = ["derive"] }
 toml = "1"

@@ -200,6 +200,7 @@ dependencies = [
  "anyhow",
  "clap",
  "ctrlc",
+ "humantime",
  "humantime-serde",
  "serde",
  "toml",

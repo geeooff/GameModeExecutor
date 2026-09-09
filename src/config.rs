@@ -29,10 +29,8 @@ pub struct General {
     pub stop_actions_on_exit: bool,
     /// `error`, `warn`, `info`, `debug` or `trace`.
     pub log_level: String,
-    /// Directory for rolling daily log files. Disabled when empty.
+    /// Directory holding the log file. Defaults to the roaming profile.
     pub log_dir: Option<PathBuf>,
-    /// Number of daily log files kept.
-    pub log_keep_days: usize,
 }
 
 impl Default for General {
@@ -41,7 +39,6 @@ impl Default for General {
             stop_actions_on_exit: true,
             log_level: "info".to_owned(),
             log_dir: None,
-            log_keep_days: 7,
         }
     }
 }
