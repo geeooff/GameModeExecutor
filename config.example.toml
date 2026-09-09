@@ -1,0 +1,84 @@
+# GameModeExecutor - example configuration
+#
+# Copy this file next to gamemode-executor.exe as `config.toml`,
+# or run `gamemode-executor init` to drop it in %APPDATA%\GameModeExecutor.
+
+[general]
+# How often the detectors are polled.
+poll_interval = "2s"
+# A game must be detected continuously for this long before on_game_start runs.
+start_delay = "5s"
+# No game must be detected for this long before on_game_stop runs.
+stop_delay = "15s"
+# Run on_game_stop when the watcher itself exits while a game is active.
+stop_actions_on_exit = true
+# error | warn | info | debug | trace  (the RUST_LOG env var overrides this)
+log_level = "info"
+# Rolling daily log files (absolute path). When left unset, a hidden instance
+# logs to %APPDATA%\GameModeExecutor\logs and a console instance only
+# logs to the console.
+#log_dir = 'C:\Users\me\AppData\Roaming\GameModeExecutor\logs'
+log_keep_days = 7
+
+[detection]
+# "any": a game is running as soon as one detector matches.
+# "all": every enabled detector must match.
+match_mode = "any"
+
+# Executable names to watch, with or without the .exe suffix.
+# Leave empty to disable this detector.
+processes = [
+    "cs2.exe",
+    "eldenring.exe",
+    "Cyberpunk2077.exe",
+]
+
+# Never treat these as a game, whatever the detector says.
+ignore_processes = [
+    "vlc.exe",
+    "mpc-hc64.exe",
+]
+
+[detection.fullscreen]
+# Uses the Windows shell notification state: catches any full-screen app,
+# including games that are not in the list above. Handy, but it also fires on
+# full-screen video players - hence ignore_processes.
+enabled = false
+# d3d_exclusive : exclusive full-screen Direct3D (QUNS_RUNNING_D3D_FULL_SCREEN)
+# busy          : a full-screen / borderless app is running (QUNS_BUSY)
+# store_app     : a Store app is full-screen (QUNS_APP)
+# presentation  : presentation mode is on (QUNS_PRESENTATION_MODE)
+states = ["d3d_exclusive", "busy"]
+
+# ---------------------------------------------------------------------------
+# Actions. Each entry starts one executable.
+#
+# Placeholders usable in program, args, working_dir and env values:
+#   {event}         game_start | game_stop
+#   {process_name}  e.g. cs2.exe
+#   {process_id}    e.g. 12345
+#   {process_path}  full path, when readable
+# ---------------------------------------------------------------------------
+
+[[on_game_start]]
+name = "FanControl - gaming profile"
+program = 'C:\Program Files (x86)\FanControl\FanControl.exe'
+args = ["-c", "gaming.json"]
+no_window = true
+wait = false
+
+[[on_game_stop]]
+name = "FanControl - silent profile"
+program = 'C:\Program Files (x86)\FanControl\FanControl.exe'
+args = ["-c", "silent.json"]
+no_window = true
+wait = false
+
+# Example of a second action, disabled:
+# [[on_game_start]]
+# enabled = false
+# name = "log the game"
+# program = "cmd.exe"
+# args = ["/c", "echo {event} {process_name} >> C:\\temp\\games.log"]
+# wait = true
+# timeout = "10s"
