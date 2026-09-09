@@ -42,7 +42,8 @@ says when a game is detected and when it is no longer.
 - [x] File logging on by default, not only when `log_dir` is set
 - [x] Log lines that state plainly: game detected, game no longer detected
 - [x] Real FanControl actions wired, through a scheduled task (see below)
-- [ ] Register the two elevated tasks (needs one elevated prompt)
+- [x] Register the two elevated tasks (needs one elevated prompt)
+- [x] Whole chain proven against the real FanControl
 - [ ] One real game session, log read and checked
 - [ ] Logon task installed and confirmed across a reboot
 
@@ -66,9 +67,22 @@ State:
 - Working config and the shipped example now use that form. The README gained a
   "Programs that require elevation" section, and its headline example no longer
   shows a FanControl command line that could never have worked.
-- Measured 2026-09-09: start fired ~1 s after the writer appeared, stop 5.01 s
-  after it exited, and FanControl kept the same PID throughout, confirming
-  nothing tried to start a second instance.
+- **Chain verified end to end 2026-09-09**, with the profile change read back
+  from FanControl's own `CACHE` file rather than assumed:
+
+  | Moment | Event |
+  | --- | --- |
+  | 23:49:52.754 | presence writer appears |
+  | 23:49:53.680 | GAME DETECTED, task triggered, `schtasks` returns 0 |
+  | 23:49:55.123 | FanControl is on `Game.json` |
+  | 23:49:57.762 | presence writer exits |
+  | 23:50:02.772 | GAME NO LONGER DETECTED after the 5 s grace, task triggered |
+  | 23:50:04.349 | FanControl is back on `Quiet.json` |
+
+  So about 2.4 s from game start to the profile being applied, and about 6.6 s
+  from game end to it being restored, of which 5 s is the configured
+  `stop_delay`. FanControl kept the same PID throughout: nothing started a
+  second instance.
 
 Notes:
 
@@ -82,42 +96,61 @@ Notes:
 
 ---
 
-## Lot 2 — JSON configuration, parallel or serial commands · committed · `[ ]`
+## Lot 2 — Configuration and how commands run · committed · `[ ]`
 
-Goal: a configuration format that is easier to hand-edit than TOML, and control
-over how several commands run for one event.
+Goal: control over how several commands run for one event, and a configuration
+that fails loudly and precisely when it is wrong.
 
-**Decided: JSONC**, so the shipped template can carry comments — and in
-particular explain that backslashes must be doubled.
+**Staying on TOML.** The move to JSON was reconsidered and dropped. The
+INI-like shape is the point, and TOML keeps three things JSON would have cost:
+comments, no doubled separators in Windows paths thanks to single-quoted
+literal strings, and — as it turns out — parse errors that are already better
+than anything hand-rolled.
 
-- [ ] Move the configuration to JSONC
-- [ ] Several commands per event, at game start and at game stop
+- [x] Several commands per event, at game start and at game stop
+- [x] Validation errors that point at a line and column
 - [ ] Per-event execution mode: parallel or serial
-- [ ] Validation pass with errors that point at a line and column
 - [ ] A dedicated exit code when the configuration is invalid
-- [ ] Documented template explaining every field, doubled backslashes included
-- [ ] Migrate the shipped example and the `init` template
-- [ ] Decide the fate of existing TOML files (read both for a while, or convert once)
+- [ ] Template polish: document every field in the shipped example
 
-Done when: a JSONC config with several commands per event runs them in the
-configured order or concurrently; an invalid config makes the program refuse to
-start, say where the problem is, and exit with the dedicated code.
+Done when: a config with several commands per event runs them in the configured
+order or concurrently; an invalid config makes the program refuse to start, say
+exactly where the problem is, and exit with the dedicated code.
 
-### Comments without a dependency
+### What the parser already gives, verified 2026-09-09
 
-Comments can be supported with **no new crate**: blank `//` and `/* */` with
-spaces of the same length before handing the text to `serde_json`. Because the
-byte offsets are preserved, the line and column in a parse error still point at
-the real position in the user's file — which is the whole point of the
-validation step.
+A wrong value:
 
-Trailing commas cannot be handled that way and would need a real parser. Not
-worth it for a first pass; the template will simply not use them.
+```
+TOML parse error at line 6, column 14
+  |
+6 | stop_delay = 5s
+  |              ^^
+string values must be quoted, expected literal string
+```
+
+A misspelt key, thanks to `deny_unknown_fields`:
+
+```
+TOML parse error at line 2, column 1
+  |
+2 | log_levle = "info"
+  | ^^^^^^^^^
+unknown field `log_levle`, expected one of `stop_actions_on_exit`, `log_level`, `log_dir`, `log_keep_days`
+```
+
+Line, column, a caret under the offending token, and the list of valid names.
+Nothing to build here.
+
+What is still weak: semantic errors, checked after parsing, carry no position —
+`detection.poll_interval must be greater than zero` says what but not where. It
+could be improved with spanned deserialization, but a config this small does not
+obviously need it. Left as polish.
 
 ### Exit codes
 
-A small documented set, to be settled in this lot. Note that `clap` already
-returns `2` for command-line misuse, so that value is spoken for.
+Everything currently exits with `1`, whatever went wrong. `clap` already returns
+`2` for command-line misuse, so that value is spoken for.
 
 | Code | Meaning |
 | --- | --- |
@@ -128,22 +161,15 @@ returns `2` for command-line misuse, so that value is spoken for.
 | 5 | another instance is already running |
 | 1 | anything else |
 
-Notes:
+### Parallel or serial
 
-- Serial mode already exists in substance through the per-action `wait` flag;
-  this lot turns it into an explicit per-event mode rather than a per-action
-  detail.
-- Parallel mode needs a defined answer for failures: one command failing must not
-  prevent the others, and the log has to make clear which one failed.
-- **Comments are disposable.** Decided: anything that rewrites the file may lose
-  the user's own comments, and that is accepted. The configuration is a
-  convenience, not a document. No comment-preserving serializer is needed —
-  `serde_json` plus a regenerated header is enough.
-- One consequence worth honouring anyway: a rewrite should **re-emit the
-  documented header**, so the file does not decay into bare JSON after its first
-  save and stop explaining the doubled backslashes.
+Serial already exists in substance through the per-action `wait` flag; this lot
+turns it into an explicit per-event mode rather than a per-action detail.
 
----
+Parallel needs a defined answer for failures: one command failing must not
+prevent the others, and the log has to make clear which one failed. It also
+needs a defined answer for the stop actions racing the next game start, since
+`stop_delay` no longer serialises them.
 
 ## Lot 3 — Clean game naming · committed · `[~]`
 
@@ -270,8 +296,10 @@ Nothing ships anywhere yet: the repository is still local.
 The first lot with a real window. It edits the JSONC configuration through a UI,
 so hand-editing mistakes — doubled backslashes above all — stop being possible.
 
-Settled already: saving may lose the user's comments. It should still re-emit the
-documented header from Lot 2, so the file keeps explaining itself.
+Staying on TOML reopens something that was closed: `toml_edit` round-trips a file
+while preserving comments and layout, so a configuration window could save
+without destroying what the user wrote. JSON would have made that a rewrite from
+scratch. Losing comments is still acceptable, but it may no longer be necessary.
 
 To settle when it is taken: it supersedes the "edit configuration" menu entry
 from Lot 4, which should then open the window rather than the shell.
@@ -296,7 +324,7 @@ Recorded so they stop coming back:
 
 | Assumption | Status |
 | --- | --- |
-| FanControl switches profiles with `-c <profile>.json` | CLI form confirmed, but unreachable directly: the binary requires elevation. Now bridged through a scheduled task, which still needs one real run to confirm. |
+| FanControl switches profiles with `-c <profile>.json` | Settled. Unreachable directly because the binary requires elevation; bridged through a scheduled task, and the whole chain verified by reading the applied profile back from FanControl. |
 | The presence writer is activated for games only | Notepad was a clean negative control; not proof for every application |
 | Naming covers the titles actually played | Two of two named, once packaged titles were supported |
 | The writer never blinks mid-session | Holds over two sessions including alt-tabs; `watch` polls at 100 ms, so a sub-100 ms dip could hide |
@@ -304,6 +332,12 @@ Recorded so they stop coming back:
 ---
 
 ## Journal
+
+**2026-09-09** — The scheduled task bridge works. With both tasks registered, a simulated game session drove FanControl from Quiet to Game and back, confirmed by reading CurrentConfigFileName out of FanControl's own CACHE file rather than trusting the exit code. About 2.4 s from game start to the profile being applied, 6.6 s back, 5 s of which is the configured grace period. The technical core of Lot 1 is closed; what is left is a real game and a reboot.
+
+**2026-09-09** — Reversed the move to JSON: staying on TOML, for the INI-like shape. That keeps comments, keeps Windows paths readable in single-quoted literal strings, and removes the comment-blanking trick that JSONC would have needed. Checked what the parser already reports and found the line-and-column requirement already met, with a caret under the offending token and the list of valid field names for a misspelt key, so that item was marked done rather than built. Lot 2 shrinks to the execution mode, the exit codes and template polish. Side effect on Lot 8: toml_edit can round-trip a file without destroying comments, so a configuration window may not have to lose them after all.
+
+**2026-09-09** — Discovered that files written to %APPDATA% during these sessions land in an MSIX package container and are invisible to a normal shell, so the working config and the task definitions had to move into the repository, which is not redirected. The program behaviour verified so far still stands — the presence writer, the scheduled tasks and the elevation failure are all system-wide facts — but anything checked through a file under %APPDATA% was checked inside that container.
 
 **2026-09-09** — Lot 1 hit the finding it existed to find. FanControl cannot be started by the watcher at all: its manifest requires administrator, so CreateProcess fails with error 740 regardless of the command line. The README had been promising exactly that command since the first sketch. Fixed by going through a scheduled task registered with highest privileges, which the unelevated watcher triggers with schtasks /Run and which raises no UAC prompt. Running the watcher elevated was rejected: it would turn a user-writable config file into a local privilege escalation. Also landed the two remaining code items — file logging on by default, and log lines that say GAME DETECTED and GAME NO LONGER DETECTED, including an explicit sentence when Windows' known game list matched nothing.
 

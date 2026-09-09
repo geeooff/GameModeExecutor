@@ -5,3 +5,6 @@
 # Local runtime files
 /config.toml
 /logs/
+
+# Machine-specific files: real paths, real account, not for a public repo
+/.local/
