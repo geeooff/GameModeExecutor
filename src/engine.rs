@@ -108,15 +108,21 @@ impl Engine {
             return None;
         }
         let deadline = std::time::Instant::now() + grace;
-        while std::time::Instant::now() < deadline {
-            if stop.wait_timeout(self.config.detection.poll_interval.min(grace)) {
+        loop {
+            // Wait the shorter of a poll and what is left, so the grace period
+            // is honoured to the configured value rather than rounded up to a
+            // whole number of polls.
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return None;
+            }
+            if stop.wait_timeout(self.config.detection.poll_interval.min(remaining)) {
                 return None;
             }
             if let Some(pid) = presence_writer::running_pid(&self.writer_exe) {
                 return Some(pid);
             }
         }
-        None
     }
 
     /// Put a name on the game Windows just flagged, for the logs and the
