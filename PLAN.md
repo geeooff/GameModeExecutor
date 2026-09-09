@@ -44,8 +44,12 @@ says when a game is detected and when it is no longer.
 - [x] Real FanControl actions wired, through a scheduled task (see below)
 - [x] Register the two elevated tasks (needs one elevated prompt)
 - [x] Whole chain proven against the real FanControl
-- [ ] One real game session, log read and checked
-- [ ] Logon task installed and confirmed across a reboot
+- [x] Logon task installed, running the watcher hidden
+- [x] Real game sessions: both games detected, named and switching profiles
+- [x] Packaged title named after the fix, on both edges
+- [x] Confirm the logon task across a reboot
+- [ ] Measure what happens between closing a game and the writer being released
+- [ ] Log timestamps in local time rather than UTC
 
 Done when: a real game session drives the configured commands, start and stop,
 started automatically at logon, with a log file that shows what happened and no
@@ -183,6 +187,7 @@ to name it is not a failure of the program.
 - [x] `check <path>` to interrogate the list by hand
 - [x] Say so plainly when no known game matched, in the log, at normal level
       rather than only in debug
+- [x] Packaged titles matched wherever the Store installed them
 - [ ] Make the placeholders behave predictably when the name is unknown
 - [ ] Document that this is naming only, never detection
 
@@ -326,12 +331,18 @@ Recorded so they stop coming back:
 | --- | --- |
 | FanControl switches profiles with `-c <profile>.json` | Settled. Unreachable directly because the binary requires elevation; bridged through a scheduled task, and the whole chain verified by reading the applied profile back from FanControl. |
 | The presence writer is activated for games only | Notepad was a clean negative control; not proof for every application |
-| Naming covers the titles actually played | Two of two named, once packaged titles were supported |
+| Naming covers the titles actually played | Both named in the field: Farming Simulator 25 by executable path, Starfield by package family once the install-location assumption was removed. |
 | The writer never blinks mid-session | Holds over two sessions including alt-tabs; `watch` polls at 100 ms, so a sub-100 ms dip could hide |
 
 ---
 
 ## Journal
+
+**2026-09-10** — Reboot confirmed the autostart chain: FanControl 28 s after boot, the watcher 38 s, both from their own logon tasks and in the right order, with only the hardware-touching tasks elevated. Noticed while reading the log that timestamps and the daily file rotation are UTC, so an event at 00:46 local is filed under the previous day at 22:46. Harmless mechanically, but it works against a log meant to be read by one person correlating it with what they just did.
+
+**2026-09-10** — The naming fix holds in the field. Starfield is now named on both edges through its package family, with the image path reported as C:\Games\Starfield\Content\Starfield.exe. Worth recording that PowerShell disagrees: Process.Path reports the WindowsApps path for the same process, because .NET goes through GetModuleFileNameEx while QueryFullProcessImageNameW with PROCESS_NAME_WIN32 resolves the junction. The PowerShell reading had briefly seemed to contradict the diagnosis. Noted an unmeasured gap: closing a game felt slow to register, and the time between the user quitting and Windows releasing the presence writer has never been measured.
+
+**2026-09-10** — First real game sessions. The profile switching worked for both, and Farming Simulator 25 was named correctly through the executable path. Starfield was not named, which exposed a real bug: the packaged branch only asked a process for its package family name when its image path sat under WindowsApps. The Store lets a game be installed anywhere — here C:\Games\Starfield — and the WindowsApps entry is then a junction that Windows resolves, so the running process reports the real path and never looked packaged. The filter was an optimisation that quietly encoded an assumption about install locations. Removed: both questions are now asked on a single process handle, which is also cheaper than the two opens it replaced. Added check --pid, which shows what the naming code actually reads, since a process that cannot be opened was previously indistinguishable from one Windows does not list.
 
 **2026-09-09** — The scheduled task bridge works. With both tasks registered, a simulated game session drove FanControl from Quiet to Game and back, confirmed by reading CurrentConfigFileName out of FanControl's own CACHE file rather than trusting the exit code. About 2.4 s from game start to the profile being applied, 6.6 s back, 5 s of which is the configured grace period. The technical core of Lot 1 is closed; what is left is a real game and a reboot.
 

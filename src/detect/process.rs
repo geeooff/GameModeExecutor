@@ -69,9 +69,45 @@ fn open_for_query(pid: u32) -> Option<OwnedHandle> {
         .map(OwnedHandle)
 }
 
+/// What a process can tell us about itself. Both fields are best effort: a
+/// process we may not open yields neither.
+#[derive(Debug, Clone, Default)]
+pub struct Identity {
+    /// Full image path, with junctions already resolved by Windows.
+    pub path: Option<String>,
+    /// Package family name for a packaged (Store or Game Pass) process, e.g.
+    /// `BethesdaSoftworks.ProjectGold_3275kfvn8vcwc`. `None` for ordinary Win32
+    /// processes, which is the common case.
+    pub package_family: Option<String>,
+}
+
+/// Ask a process both questions on one handle.
+///
+/// Doing this in one pass matters: a packaged game may run from anywhere the
+/// user chose to install it, so the package family name has to be asked for
+/// unconditionally rather than only for processes that look packaged from
+/// their path.
+pub fn identity(pid: u32) -> Identity {
+    let Some(handle) = open_for_query(pid) else {
+        return Identity::default();
+    };
+    Identity {
+        path: image_path(&handle),
+        package_family: family_name(&handle),
+    }
+}
+
 /// Best-effort full image path.
 pub fn full_path(pid: u32) -> Option<String> {
-    let handle = open_for_query(pid)?;
+    identity(pid).path
+}
+
+/// Best-effort package family name.
+pub fn package_family_name(pid: u32) -> Option<String> {
+    identity(pid).package_family
+}
+
+fn image_path(handle: &OwnedHandle) -> Option<String> {
     let mut buffer = [0u16; 32768];
     let mut size = buffer.len() as u32;
     unsafe {
@@ -86,11 +122,7 @@ pub fn full_path(pid: u32) -> Option<String> {
     Some(String::from_utf16_lossy(&buffer[..size as usize]))
 }
 
-/// Package family name of a packaged (Store or Game Pass) process, e.g.
-/// `BethesdaSoftworks.ProjectGold_3275kfvn8vcwc`. `None` for ordinary Win32
-/// processes, which is the common case.
-pub fn package_family_name(pid: u32) -> Option<String> {
-    let handle = open_for_query(pid)?;
+fn family_name(handle: &OwnedHandle) -> Option<String> {
     let mut length = 0u32;
     // First call sizes the buffer; it fails with ERROR_INSUFFICIENT_BUFFER for
     // a packaged process and with APPMODEL_ERROR_NO_PACKAGE otherwise.

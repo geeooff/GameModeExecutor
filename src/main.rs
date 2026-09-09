@@ -49,8 +49,13 @@ enum Commands {
     },
     /// Ask whether Windows knows a given executable as a game.
     Check {
-        /// Full path of an executable.
-        path: String,
+        /// Full path of an executable. Omit when using --pid.
+        path: Option<String>,
+        /// Inspect a running process instead, by process id. Shows what the
+        /// naming code actually reads, which is the only way to tell a missing
+        /// entry from an unreadable process.
+        #[arg(long, conflicts_with = "path")]
+        pid: Option<u32>,
     },
     /// Check that the configuration file is valid.
     Validate,
@@ -85,7 +90,7 @@ fn main() -> Result<()> {
             return task::install(&path, &delay);
         }
         Some(Commands::UninstallTask) => return task::uninstall(),
-        Some(Commands::Check { path }) => return cmd_check(&path),
+        Some(Commands::Check { path, pid }) => return cmd_check(path.as_deref(), pid),
         _ => {}
     }
 
@@ -215,11 +220,58 @@ fn cmd_status(_config: &Config) -> Result<()> {
     Ok(())
 }
 
-fn cmd_check(path: &str) -> Result<()> {
+fn cmd_check(path: Option<&str>, pid: Option<u32>) -> Result<()> {
     let known = detect::known_games::KnownGames::load()?;
+
+    if let Some(pid) = pid {
+        return check_pid(&known, pid);
+    }
+
+    let path = path.expect("clap requires a path when --pid is absent");
     match known.match_exe(path) {
         Some(kind) => println!("{path}\n  -> game, matched by {}", kind.label()),
         None => println!("{path}\n  -> not a known game"),
+    }
+    Ok(())
+}
+
+/// Show what the naming code actually reads for one process. Without this,
+/// a process that cannot be opened is indistinguishable from one Windows
+/// simply does not list as a game.
+fn check_pid(known: &KnownGames, pid: u32) -> Result<()> {
+    let snapshot = Snapshot::take()?;
+    let name = snapshot
+        .by_pid(pid)
+        .map(|process| process.name.clone())
+        .unwrap_or_else(|| "(not running)".to_owned());
+    println!("pid {pid}: {name}");
+
+    let identity = detect::process::identity(pid);
+    let image = identity.path;
+    match &image {
+        Some(image) => println!("  image path     : {image}"),
+        None => println!("  image path     : UNREADABLE (cannot open the process)"),
+    }
+
+    let family = identity.package_family;
+    match &family {
+        Some(family) => println!("  package family : {family}"),
+        None => println!("  package family : none (not packaged, or unreadable)"),
+    }
+
+    let verdict = image
+        .as_deref()
+        .and_then(|image| known.match_exe(image))
+        .map(|kind| kind.label().to_owned())
+        .or_else(|| {
+            family
+                .as_deref()
+                .filter(|family| known.match_package(family))
+                .map(|_| "package family".to_owned())
+        });
+    match verdict {
+        Some(kind) => println!("  -> game, matched by {kind}"),
+        None => println!("  -> not a known game"),
     }
     Ok(())
 }

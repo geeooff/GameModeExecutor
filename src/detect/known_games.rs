@@ -27,7 +27,7 @@ use anyhow::Result;
 use crate::registry::Key;
 
 use super::GameSignal;
-use super::process::{Snapshot, full_path, package_family_name};
+use super::process::{Snapshot, identity};
 
 const CHILDREN_KEY: &str = r"System\GameConfigStore\Children";
 
@@ -150,19 +150,27 @@ impl KnownGames {
     /// this succeeding.
     pub fn identify(&self, snapshot: &Snapshot) -> Option<GameSignal> {
         for process in &snapshot.processes {
-            let Some(path) = full_path(process.pid) else {
-                continue;
-            };
-            if let Some(kind) = self.match_exe(&path) {
-                return Some(signal(process.pid, &process.name, path, kind));
-            }
-            // Only packaged processes have a family name, and they all live
-            // under WindowsApps, so this avoids opening every process twice.
-            if is_packaged_path(&path)
-                && let Some(family) = package_family_name(process.pid)
-                && self.match_package(&family)
+            let identity = identity(process.pid);
+
+            if let Some(path) = &identity.path
+                && let Some(kind) = self.match_exe(path)
             {
-                return Some(signal(process.pid, &process.name, path, MatchKind::Package));
+                return Some(signal(process.pid, &process.name, identity.path, kind));
+            }
+            // The package family name is asked for unconditionally. An earlier
+            // version only asked when the image path sat under WindowsApps,
+            // which silently missed every Store game installed elsewhere: the
+            // WindowsApps entry is a junction, and Windows resolves it, so a
+            // Game Pass title installed in, say, C:\Games reports that path.
+            if let Some(family) = &identity.package_family
+                && self.match_package(family)
+            {
+                return Some(signal(
+                    process.pid,
+                    &process.name,
+                    identity.path,
+                    MatchKind::Package,
+                ));
             }
         }
         None
@@ -179,12 +187,12 @@ impl KnownGames {
     }
 }
 
-fn signal(pid: u32, name: &str, path: String, kind: MatchKind) -> GameSignal {
+fn signal(pid: u32, name: &str, path: Option<String>, kind: MatchKind) -> GameSignal {
     GameSignal {
         source: kind.label(),
         process_name: Some(name.to_owned()),
         process_id: Some(pid),
-        process_path: Some(path),
+        process_path: path,
     }
 }
 
@@ -214,12 +222,6 @@ fn package_family_from_utm(value: &str) -> Option<String> {
         .map(|(family, _)| family)
         .unwrap_or(rest);
     (!family.is_empty()).then(|| normalize(family))
-}
-
-/// Packaged applications always run from the WindowsApps store root.
-fn is_packaged_path(path: &str) -> bool {
-    let lowered = path.to_ascii_lowercase();
-    lowered.contains("\\windowsapps\\")
 }
 
 /// Paths compare case-insensitively on Windows, and trailing separators are
@@ -308,11 +310,17 @@ mod tests {
     }
 
     #[test]
-    fn windowsapps_paths_are_recognised() {
-        assert!(is_packaged_path(
-            r"C:\Program Files\WindowsApps\BethesdaSoftworks.ProjectGold_1.16.244.0_x64__3275kfvn8vcwc\Starfield.exe"
-        ));
-        assert!(!is_packaged_path(r"D:\Games\Starfield\Starfield.exe"));
+    fn a_packaged_title_matches_wherever_it_is_installed() {
+        // The Store lets a game be installed anywhere; the WindowsApps entry is
+        // then a junction and Windows reports the resolved path. Matching a
+        // packaged title must therefore not look at the path at all.
+        let list = list();
+        assert!(list.match_package("BethesdaSoftworks.ProjectGold_3275kfvn8vcwc"));
+        assert_eq!(
+            list.match_exe(r"C:\Games\Starfield\Content\Starfield.exe"),
+            None,
+            "the known game list has no executable path for a packaged title"
+        );
     }
 
     #[test]
