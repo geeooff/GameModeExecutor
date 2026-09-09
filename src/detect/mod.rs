@@ -4,6 +4,7 @@
 //! detector was removed in favour of relying on Windows' own game detection.
 
 pub mod fullscreen;
+pub mod known_games;
 pub mod process;
 
 use anyhow::Result;

@@ -9,6 +9,7 @@ mod config;
 mod detect;
 mod engine;
 mod logging;
+mod registry;
 mod task;
 mod win;
 
@@ -55,6 +56,11 @@ enum Commands {
         #[arg(value_enum)]
         event: TriggerEvent,
     },
+    /// Ask whether Windows knows a given executable as a game.
+    Check {
+        /// Full path of an executable.
+        path: String,
+    },
     /// Check that the configuration file is valid.
     Validate,
     /// Write a starter configuration file.
@@ -88,6 +94,7 @@ fn main() -> Result<()> {
             return task::install(&path, &delay);
         }
         Some(Commands::UninstallTask) => return task::uninstall(),
+        Some(Commands::Check { path }) => return cmd_check(&path),
         _ => {}
     }
 
@@ -155,29 +162,83 @@ fn cmd_run(config: Config, level: &str, hidden: bool) -> Result<()> {
 fn cmd_status(config: &Config) -> Result<()> {
     let detectors = detect::Detectors::new(&config.detection);
     let snapshot = detectors.snapshot()?;
-    println!("Processes visible: {}", snapshot.processes.len());
 
+    match detect::known_games::KnownGames::load() {
+        Ok(known) => {
+            let counts = known.counts();
+            println!(r"Known Game List (HKCU\System\GameConfigStore\Children)");
+            println!("  entries seen         : {}", counts.entries);
+            println!("  executable paths     : {}", counts.exe_paths);
+            println!(
+                "  parent directories   : {} paths, {} names",
+                counts.parent_paths, counts.parent_names
+            );
+            if !known.skipped_generic.is_empty() {
+                println!(
+                    "  names too generic    : {}",
+                    known.skipped_generic.join(", ")
+                );
+            }
+            print_foreground(&snapshot, Some(&known));
+        }
+        Err(error) => {
+            println!("Known Game List: unavailable ({error:#})");
+            print_foreground(&snapshot, None);
+        }
+    }
+
+    println!("Processes visible    : {}", snapshot.processes.len());
     match detect::fullscreen::notification_state() {
         Ok(state) => println!(
-            "Shell notification state: {} ({state})",
+            "Shell notification   : {} ({state})",
             detect::fullscreen::state_label(state)
         ),
-        Err(error) => println!("Shell notification state: unavailable ({error})"),
+        Err(error) => println!("Shell notification   : unavailable ({error})"),
     }
-
-    if let Some(pid) = detect::fullscreen::foreground_pid() {
-        let name = snapshot
-            .by_pid(pid)
-            .map(|process| process.name.clone())
-            .unwrap_or_else(|| "?".to_owned());
-        println!("Foreground process: {name} (pid {pid})");
-    }
-
     match detectors.detect(&snapshot) {
-        Some(signal) => println!("Detection: GAME -> {}", signal.describe()),
-        None => println!("Detection: no game"),
+        Some(signal) => println!("Current detector     : GAME -> {}", signal.describe()),
+        None => println!("Current detector     : no game"),
     }
     Ok(())
+}
+
+fn cmd_check(path: &str) -> Result<()> {
+    let known = detect::known_games::KnownGames::load()?;
+    match known.match_exe(path) {
+        Some(kind) => println!("{path}\n  -> game, matched by {}", kind.label()),
+        None => println!("{path}\n  -> not a known game"),
+    }
+    Ok(())
+}
+
+/// The foreground process is what Game Mode itself applies to, so it is the
+/// interesting one to check against the Known Game List.
+fn print_foreground(
+    snapshot: &detect::process::Snapshot,
+    known: Option<&detect::known_games::KnownGames>,
+) {
+    let Some(pid) = detect::fullscreen::foreground_pid() else {
+        println!("Foreground           : none");
+        return;
+    };
+    let name = snapshot
+        .by_pid(pid)
+        .map(|process| process.name.clone())
+        .unwrap_or_else(|| "?".to_owned());
+    let path = detect::process::full_path(pid);
+    println!("Foreground           : {name} (pid {pid})");
+    match &path {
+        Some(path) => println!("  path               : {path}"),
+        None => println!("  path               : (not readable)"),
+    }
+    let verdict = match (known, &path) {
+        (Some(known), Some(path)) => match known.match_exe(path) {
+            Some(kind) => format!("yes, via {}", kind.label()),
+            None => "no".to_owned(),
+        },
+        _ => "unknown".to_owned(),
+    };
+    println!("  Windows calls it a game: {verdict}");
 }
 
 fn cmd_init(explicit: Option<&std::path::Path>, force: bool) -> Result<()> {
