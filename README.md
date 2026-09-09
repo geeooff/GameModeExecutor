@@ -192,6 +192,10 @@ Register-ScheduledTask -TaskName 'GameModeExecutor - FanControl Game' -Action $a
 
 Registering it with no trigger means it only ever runs when something asks it to.
 
+Ready-made task definitions live in [`tasks/`](tasks/), with a note on why each
+setting is what it is — several of them are not obvious and get this wrong in
+ways that fail silently.
+
 **Why not simply run the watcher elevated?** Because the configuration file lives
 in `%APPDATA%` and names arbitrary programs to execute. An elevated watcher would
 turn that file into a way to run code as administrator with no prompt — a local
