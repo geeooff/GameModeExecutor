@@ -2,43 +2,44 @@
 #
 # Copy this file next to gamemode-executor.exe as `config.toml`,
 # or run `gamemode-executor init` to drop it in %APPDATA%\GameModeExecutor.
+#
+# There is no list of games to maintain here. Detection is Windows' own:
+# the program watches the Game Bar presence writer, which Windows starts for
+# a game and releases when it is gone.
 
 [general]
-# How often the detectors are polled.
-poll_interval = "2s"
-# A game must be detected continuously for this long before on_game_start runs.
-start_delay = "5s"
-# No game must be detected for this long before on_game_stop runs.
-stop_delay = "15s"
-# Run on_game_stop when the watcher itself exits while a game is active.
+# Run on_game_stop when the watcher itself exits while a game is running.
 stop_actions_on_exit = true
 # error | warn | info | debug | trace  (the RUST_LOG env var overrides this)
 log_level = "info"
 # Rolling daily log files (absolute path). When left unset, a hidden instance
-# logs to %APPDATA%\GameModeExecutor\logs and a console instance only
-# logs to the console.
+# logs to %APPDATA%\GameModeExecutor\logs and a console instance only logs to
+# the console.
 #log_dir = 'C:\Users\me\AppData\Roaming\GameModeExecutor\logs'
 log_keep_days = 7
 
 [detection]
-[detection.fullscreen]
-# Uses the Windows shell notification state: catches any full-screen app.
-# Interim detector while the Game Bar presence writer route is being validated.
-enabled = true
-# d3d_exclusive : exclusive full-screen Direct3D (QUNS_RUNNING_D3D_FULL_SCREEN)
-# busy          : a full-screen / borderless app is running (QUNS_BUSY)
-# store_app     : a Store app is full-screen (QUNS_APP)
-# presentation  : presentation mode is on (QUNS_PRESENTATION_MODE)
-states = ["d3d_exclusive", "busy"]
+# How often to look for the presence writer while no game is running. This is
+# the only polling the program does: once a game starts, it parks on the
+# writer's process handle and does nothing until Windows releases it.
+poll_interval = "2s"
+# After the writer exits, how long to wait for it to come back before running
+# the stop actions. Guards against a game that briefly makes Windows
+# re-activate it. Set to "0s" to react immediately.
+stop_delay = "5s"
 
 # ---------------------------------------------------------------------------
 # Actions. Each entry starts one executable.
 #
 # Placeholders usable in program, args, working_dir and env values:
 #   {event}         game_start | game_stop
-#   {process_name}  e.g. cs2.exe
+#   {process_name}  e.g. FarmingSimulator2025Game.exe
 #   {process_id}    e.g. 12345
 #   {process_path}  full path, when readable
+#
+# The placeholders are filled from Windows' known game list. They can come out
+# empty for a title Windows tracks but does not describe: detection still
+# works, only the naming is missing.
 # ---------------------------------------------------------------------------
 
 [[on_game_start]]

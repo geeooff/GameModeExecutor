@@ -3,12 +3,14 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
 use game_mode_executor::config::{self, Config};
+use game_mode_executor::detect::known_games::KnownGames;
+use game_mode_executor::detect::presence_writer;
+use game_mode_executor::detect::process::Snapshot;
 use game_mode_executor::{detect, engine, logging, task, win};
 
 /// Default config file shipped with the program, also used by `init`.
@@ -104,7 +106,7 @@ fn main() -> Result<()> {
         }
         Some(Commands::Trigger { event }) => {
             let _guards = logging::init(&level, None, 0, true)?;
-            let engine = engine::Engine::new(config);
+            let engine = engine::Engine::new(config)?;
             match event {
                 TriggerEvent::Start => engine.fire_start_manual(),
                 TriggerEvent::Stop => engine.fire_stop(None),
@@ -136,23 +138,44 @@ fn cmd_run(config: Config, level: &str, hidden: bool) -> Result<()> {
     )?;
     let _instance = win::SingleInstance::acquire("GameModeExecutor")?;
 
-    let stop = Arc::new(AtomicBool::new(false));
+    let stop = Arc::new(win::StopSignal::new()?);
     let handler_stop = Arc::clone(&stop);
-    ctrlc::set_handler(move || handler_stop.store(true, Ordering::Relaxed))
+    ctrlc::set_handler(move || handler_stop.signal())
         .context("cannot install the Ctrl-C handler")?;
 
     tracing::info!("GameModeExecutor {} starting", env!("CARGO_PKG_VERSION"));
-    let mut engine = engine::Engine::new(config);
-    engine.run(stop)?;
+    let mut engine = engine::Engine::new(config)?;
+    engine.run(&stop)?;
     tracing::info!("stopped");
     Ok(())
 }
 
-fn cmd_status(config: &Config) -> Result<()> {
-    let detectors = detect::Detectors::new(&config.detection);
-    let snapshot = detectors.snapshot()?;
+fn cmd_status(_config: &Config) -> Result<()> {
+    let snapshot = Snapshot::take()?;
 
-    match detect::known_games::KnownGames::load() {
+    // The detector itself.
+    match presence_writer::registered_exe() {
+        Ok(exe) => {
+            println!("Presence writer      : {}", exe.display());
+            println!(
+                "  Microsoft default  : {}",
+                if presence_writer::is_microsoft_default(&exe) {
+                    "yes"
+                } else {
+                    "NO - something else owns the registration"
+                }
+            );
+            match presence_writer::running_pid(&exe) {
+                Some(pid) => println!("  running            : YES (pid {pid}) - a game is running"),
+                None => println!("  running            : no - no game running"),
+            }
+        }
+        Err(error) => println!("Presence writer      : unavailable ({error:#})"),
+    }
+
+    // Naming only, never detection.
+    let known = KnownGames::load();
+    match &known {
         Ok(known) => {
             let counts = known.counts();
             println!(r"Known Game List (HKCU\System\GameConfigStore\Children)");
@@ -162,31 +185,31 @@ fn cmd_status(config: &Config) -> Result<()> {
                 "  parent directories   : {} paths, {} names",
                 counts.parent_paths, counts.parent_names
             );
+            println!("  packaged titles      : {}", counts.packages);
             if !known.skipped_generic.is_empty() {
                 println!(
                     "  names too generic    : {}",
                     known.skipped_generic.join(", ")
                 );
             }
-            print_foreground(&snapshot, Some(&known));
+            match known.identify(&snapshot) {
+                Some(signal) => println!("  identified running   : {}", signal.describe()),
+                None => println!("  identified running   : none"),
+            }
         }
-        Err(error) => {
-            println!("Known Game List: unavailable ({error:#})");
-            print_foreground(&snapshot, None);
-        }
+        Err(error) => println!("Known Game List      : unavailable ({error:#})"),
     }
+
+    print_foreground(&snapshot, known.as_ref().ok());
 
     println!("Processes visible    : {}", snapshot.processes.len());
     match detect::fullscreen::notification_state() {
         Ok(state) => println!(
-            "Shell notification   : {} ({state})",
-            detect::fullscreen::state_label(state)
+            "Shell notification   : {} ({}) [diagnostic only]",
+            detect::fullscreen::state_label(state),
+            state.0
         ),
         Err(error) => println!("Shell notification   : unavailable ({error})"),
-    }
-    match detectors.detect(&snapshot) {
-        Some(signal) => println!("Current detector     : GAME -> {}", signal.describe()),
-        None => println!("Current detector     : no game"),
     }
     Ok(())
 }

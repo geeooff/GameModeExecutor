@@ -67,6 +67,42 @@ pub fn running_pid(exe: &Path) -> Option<u32> {
     None
 }
 
+/// Why a wait on the writer process ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitOutcome {
+    /// The writer exited: Windows released it, so the game session is over.
+    WriterExited,
+    /// The program was asked to shut down.
+    Stopped,
+}
+
+/// Block until the writer exits or the program is stopped.
+///
+/// This is the whole point of the design: while a game runs there is no
+/// polling at all, just a thread parked in the kernel on two handles.
+pub fn wait_for_exit(pid: u32, stop: &crate::win::StopSignal) -> Result<WaitOutcome> {
+    use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+    use windows::Win32::System::Threading::{
+        INFINITE, OpenProcess, PROCESS_SYNCHRONIZE, WaitForMultipleObjects,
+    };
+
+    let Ok(process) = (unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid) }) else {
+        // Already gone, or not ours to wait on: treat as exited rather than
+        // spinning on a handle we cannot get.
+        return Ok(WaitOutcome::WriterExited);
+    };
+
+    let handles = [process, stop.handle()];
+    let result = unsafe { WaitForMultipleObjects(&handles, false, INFINITE) };
+    unsafe { _ = CloseHandle(process) };
+
+    Ok(if result == WAIT_OBJECT_0 {
+        WaitOutcome::WriterExited
+    } else {
+        WaitOutcome::Stopped
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

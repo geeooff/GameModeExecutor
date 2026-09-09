@@ -25,15 +25,6 @@ pub struct Config {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct General {
-    /// How often the detectors are polled.
-    #[serde(with = "humantime_serde")]
-    pub poll_interval: Duration,
-    /// A game must be detected for this long before `on_game_start` runs.
-    #[serde(with = "humantime_serde")]
-    pub start_delay: Duration,
-    /// No game must be detected for this long before `on_game_stop` runs.
-    #[serde(with = "humantime_serde")]
-    pub stop_delay: Duration,
     /// Run `on_game_stop` when the program itself exits while a game is active.
     pub stop_actions_on_exit: bool,
     /// `error`, `warn`, `info`, `debug` or `trace`.
@@ -47,9 +38,6 @@ pub struct General {
 impl Default for General {
     fn default() -> Self {
         Self {
-            poll_interval: Duration::from_secs(2),
-            start_delay: Duration::from_secs(5),
-            stop_delay: Duration::from_secs(15),
             stop_actions_on_exit: true,
             log_level: "info".to_owned(),
             log_dir: None,
@@ -58,42 +46,29 @@ impl Default for General {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct Detection {
-    pub fullscreen: Fullscreen,
-}
-
-/// Detection based on the shell notification state, which reports whether a
-/// full-screen application owns the desktop.
+/// Detection is Windows' job; these only tune how we watch it.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct Fullscreen {
-    pub enabled: bool,
-    /// Which shell states count as "a game is running".
-    pub states: Vec<FullscreenState>,
+pub struct Detection {
+    /// How often to look for the presence writer while no game is running.
+    /// This is the only polling the program does: once a game starts, the
+    /// watcher parks on the writer's process handle until Windows releases it.
+    #[serde(with = "humantime_serde")]
+    pub poll_interval: Duration,
+    /// After the writer exits, how long to wait for it to come back before
+    /// declaring the session over. Guards against a game that briefly makes
+    /// Windows re-activate it. Zero disables the grace period.
+    #[serde(with = "humantime_serde")]
+    pub stop_delay: Duration,
 }
 
-impl Default for Fullscreen {
+impl Default for Detection {
     fn default() -> Self {
         Self {
-            enabled: false,
-            states: vec![FullscreenState::D3dExclusive, FullscreenState::Busy],
+            poll_interval: Duration::from_secs(2),
+            stop_delay: Duration::from_secs(5),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FullscreenState {
-    /// `QUNS_RUNNING_D3D_FULL_SCREEN`: exclusive full-screen Direct3D.
-    D3dExclusive,
-    /// `QUNS_BUSY`: a full-screen (typically borderless) application is running.
-    Busy,
-    /// `QUNS_APP`: a Store app is running full-screen.
-    StoreApp,
-    /// `QUNS_PRESENTATION_MODE`: presentation settings are applied.
-    Presentation,
 }
 
 /// One executable to run when an event fires.
@@ -151,11 +126,11 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.general.poll_interval.is_zero() {
-            anyhow::bail!("general.poll_interval must be greater than zero");
+        if self.detection.poll_interval.is_zero() {
+            anyhow::bail!("detection.poll_interval must be greater than zero");
         }
-        if !self.detection.fullscreen.enabled {
-            anyhow::bail!("no detector is enabled: set `detection.fullscreen.enabled`");
+        if self.on_game_start.is_empty() && self.on_game_stop.is_empty() {
+            anyhow::bail!("no actions configured: add [[on_game_start]] or [[on_game_stop]]");
         }
         for action in self.on_game_start.iter().chain(&self.on_game_stop) {
             if action.program.as_os_str().is_empty() {
@@ -210,9 +185,10 @@ mod tests {
     #[test]
     fn empty_config_falls_back_to_defaults() {
         let config: Config = toml::from_str("").unwrap();
-        assert_eq!(config.general.poll_interval, Duration::from_secs(2));
+        assert_eq!(config.detection.poll_interval, Duration::from_secs(2));
+        assert_eq!(config.detection.stop_delay, Duration::from_secs(5));
         assert_eq!(config.general.log_level, "info");
-        // No detector is enabled by default, which validation rejects.
+        // A config with no actions at all does nothing, so it is rejected.
         assert!(config.validate().is_err());
     }
 

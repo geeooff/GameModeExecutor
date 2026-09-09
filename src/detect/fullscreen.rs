@@ -1,27 +1,24 @@
-//! Detector based on the shell notification state, which tells whether a
-//! full-screen application currently owns the desktop.
+//! Shell state, kept for diagnostics only.
+//!
+//! `SHQueryUserNotificationState` reports whether a full-screen application
+//! owns the desktop. It was the interim detector before the presence writer
+//! signal existed; it is a heuristic (a full-screen video player looks like a
+//! game to it) so it no longer drives anything. `status` still prints it,
+//! because it is useful context when a detection looks wrong.
 
 use anyhow::{Result, bail};
-use windows_sys::Win32::UI::Shell::{
+use windows::Win32::UI::Shell::{
     QUERY_USER_NOTIFICATION_STATE, QUNS_APP, QUNS_BUSY, QUNS_PRESENTATION_MODE,
     QUNS_RUNNING_D3D_FULL_SCREEN, SHQueryUserNotificationState,
 };
-use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
-use crate::config::FullscreenState;
-
-use super::GameSignal;
-use super::process::{Snapshot, full_path};
-
-/// Wrapper over `SHQueryUserNotificationState`. Only meaningful in an
-/// interactive session: it fails when called from session 0.
+/// Only meaningful in an interactive session: it fails from session 0.
 pub fn notification_state() -> Result<QUERY_USER_NOTIFICATION_STATE> {
-    let mut state: QUERY_USER_NOTIFICATION_STATE = 0;
-    let hresult = unsafe { SHQueryUserNotificationState(&mut state) };
-    if hresult < 0 {
-        bail!("SHQueryUserNotificationState failed (hresult 0x{hresult:08X})");
+    match unsafe { SHQueryUserNotificationState() } {
+        Ok(state) => Ok(state),
+        Err(error) => bail!("SHQueryUserNotificationState failed: {error}"),
     }
-    Ok(state)
 }
 
 pub fn state_label(state: QUERY_USER_NOTIFICATION_STATE) -> &'static str {
@@ -34,54 +31,13 @@ pub fn state_label(state: QUERY_USER_NOTIFICATION_STATE) -> &'static str {
     }
 }
 
-fn matches(state: QUERY_USER_NOTIFICATION_STATE, wanted: &[FullscreenState]) -> bool {
-    wanted.iter().any(|state_config| {
-        let expected = match state_config {
-            FullscreenState::D3dExclusive => QUNS_RUNNING_D3D_FULL_SCREEN,
-            FullscreenState::Busy => QUNS_BUSY,
-            FullscreenState::StoreApp => QUNS_APP,
-            FullscreenState::Presentation => QUNS_PRESENTATION_MODE,
-        };
-        state == expected
-    })
-}
-
-/// Process owning the foreground window, used to name the detected game.
+/// Process owning the foreground window.
 pub fn foreground_pid() -> Option<u32> {
     let window = unsafe { GetForegroundWindow() };
-    if window.is_null() {
+    if window.is_invalid() {
         return None;
     }
     let mut pid = 0u32;
-    unsafe { GetWindowThreadProcessId(window, &mut pid) };
+    unsafe { GetWindowThreadProcessId(window, Some(&mut pid)) };
     (pid != 0).then_some(pid)
-}
-
-#[derive(Debug)]
-pub struct FullscreenDetector {
-    states: Vec<FullscreenState>,
-}
-
-impl FullscreenDetector {
-    pub fn new(states: &[FullscreenState]) -> Self {
-        Self {
-            states: states.to_vec(),
-        }
-    }
-
-    pub fn detect(&self, snapshot: &Snapshot) -> Result<Option<GameSignal>> {
-        let state = notification_state()?;
-        if !matches(state, &self.states) {
-            return Ok(None);
-        }
-        let pid = foreground_pid();
-        Ok(Some(GameSignal {
-            source: "fullscreen",
-            process_name: pid
-                .and_then(|pid| snapshot.by_pid(pid))
-                .map(|process| process.name.clone()),
-            process_id: pid,
-            process_path: pid.and_then(full_path),
-        }))
-    }
 }

@@ -2,21 +2,32 @@
 //!
 //! Windows keeps a Known Game List and expands it, per user, under
 //! `HKCU\System\GameConfigStore\Children`. Each subkey describes one title.
-//! The two fields that identify an executable are:
+//! Three fields identify one:
 //!
 //! - `MatchedExeFullPath`: the full path of the game executable.
 //! - `ExeParentDirectory`: the directory the executable lives in. Inconsistent
 //!   in practice: sometimes a full path, sometimes a bare folder name.
+//! - `UtmItemId`: for packaged Store and Game Pass titles, which have no
+//!   executable path at all. Shaped `P~<PackageFamilyName>!<AppId>`.
+//!
+//! `Type` tells the two families apart: 1 for Win32 titles, 2 for packaged
+//! ones. Starfield is a `Type = 2` entry carrying only
+//! `UtmItemId = P~BethesdaSoftworks.ProjectGold_3275kfvn8vcwc!Game`, so path
+//! matching alone would never name it.
 //!
 //! Reading this is inert and needs no privileges, but the layout is
 //! undocumented, so `status` prints what was parsed rather than asking anyone
-//! to take it on faith.
+//! to take it on faith. Detection does not depend on any of it: this only puts
+//! a name on the game the presence writer already found.
 
 use std::collections::BTreeSet;
 
 use anyhow::Result;
 
 use crate::registry::Key;
+
+use super::GameSignal;
+use super::process::{Snapshot, full_path, package_family_name};
 
 const CHILDREN_KEY: &str = r"System\GameConfigStore\Children";
 
@@ -37,6 +48,8 @@ pub enum MatchKind {
     ParentPath,
     /// The containing directory's name is listed as `ExeParentDirectory`.
     ParentName,
+    /// A packaged title whose package family name is listed in `UtmItemId`.
+    Package,
 }
 
 impl MatchKind {
@@ -45,6 +58,7 @@ impl MatchKind {
             Self::ExePath => "exe path",
             Self::ParentPath => "parent path",
             Self::ParentName => "parent name",
+            Self::Package => "package family",
         }
     }
 }
@@ -58,6 +72,8 @@ pub struct KnownGames {
     parent_paths: BTreeSet<String>,
     /// Lowercased bare directory names, generic ones already filtered out.
     parent_names: BTreeSet<String>,
+    /// Lowercased package family names of packaged titles.
+    packages: BTreeSet<String>,
     /// Entries seen, including those carrying no usable identity.
     pub entries: usize,
     /// Bare names dropped for being too generic, kept for `status`.
@@ -80,6 +96,11 @@ impl KnownGames {
             }
             if let Some(parent) = child.string_value("ExeParentDirectory") {
                 list.add_parent(&parent);
+            }
+            if let Some(utm) = child.string_value("UtmItemId")
+                && let Some(family) = package_family_from_utm(&utm)
+            {
+                list.packages.insert(family);
             }
         }
         Ok(list)
@@ -119,13 +140,51 @@ impl KnownGames {
         None
     }
 
+    /// Is this package family name one of the known titles?
+    pub fn match_package(&self, family: &str) -> bool {
+        self.packages.contains(&normalize(family))
+    }
+
+    /// Find the running process Windows would call a game, so its name can
+    /// feed the logs and the action placeholders. Detection never depends on
+    /// this succeeding.
+    pub fn identify(&self, snapshot: &Snapshot) -> Option<GameSignal> {
+        for process in &snapshot.processes {
+            let Some(path) = full_path(process.pid) else {
+                continue;
+            };
+            if let Some(kind) = self.match_exe(&path) {
+                return Some(signal(process.pid, &process.name, path, kind));
+            }
+            // Only packaged processes have a family name, and they all live
+            // under WindowsApps, so this avoids opening every process twice.
+            if is_packaged_path(&path)
+                && let Some(family) = package_family_name(process.pid)
+                && self.match_package(&family)
+            {
+                return Some(signal(process.pid, &process.name, path, MatchKind::Package));
+            }
+        }
+        None
+    }
+
     pub fn counts(&self) -> Counts {
         Counts {
             entries: self.entries,
             exe_paths: self.exe_paths.len(),
             parent_paths: self.parent_paths.len(),
             parent_names: self.parent_names.len(),
+            packages: self.packages.len(),
         }
+    }
+}
+
+fn signal(pid: u32, name: &str, path: String, kind: MatchKind) -> GameSignal {
+    GameSignal {
+        source: kind.label(),
+        process_name: Some(name.to_owned()),
+        process_id: Some(pid),
+        process_path: Some(path),
     }
 }
 
@@ -135,6 +194,32 @@ pub struct Counts {
     pub exe_paths: usize,
     pub parent_paths: usize,
     pub parent_names: usize,
+    pub packages: usize,
+}
+
+/// `UtmItemId` is shaped `P~<PackageFamilyName>!<AppId>`. A few entries hold a
+/// bare GUID instead, which identifies nothing usable.
+fn package_family_from_utm(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.starts_with('{') {
+        return None;
+    }
+    // Drop a short kind prefix such as `P~`.
+    let rest = match value.split_once('~') {
+        Some((prefix, rest)) if prefix.len() <= 2 => rest,
+        _ => value,
+    };
+    let family = rest
+        .split_once('!')
+        .map(|(family, _)| family)
+        .unwrap_or(rest);
+    (!family.is_empty()).then(|| normalize(family))
+}
+
+/// Packaged applications always run from the WindowsApps store root.
+fn is_packaged_path(path: &str) -> bool {
+    let lowered = path.to_ascii_lowercase();
+    lowered.contains("\\windowsapps\\")
 }
 
 /// Paths compare case-insensitively on Windows, and trailing separators are
@@ -157,6 +242,8 @@ mod tests {
         list.add_parent(r"C:\Games\Steam\steamapps\common\Wreckfest 2");
         list.add_parent("Assetto Corsa");
         list.add_parent("x64");
+        list.packages
+            .insert("bethesdasoftworks.projectgold_3275kfvn8vcwc".to_owned());
         list
     }
 
@@ -197,8 +284,44 @@ mod tests {
     }
 
     #[test]
+    fn package_family_names_are_extracted_from_utm_item_ids() {
+        assert_eq!(
+            package_family_from_utm("P~BethesdaSoftworks.ProjectGold_3275kfvn8vcwc!Game"),
+            Some("bethesdasoftworks.projectgold_3275kfvn8vcwc".to_owned())
+        );
+        assert_eq!(
+            package_family_from_utm("P~Microsoft.SeaofThieves_8wekyb3d8bbwe!AppAthenaShipping"),
+            Some("microsoft.seaofthieves_8wekyb3d8bbwe".to_owned())
+        );
+        // Bare GUID entries identify nothing.
+        assert_eq!(
+            package_family_from_utm("{A364829E-02FE-4F2B-82F9-F5DD09458120}"),
+            None
+        );
+    }
+
+    #[test]
+    fn packaged_titles_match_by_family_name() {
+        let list = list();
+        assert!(list.match_package("BethesdaSoftworks.ProjectGold_3275kfvn8vcwc"));
+        assert!(!list.match_package("Microsoft.WindowsCalculator_8wekyb3d8bbwe"));
+    }
+
+    #[test]
+    fn windowsapps_paths_are_recognised() {
+        assert!(is_packaged_path(
+            r"C:\Program Files\WindowsApps\BethesdaSoftworks.ProjectGold_1.16.244.0_x64__3275kfvn8vcwc\Starfield.exe"
+        ));
+        assert!(!is_packaged_path(r"D:\Games\Starfield\Starfield.exe"));
+    }
+
+    #[test]
     fn the_real_list_loads() {
         let list = KnownGames::load().expect("GameConfigStore is readable");
         assert!(list.entries > 0, "expected at least one known game entry");
+        assert!(
+            list.counts().packages > 0,
+            "expected at least one packaged title"
+        );
     }
 }
