@@ -85,42 +85,64 @@ HKLM\SOFTWARE\Microsoft\WindowsRuntime\Server\
      Windows.Gaming.GameBar.Internal.PresenceWriterServer\ExePath
 ```
 
-No polling, no allow-list, no heuristics, and nothing runs while you are not
-gaming: the server is activated on demand.
+**Writing a custom one is not possible.** The registration key is owned by
+`NT SERVICE\TrustedInstaller`; `BUILTIN\Administrators` and `NT AUTHORITY\SYSTEM`
+both hold `ReadKey` only, so an elevated write fails with `0x80070005` and
+running as SYSTEM would too. There is no per-user WinRT server registration to
+fall back on (`HKCU\Software\Microsoft\WindowsRuntime`,
+`HKCU\Software\Classes\ActivatableClasses` and
+`HKCU\Software\Classes\WindowsRuntime` are all absent). Registering one would
+mean taking ownership of a protected system key, which Windows servicing can
+silently reset.
 
-**The cost, stated by Microsoft:** a custom implementation replaces the shipped
-`GameBarPresenceWriter.exe`, so **Xbox Live presence is no longer set** while it
-is installed. Registration also writes to HKLM, so it needs admin once.
+### Watching the writer instead of replacing it
+
+The shipped `GameBarPresenceWriter.exe` is an on-demand WinRT server, so its
+*process lifetime* is observable without touching anything. Measured with
+`presence-probe activate` on Windows 11 25H2 (26200.9445), unelevated:
+
+| Step | Result |
+| --- | --- |
+| `RoActivateInstance` on the class | succeeded in 43 ms, no privileges needed |
+| `GameBarPresenceWriter.exe` appears | 7 ms after activation |
+| Process exits after the last reference is released | under 20 ms, no linger |
+
+So the process tracks the COM reference exactly, on both edges. And it is
+selective: launching and focusing Notepad (`presence-probe watch`) spawned
+nothing at all.
+
+That makes "is `GameBarPresenceWriter.exe` running?" a candidate signal that
+costs nothing, needs no privileges, modifies nothing, and leaves Xbox Live
+presence alone — while still being Windows' own verdict on what a game is.
+
+**Still unproven, and only a real game can settle it:** whether Windows holds
+its reference for the whole session (the process stays up, and its lifetime is
+the signal) or activates, calls `UpdatePresence`, and releases immediately (the
+process only blinks at each focus change, which is far less useful).
 
 ## The probe
 
-Before committing to that design, `presence-probe` measures it: it implements the
-presence writer and does nothing but log what Windows sends.
+`presence-probe` is the measuring instrument. Nothing in `watch` or `activate`
+modifies the system or needs admin.
 
 ```bash
 cargo build --release
 ```
 
 ```bash
-target\release\presence-probe.exe status
+target\release\presence-probe.exe status      # show the registration
+target\release\presence-probe.exe activate    # time the on-demand activation
+target\release\presence-probe.exe watch 900   # log the writer coming and going
 ```
 
-Then, from an **elevated** prompt:
+To settle the open question: start `watch`, play a game, alt-tab out and back a
+few times, quit the game, then read `presence-probe.log` next to the executable.
 
-```bash
-target\release\presence-probe.exe install
-```
+`watch` polls every 100 ms so a brief launch is not missed. That is deliberate
+for a measurement tool and is not how the shipping detector would work.
 
-Play a game for a minute, alt-tab out and back, quit it, then read
-`presence-probe.log` next to the executable. Undo with:
-
-```bash
-target\release\presence-probe.exe uninstall
-```
-
-`install` saves the original `ExePath` into `ExePath.GameModeExecutorBackup` first,
-and `uninstall` puts it back, so Xbox Live presence is restored. Install the
-release build, not a `target\debug` path that a `cargo clean` would delete.
+`install` / `uninstall` remain in the probe for the record; `install` fails with
+access denied on current Windows, for the reason given above.
 
 ## Why a console app and not a Windows service
 

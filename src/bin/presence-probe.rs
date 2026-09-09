@@ -18,6 +18,8 @@
 //!   presence-probe status      show the current registration and log path
 //!   presence-probe install     point the registration at this exe (needs admin)
 //!   presence-probe uninstall   restore the original registration (needs admin)
+//!   presence-probe watch [s]   log when Windows' own presence writer runs
+//!   presence-probe activate    activate the class ourselves and time it
 //!   presence-probe serve       run as the COM server (what Windows invokes)
 
 // The interface below mirrors the WinRT declaration, PascalCase members and all.
@@ -310,6 +312,201 @@ impl Drop for RegKey {
     }
 }
 
+// ------------------------------------------------- observing the default --
+
+/// The executable Windows ships as the presence writer.
+const DEFAULT_WRITER: &str = "gamebarpresencewriter.exe";
+
+/// PID of a running process with this file name, if any.
+fn find_process(file_name: &str) -> Option<u32> {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
+    };
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }.ok()?;
+    let mut entry = PROCESSENTRY32W {
+        dwSize: size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+    let mut found = None;
+    let mut ok = unsafe { Process32FirstW(snapshot, &mut entry) };
+    while ok.is_ok() {
+        let end = entry
+            .szExeFile
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(entry.szExeFile.len());
+        let name = String::from_utf16_lossy(&entry.szExeFile[..end]);
+        if name.eq_ignore_ascii_case(file_name) {
+            found = Some(entry.th32ProcessID);
+            break;
+        }
+        ok = unsafe { Process32NextW(snapshot, &mut entry) };
+    }
+    unsafe { _ = windows::Win32::Foundation::CloseHandle(snapshot) };
+    found
+}
+
+/// File name of the process owning the foreground window, to correlate a
+/// presence writer launch with whatever the user was doing.
+fn foreground_process_name() -> String {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+
+    let window = unsafe { GetForegroundWindow() };
+    if window.is_invalid() {
+        return "(none)".to_owned();
+    }
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(window, Some(&mut pid)) };
+    if pid == 0 {
+        return "(none)".to_owned();
+    }
+    let Ok(snapshot) = (unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }) else {
+        return "(unknown)".to_owned();
+    };
+    let mut entry = PROCESSENTRY32W {
+        dwSize: size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+    let mut name = "(unknown)".to_owned();
+    let mut ok = unsafe { Process32FirstW(snapshot, &mut entry) };
+    while ok.is_ok() {
+        if entry.th32ProcessID == pid {
+            let end = entry
+                .szExeFile
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(entry.szExeFile.len());
+            name = String::from_utf16_lossy(&entry.szExeFile[..end]);
+            break;
+        }
+        ok = unsafe { Process32NextW(snapshot, &mut entry) };
+    }
+    unsafe { _ = windows::Win32::Foundation::CloseHandle(snapshot) };
+    format!("{name} (pid {pid})")
+}
+
+/// Purely passive: log when Windows' own presence writer comes and goes.
+/// Nothing is modified, nothing needs admin. Run it, then play a game.
+fn cmd_watch(seconds: u64) -> windows::core::Result<()> {
+    let mut last = find_process(DEFAULT_WRITER);
+    log(&format!(
+        "watch: {DEFAULT_WRITER} is {} at start, watching for {seconds}s",
+        match last {
+            Some(pid) => format!("RUNNING (pid {pid})"),
+            None => "not running".to_owned(),
+        }
+    ));
+
+    // 100ms so a short-lived launch is not missed. This is a measurement
+    // tool, not the shipping detector: it costs a process snapshot per tick.
+    let started = std::time::Instant::now();
+    while started.elapsed().as_secs() < seconds {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let current = find_process(DEFAULT_WRITER);
+        match (last, current) {
+            (None, Some(pid)) => log(&format!(
+                "watch: STARTED pid {pid} at +{:.1}s, foreground = {}",
+                started.elapsed().as_secs_f32(),
+                foreground_process_name()
+            )),
+            (Some(old), None) => log(&format!(
+                "watch: EXITED pid {old} at +{:.1}s, foreground = {}",
+                started.elapsed().as_secs_f32(),
+                foreground_process_name()
+            )),
+            (Some(old), Some(new)) if old != new => log(&format!(
+                "watch: RESTARTED pid {old} -> {new} at +{:.1}s",
+                started.elapsed().as_secs_f32()
+            )),
+            _ => {}
+        }
+        last = current;
+    }
+    log("watch: done");
+    Ok(())
+}
+
+/// Activate the runtime class ourselves, to find out whether Windows starts
+/// the writer on demand and how long it lingers once nobody holds it.
+fn cmd_activate(hold: u64, linger: u64) -> windows::core::Result<()> {
+    use windows::Win32::System::WinRT::RoActivateInstance;
+
+    unsafe { RoInitialize(RO_INIT_MULTITHREADED)? };
+
+    let before = find_process(DEFAULT_WRITER);
+    log(&format!(
+        "activate: {DEFAULT_WRITER} before = {}",
+        match before {
+            Some(pid) => format!("running (pid {pid})"),
+            None => "not running".to_owned(),
+        }
+    ));
+
+    let started = std::time::Instant::now();
+    let instance = unsafe { RoActivateInstance(&HSTRING::from(CLASS_ID)) };
+    match &instance {
+        Ok(object) => {
+            log(&format!(
+                "activate: RoActivateInstance succeeded in {:.0}ms",
+                started.elapsed().as_secs_f32() * 1000.0
+            ));
+            match object.GetRuntimeClassName() {
+                Ok(name) => log(&format!("activate: runtime class name = {name}")),
+                Err(error) => log(&format!("activate: GetRuntimeClassName failed: {error}")),
+            }
+            match object.cast::<IPresenceWriter>() {
+                Ok(_) => log("activate: object exposes IPresenceWriter"),
+                Err(error) => log(&format!("activate: not an IPresenceWriter: {error}")),
+            }
+        }
+        Err(error) => log(&format!("activate: RoActivateInstance failed: {error}")),
+    }
+
+    // Did a process appear, and how quickly?
+    let appeared = std::time::Instant::now();
+    let mut spawned = None;
+    while appeared.elapsed().as_secs() < 5 {
+        if let Some(pid) = find_process(DEFAULT_WRITER)
+            && before != Some(pid)
+        {
+            spawned = Some(pid);
+            log(&format!(
+                "activate: {DEFAULT_WRITER} appeared as pid {pid} after {:.0}ms",
+                appeared.elapsed().as_secs_f32() * 1000.0
+            ));
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    if spawned.is_none() {
+        log("activate: no new presence writer process appeared within 5s");
+    }
+
+    log(&format!("activate: holding the object for {hold}s"));
+    std::thread::sleep(std::time::Duration::from_secs(hold));
+    drop(instance);
+    log("activate: released; measuring how long the process lingers");
+
+    let released = std::time::Instant::now();
+    while released.elapsed().as_secs() < linger {
+        if find_process(DEFAULT_WRITER).is_none() {
+            log(&format!(
+                "activate: process exited {:.1}s after release",
+                released.elapsed().as_secs_f32()
+            ));
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    log(&format!("activate: still running {linger}s after release"));
+    Ok(())
+}
+
 // --------------------------------------------------------------- commands --
 
 fn cmd_status() -> windows::core::Result<()> {
@@ -407,12 +604,22 @@ fn main() -> windows::core::Result<()> {
     // Windows launches the server with no arguments, so that is the default.
     match std::env::args().nth(1).as_deref() {
         Some("status") => cmd_status(),
+        Some("watch") => {
+            let seconds = std::env::args()
+                .nth(2)
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(600);
+            cmd_watch(seconds)
+        }
+        Some("activate") => cmd_activate(5, 60),
         Some("install") => cmd_install(),
         Some("uninstall") => cmd_uninstall(),
         None | Some("serve") => cmd_serve(),
         Some(other) => {
             eprintln!("unknown command `{other}`");
-            eprintln!("usage: presence-probe [status|install|uninstall|serve]");
+            eprintln!(
+                "usage: presence-probe [status|watch [seconds]|activate|install|uninstall|serve]"
+            );
             std::process::exit(2);
         }
     }
