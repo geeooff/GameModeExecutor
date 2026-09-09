@@ -38,6 +38,7 @@ jobs:
           name: gamemode-executor
           path: |
             target/release/gamemode-executor.exe
+            target/release/presence-probe.exe
             config.example.toml
             README.md
             LICENSE

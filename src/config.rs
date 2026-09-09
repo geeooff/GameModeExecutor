@@ -58,36 +58,10 @@ impl Default for General {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MatchMode {
-    /// A game is running as soon as one enabled detector says so.
-    Any,
-    /// A game is running only when every enabled detector says so.
-    All,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Detection {
-    pub match_mode: MatchMode,
-    /// Executable names to watch, with or without the `.exe` suffix.
-    /// The detector is disabled when the list is empty.
-    pub processes: Vec<String>,
-    /// Executable names that never count as a game, whatever the detector.
-    pub ignore_processes: Vec<String>,
     pub fullscreen: Fullscreen,
-}
-
-impl Default for Detection {
-    fn default() -> Self {
-        Self {
-            match_mode: MatchMode::Any,
-            processes: Vec::new(),
-            ignore_processes: Vec::new(),
-            fullscreen: Fullscreen::default(),
-        }
-    }
 }
 
 /// Detection based on the shell notification state, which reports whether a
@@ -180,10 +154,8 @@ impl Config {
         if self.general.poll_interval.is_zero() {
             anyhow::bail!("general.poll_interval must be greater than zero");
         }
-        if self.detection.processes.is_empty() && !self.detection.fullscreen.enabled {
-            anyhow::bail!(
-                "no detector is enabled: set `detection.processes` and/or `detection.fullscreen.enabled`"
-            );
+        if !self.detection.fullscreen.enabled {
+            anyhow::bail!("no detector is enabled: set `detection.fullscreen.enabled`");
         }
         for action in self.on_game_start.iter().chain(&self.on_game_stop) {
             if action.program.as_os_str().is_empty() {
@@ -246,8 +218,13 @@ mod tests {
 
     #[test]
     fn unknown_keys_are_rejected() {
-        assert!(toml::from_str::<Config>("[general]
+        assert!(
+            toml::from_str::<Config>(
+                "[general]
 poll_intervall = \"2s\"
-").is_err());
+"
+            )
+            .is_err()
+        );
     }
 }

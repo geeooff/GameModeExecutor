@@ -1,8 +1,7 @@
 # GameModeExecutor
 
-A small Windows watcher, written in Rust, that detects when a game is running and
-runs the executables you configure — one set when the game starts, another when it
-stops.
+A small Windows watcher, written in Rust, that runs the executables you configure
+when a game starts and when it stops.
 
 It knows nothing about any particular tool. It just launches programs with
 arguments, which is enough to drive
@@ -14,61 +13,134 @@ game detected  ->  [[on_game_start]]  ->  FanControl.exe -c gaming.json
 game gone      ->  [[on_game_stop]]   ->  FanControl.exe -c silent.json
 ```
 
-## Why a console app and not a Windows service
+**Status: work in progress.** The action runner and the configuration are done.
+The detection side is being rebuilt on top of Windows' own game detection rather
+than a hand-maintained list of executables — see below.
 
-The watcher runs as a normal user-session program, started at logon by a scheduled
-task. That is a deliberate choice:
+## How Windows detects a game, and what is usable
 
-- **Session 0 isolation.** A service runs in session 0. It cannot see the
-  interactive desktop, so `SHQueryUserNotificationState` (the full-screen detector)
-  fails there, and starting a GUI program such as FanControl in the user's session
-  would need `CreateProcessAsUser` gymnastics.
-- **The target apps are per-user.** FanControl runs in your session, with your
-  profile and your settings. The thing that drives it belongs there too.
-- **No admin rights.** Installing a service requires elevation; a per-user logon
-  task does not.
-- **Easier to debug.** Run it in a console, watch the log, hit Ctrl-C.
+The goal is to reuse whatever Windows already knows, instead of maintaining an
+allow-list of game executables. Here is what was found, and what it is worth.
 
-The detection and action code lives in plain modules, so wrapping it in a service
-later (with the `windows-service` crate) would not require rewriting anything —
-but it is not the right default.
+### Game Mode
 
-## Install
+An OS behaviour applied to the foreground game: higher CPU scheduling priority,
+no driver installs or restart prompts mid-session. Toggled by
+`HKCU\Software\Microsoft\GameBar\AutoGameModeEnabled`.
 
-Requires the Rust toolchain (stable, edition 2024).
+**Not usable as a signal.** The Game Mode APIs (`expandedresources.h`,
+`HasExpandedResources`) are
+[deprecated since Windows 10 1809](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/gamemode/game-mode-portal),
+and were only ever callable from inside the game process. There is no supported
+way to ask the system whether Game Mode is currently active.
+
+### Xbox Mode (the Xbox full screen experience)
+
+Internally "Gaming Posture" (`Windows.Internal.GamingExperiences.Posture.*`,
+`HKCU\Software\Microsoft\Windows\CurrentVersion\GamingConfiguration\GamingHomeApp`).
+It replaces the shell with the Xbox app as the home experience, defers Explorer
+subsystems and startup apps, and is
+[rolling out to desktops](https://blogs.windows.com/windowsexperience/2025/11/24/xbox-full-screen-gaming-experience-now-available-for-windows-11-handhelds-and-in-preview-for-pcs/).
+
+**Not usable as a signal.** It is a shell mode, not a detector, and its APIs are
+`Windows.Internal.*` — private.
+
+### GameList (`Windows.Gaming.Preview.GamesEnumeration`)
+
+The WinRT API that enumerates the games Windows knows about.
+
+**Not usable.** It requires the restricted `gameList` capability, and the
+documentation is explicit: *"Unless your developer account is specially
+provisioned by Microsoft, calls to these APIs will fail at runtime."*
+
+### What the three features actually share
+
+The Known Game List, synced by Windows into the registry
+(`HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\GameDVR\KGLRevision`) and
+expanded under `HKCU\System\GameConfigStore\Children`. Each entry describes one
+title, some with `MatchedExeFullPath`, some with `ExeParentDirectory`, some with
+an Xbox `TitleId`, and many with a `LastAccessed` timestamp that Windows updates
+when the game runs. That timestamp is mirrored globally in
+`HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\GameDVR\LastGameActivity`.
+
+This is readable, inert, needs no privileges — but it is undocumented, and it
+describes what Windows knows rather than telling us when something happens.
+
+### Game Bar Presence Writer — the one supported push mechanism
+
+[Documented by Microsoft](https://learn.microsoft.com/en-us/windows/win32/devnotes/gamebar-presencewriter):
+an out-of-proc WinRT server that Windows calls when *it* decides a game's
+presence changed.
+
+```
+IPresenceWriter::UpdatePresence(hWnd, event, appId, appIdType)
+    event = GotFocus | LostFocus | AppClose
+    appId = AUMID, or Xbox Live TitleId
+```
+
+Registered by pointing this value at your executable:
+
+```
+HKLM\SOFTWARE\Microsoft\WindowsRuntime\Server\
+     Windows.Gaming.GameBar.Internal.PresenceWriterServer\ExePath
+```
+
+No polling, no allow-list, no heuristics, and nothing runs while you are not
+gaming: the server is activated on demand.
+
+**The cost, stated by Microsoft:** a custom implementation replaces the shipped
+`GameBarPresenceWriter.exe`, so **Xbox Live presence is no longer set** while it
+is installed. Registration also writes to HKLM, so it needs admin once.
+
+## The probe
+
+Before committing to that design, `presence-probe` measures it: it implements the
+presence writer and does nothing but log what Windows sends.
 
 ```bash
 cargo build --release
 ```
 
-The result is a single self-contained `target/release/gamemode-executor.exe`.
-Copy it wherever you like.
+```bash
+target\release\presence-probe.exe status
+```
 
-## Quick start
+Then, from an **elevated** prompt:
 
 ```bash
-# write a starter config in %APPDATA%\GameModeExecutor\config.toml
-gamemode-executor init
-
-# edit it, then check it
-gamemode-executor validate
-
-# see what the detectors currently think
-gamemode-executor status
-
-# watch, in the foreground, with logs on the console
-gamemode-executor run
-
-# start it hidden at every logon (no admin needed)
-gamemode-executor install-task
+target\release\presence-probe.exe install
 ```
+
+Play a game for a minute, alt-tab out and back, quit it, then read
+`presence-probe.log` next to the executable. Undo with:
+
+```bash
+target\release\presence-probe.exe uninstall
+```
+
+`install` saves the original `ExePath` into `ExePath.GameModeExecutorBackup` first,
+and `uninstall` puts it back, so Xbox Live presence is restored. Install the
+release build, not a `target\debug` path that a `cargo clean` would delete.
+
+## Why a console app and not a Windows service
+
+The watcher runs as a normal user-session program, started at logon by a
+scheduled task. That is a deliberate choice:
+
+- **Session 0 isolation.** A service cannot see the interactive desktop, and
+  starting a GUI program such as FanControl in the user's session would need
+  `CreateProcessAsUser` gymnastics.
+- **The target apps are per-user.** FanControl runs in your session, with your
+  profile and your settings. The thing that drives it belongs there too.
+- **No admin rights** for the watcher itself; a per-user logon task is enough.
+- **Easier to debug.** Run it in a console, watch the log, hit Ctrl-C.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
 | `run [--hidden]` | Watch and react. `--hidden` hides the console and logs to a file. This is the default command. |
-| `status` | Print the current process count, shell notification state, foreground process and detection verdict, then exit. |
+| `status` | Print what the detector currently sees, then exit. |
 | `trigger start\|stop` | Run one set of actions immediately, ignoring detection. Handy to test your commands. |
 | `validate` | Parse and check the configuration. |
 | `init [--force]` | Write a starter configuration file. |
@@ -81,16 +153,13 @@ Without `--config`, the file is looked up next to the executable first
 (`config.toml`, portable install), then in
 `%APPDATA%\GameModeExecutor\config.toml`.
 
-## Detection
+## Detection today
 
-Two detectors, combined with `detection.match_mode` (`any` or `all`):
-
-- **`processes`** — a list of executable names, with or without the `.exe` suffix,
-  matched case-insensitively against the running process list. Precise, and the one
-  you want for a known set of games.
-- **`fullscreen`** — the Windows shell notification state, which reports whether a
-  full-screen application owns the desktop. Catches games you did not list, but
-  also fires on full-screen video players, hence `ignore_processes`.
+The interim detector is the Windows shell notification state
+(`SHQueryUserNotificationState`), which reports whether a full-screen application
+owns the desktop. It is a public API and needs no privileges, but it is a
+heuristic: it also fires on full-screen video players. It will be replaced or
+demoted once the probe results are in.
 
 `start_delay` and `stop_delay` debounce both directions, so a loading screen or a
 quick alt-tab does not flip your fan profile back and forth.
@@ -112,8 +181,6 @@ See [`config.example.toml`](config.example.toml) for the full annotated referenc
 
 ## Notes and limits
 
-- The full-screen detector needs an interactive session; it reports an error under
-  session 0. Another reason not to run this as a service.
 - `stop_actions_on_exit` runs the stop actions when the watcher shuts down
   gracefully (Ctrl-C). A task killed outright by the scheduler at logoff does not
   get that chance.

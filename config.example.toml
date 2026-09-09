@@ -21,29 +21,10 @@ log_level = "info"
 log_keep_days = 7
 
 [detection]
-# "any": a game is running as soon as one detector matches.
-# "all": every enabled detector must match.
-match_mode = "any"
-
-# Executable names to watch, with or without the .exe suffix.
-# Leave empty to disable this detector.
-processes = [
-    "cs2.exe",
-    "eldenring.exe",
-    "Cyberpunk2077.exe",
-]
-
-# Never treat these as a game, whatever the detector says.
-ignore_processes = [
-    "vlc.exe",
-    "mpc-hc64.exe",
-]
-
 [detection.fullscreen]
-# Uses the Windows shell notification state: catches any full-screen app,
-# including games that are not in the list above. Handy, but it also fires on
-# full-screen video players - hence ignore_processes.
-enabled = false
+# Uses the Windows shell notification state: catches any full-screen app.
+# Interim detector while the Game Bar presence writer route is being validated.
+enabled = true
 # d3d_exclusive : exclusive full-screen Direct3D (QUNS_RUNNING_D3D_FULL_SCREEN)
 # busy          : a full-screen / borderless app is running (QUNS_BUSY)
 # store_app     : a Store app is full-screen (QUNS_APP)

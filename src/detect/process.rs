@@ -9,8 +9,6 @@ use windows_sys::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 
-use super::GameSignal;
-
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
     pub pid: u32,
@@ -79,53 +77,9 @@ fn from_wide_nul(buffer: &[u16]) -> String {
     String::from_utf16_lossy(&buffer[..end])
 }
 
-/// Normalise a configured or observed executable name for comparison:
-/// lowercase, without the `.exe` suffix.
-pub fn normalize_name(name: &str) -> String {
-    let lowered = name.trim().to_ascii_lowercase();
-    lowered
-        .strip_suffix(".exe")
-        .map(str::to_owned)
-        .unwrap_or(lowered)
-}
-
-/// Matches when one of the configured executable names is running.
-#[derive(Debug)]
-pub struct ProcessDetector {
-    names: Vec<String>,
-}
-
-impl ProcessDetector {
-    pub fn new(names: &[String]) -> Self {
-        Self {
-            names: names.iter().map(|name| normalize_name(name)).collect(),
-        }
-    }
-
-    pub fn detect(&self, snapshot: &Snapshot) -> Option<GameSignal> {
-        let process = snapshot
-            .processes
-            .iter()
-            .find(|process| self.names.contains(&normalize_name(&process.name)))?;
-        Some(GameSignal {
-            source: "process",
-            process_name: Some(process.name.clone()),
-            process_id: Some(process.pid),
-            process_path: full_path(process.pid),
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn names_are_normalized() {
-        assert_eq!(normalize_name("CS2.EXE"), "cs2");
-        assert_eq!(normalize_name("  EldenRing  "), "eldenring");
-        assert_eq!(normalize_name("cs2"), "cs2");
-    }
 
     #[test]
     fn snapshot_contains_the_test_process() {
@@ -134,11 +88,8 @@ mod tests {
     }
 
     #[test]
-    fn detector_matches_the_test_process() {
-        let snapshot = Snapshot::take().unwrap();
-        let own = snapshot.by_pid(std::process::id()).unwrap().name.clone();
-        let detector = ProcessDetector::new(&[own.clone()]);
-        let signal = detector.detect(&snapshot).expect("own process detected");
-        assert_eq!(signal.process_name.as_deref(), Some(own.as_str()));
+    fn full_path_of_the_test_process_is_readable() {
+        let path = full_path(std::process::id()).expect("own image path");
+        assert!(path.to_ascii_lowercase().ends_with(".exe"), "got {path}");
     }
 }
