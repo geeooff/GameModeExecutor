@@ -5,14 +5,14 @@
 //! Game Bar Presence Writer.
 //! <https://learn.microsoft.com/en-us/windows/win32/devnotes/gamebar-presencewriter>
 //!
-//! A custom implementation is an out-of-proc WinRT server registered under
-//! `HKLM\SOFTWARE\Microsoft\WindowsRuntime\Server\Windows.Gaming.GameBar.Internal.PresenceWriterServer\ExePath`.
-//! Registering one REPLACES the shipped `GameBarPresenceWriter.exe`, which is
-//! what sets Xbox Live presence, so this probe backs the original value up and
-//! can restore it.
+//! Registering a custom one turned out to be impossible: the registration key
+//! is owned by `NT SERVICE\TrustedInstaller`, and neither Administrators nor
+//! SYSTEM can write it. `install` is kept for the record and fails with access
+//! denied; `serve` is what it would have run.
 //!
-//! The probe answers what the documentation does not: which events Windows
-//! actually sends, with which identifiers, and when.
+//! What works is observing the registered writer instead. Which executable
+//! that is comes from the registry, never from a hard-coded name, so a machine
+//! where something else owns the registration is probed correctly.
 //!
 //! Usage:
 //!   presence-probe status      show the current registration and log path
@@ -42,8 +42,10 @@ use windows::Win32::System::WinRT::{
 };
 use windows::core::{HRESULT, HSTRING, IInspectable, Interface, OutRef, PCWSTR, Ref, implement};
 
+use game_mode_executor::detect::presence_writer;
+
 /// The runtime class Windows activates when game presence changes.
-const CLASS_ID: &str = "Windows.Gaming.GameBar.PresenceServer.Internal.PresenceWriter";
+const CLASS_ID: &str = presence_writer::CLASS_ID;
 
 /// Where the server executable is looked up.
 const SERVER_KEY: &str = r"SOFTWARE\Microsoft\WindowsRuntime\Server\Windows.Gaming.GameBar.Internal.PresenceWriterServer";
@@ -314,88 +316,51 @@ impl Drop for RegKey {
 
 // ------------------------------------------------- observing the default --
 
-/// The executable Windows ships as the presence writer.
-const DEFAULT_WRITER: &str = "gamebarpresencewriter.exe";
-
-/// PID of a running process with this file name, if any.
-fn find_process(file_name: &str) -> Option<u32> {
-    use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
-        TH32CS_SNAPPROCESS,
-    };
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }.ok()?;
-    let mut entry = PROCESSENTRY32W {
-        dwSize: size_of::<PROCESSENTRY32W>() as u32,
-        ..Default::default()
-    };
-    let mut found = None;
-    let mut ok = unsafe { Process32FirstW(snapshot, &mut entry) };
-    while ok.is_ok() {
-        let end = entry
-            .szExeFile
-            .iter()
-            .position(|&c| c == 0)
-            .unwrap_or(entry.szExeFile.len());
-        let name = String::from_utf16_lossy(&entry.szExeFile[..end]);
-        if name.eq_ignore_ascii_case(file_name) {
-            found = Some(entry.th32ProcessID);
-            break;
+/// Which executable to probe, and whether it is still the shipped one. Read
+/// from the registry rather than hard-coded, so a machine where something else
+/// has taken over the registration is probed correctly.
+fn writer_exe() -> std::path::PathBuf {
+    match presence_writer::registered_exe() {
+        Ok(exe) => {
+            if !presence_writer::is_microsoft_default(&exe) {
+                log(&format!(
+                    "note: the registration is NOT the Microsoft default; probing {} instead",
+                    exe.display()
+                ));
+            }
+            exe
         }
-        ok = unsafe { Process32NextW(snapshot, &mut entry) };
+        Err(error) => {
+            log(&format!(
+                "warning: cannot read the registration ({error:#}); falling back to {}",
+                presence_writer::MICROSOFT_DEFAULT
+            ));
+            std::path::PathBuf::from(presence_writer::MICROSOFT_DEFAULT)
+        }
     }
-    unsafe { _ = windows::Win32::Foundation::CloseHandle(snapshot) };
-    found
 }
 
-/// File name of the process owning the foreground window, to correlate a
-/// presence writer launch with whatever the user was doing.
+/// The process owning the foreground window, to correlate a presence writer
+/// launch with whatever the user was doing.
 fn foreground_process_name() -> String {
-    use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
-        TH32CS_SNAPPROCESS,
-    };
-    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
-
-    let window = unsafe { GetForegroundWindow() };
-    if window.is_invalid() {
+    let Some(pid) = game_mode_executor::detect::fullscreen::foreground_pid() else {
         return "(none)".to_owned();
-    }
-    let mut pid = 0u32;
-    unsafe { GetWindowThreadProcessId(window, Some(&mut pid)) };
-    if pid == 0 {
-        return "(none)".to_owned();
-    }
-    let Ok(snapshot) = (unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }) else {
-        return "(unknown)".to_owned();
     };
-    let mut entry = PROCESSENTRY32W {
-        dwSize: size_of::<PROCESSENTRY32W>() as u32,
-        ..Default::default()
-    };
-    let mut name = "(unknown)".to_owned();
-    let mut ok = unsafe { Process32FirstW(snapshot, &mut entry) };
-    while ok.is_ok() {
-        if entry.th32ProcessID == pid {
-            let end = entry
-                .szExeFile
-                .iter()
-                .position(|&c| c == 0)
-                .unwrap_or(entry.szExeFile.len());
-            name = String::from_utf16_lossy(&entry.szExeFile[..end]);
-            break;
-        }
-        ok = unsafe { Process32NextW(snapshot, &mut entry) };
-    }
-    unsafe { _ = windows::Win32::Foundation::CloseHandle(snapshot) };
+    let name = game_mode_executor::detect::process::Snapshot::take()
+        .ok()
+        .and_then(|snapshot| snapshot.by_pid(pid).map(|process| process.name.clone()))
+        .unwrap_or_else(|| "(unknown)".to_owned());
     format!("{name} (pid {pid})")
 }
 
-/// Purely passive: log when Windows' own presence writer comes and goes.
+/// Purely passive: log when the registered presence writer comes and goes.
 /// Nothing is modified, nothing needs admin. Run it, then play a game.
 fn cmd_watch(seconds: u64) -> windows::core::Result<()> {
-    let mut last = find_process(DEFAULT_WRITER);
+    let exe = writer_exe();
+    let mut last = presence_writer::running_pid(&exe);
     log(&format!(
-        "watch: {DEFAULT_WRITER} is {} at start, watching for {seconds}s",
+        "watch: {} is {} at start, watching for {seconds}s",
+        exe.display(),
         match last {
             Some(pid) => format!("RUNNING (pid {pid})"),
             None => "not running".to_owned(),
@@ -407,7 +372,7 @@ fn cmd_watch(seconds: u64) -> windows::core::Result<()> {
     let started = std::time::Instant::now();
     while started.elapsed().as_secs() < seconds {
         std::thread::sleep(std::time::Duration::from_millis(100));
-        let current = find_process(DEFAULT_WRITER);
+        let current = presence_writer::running_pid(&exe);
         match (last, current) {
             (None, Some(pid)) => log(&format!(
                 "watch: STARTED pid {pid} at +{:.1}s, foreground = {}",
@@ -438,9 +403,11 @@ fn cmd_activate(hold: u64, linger: u64) -> windows::core::Result<()> {
 
     unsafe { RoInitialize(RO_INIT_MULTITHREADED)? };
 
-    let before = find_process(DEFAULT_WRITER);
+    let exe = writer_exe();
+    let before = presence_writer::running_pid(&exe);
     log(&format!(
-        "activate: {DEFAULT_WRITER} before = {}",
+        "activate: {} before = {}",
+        exe.display(),
         match before {
             Some(pid) => format!("running (pid {pid})"),
             None => "not running".to_owned(),
@@ -471,12 +438,13 @@ fn cmd_activate(hold: u64, linger: u64) -> windows::core::Result<()> {
     let appeared = std::time::Instant::now();
     let mut spawned = None;
     while appeared.elapsed().as_secs() < 5 {
-        if let Some(pid) = find_process(DEFAULT_WRITER)
+        if let Some(pid) = presence_writer::running_pid(&exe)
             && before != Some(pid)
         {
             spawned = Some(pid);
             log(&format!(
-                "activate: {DEFAULT_WRITER} appeared as pid {pid} after {:.0}ms",
+                "activate: {} appeared as pid {pid} after {:.0}ms",
+                exe.display(),
                 appeared.elapsed().as_secs_f32() * 1000.0
             ));
             break;
@@ -494,7 +462,7 @@ fn cmd_activate(hold: u64, linger: u64) -> windows::core::Result<()> {
 
     let released = std::time::Instant::now();
     while released.elapsed().as_secs() < linger {
-        if find_process(DEFAULT_WRITER).is_none() {
+        if presence_writer::running_pid(&exe).is_none() {
             log(&format!(
                 "activate: process exited {:.1}s after release",
                 released.elapsed().as_secs_f32()
@@ -520,6 +488,18 @@ fn cmd_status() -> windows::core::Result<()> {
     match &backup {
         Some(path) => println!("  {BACKUP_VALUE:<34} = {path}"),
         None => println!("  {BACKUP_VALUE:<34} = (absent, nothing to restore)"),
+    }
+    println!(
+        "  Microsoft default  : {}",
+        if presence_writer::is_microsoft_default(std::path::Path::new(&current)) {
+            "yes"
+        } else {
+            "NO - something else owns the registration"
+        }
+    );
+    match presence_writer::running_pid(std::path::Path::new(&current)) {
+        Some(pid) => println!("Writer running    : yes (pid {pid})"),
+        None => println!("Writer running    : no"),
     }
     println!("This executable   : {}", ours.display());
     println!(

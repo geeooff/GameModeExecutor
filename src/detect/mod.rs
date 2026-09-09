@@ -5,6 +5,7 @@
 
 pub mod fullscreen;
 pub mod known_games;
+pub mod presence_writer;
 pub mod process;
 
 use anyhow::Result;

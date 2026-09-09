@@ -1,18 +1,6 @@
 //! GameModeExecutor: watch for a running game and run configured executables
 //! when it starts and stops.
 
-#[cfg(not(windows))]
-compile_error!("GameModeExecutor only targets Windows");
-
-mod actions;
-mod config;
-mod detect;
-mod engine;
-mod logging;
-mod registry;
-mod task;
-mod win;
-
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,7 +8,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 
-use config::Config;
+use game_mode_executor::config::{self, Config};
+use game_mode_executor::{detect, engine, logging, task, win};
 
 /// Default config file shipped with the program, also used by `init`.
 const EXAMPLE_CONFIG: &str = include_str!("../config.example.toml");

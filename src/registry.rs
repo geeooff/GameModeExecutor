@@ -3,7 +3,8 @@
 use anyhow::{Context, Result};
 use windows::Win32::Foundation::ERROR_NO_MORE_ITEMS;
 use windows::Win32::System::Registry::{
-    HKEY, HKEY_CURRENT_USER, KEY_READ, RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW,
+    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, RegCloseKey, RegEnumKeyExW,
+    RegOpenKeyExW, RegQueryValueExW,
 };
 use windows::core::{PCWSTR, PWSTR};
 
@@ -17,18 +18,22 @@ pub struct Key(HKEY);
 impl Key {
     /// Open a key under `HKEY_CURRENT_USER` for reading.
     pub fn open_current_user(path: &str) -> Result<Self> {
+        Self::open(HKEY_CURRENT_USER, "HKCU", path)
+    }
+
+    /// Open a key under `HKEY_LOCAL_MACHINE` for reading. Reading needs no
+    /// elevation, unlike writing.
+    pub fn open_local_machine(path: &str) -> Result<Self> {
+        Self::open(HKEY_LOCAL_MACHINE, "HKLM", path)
+    }
+
+    fn open(root: HKEY, root_name: &str, path: &str) -> Result<Self> {
         let subkey = wide(path);
         let mut key = HKEY::default();
         unsafe {
-            RegOpenKeyExW(
-                HKEY_CURRENT_USER,
-                PCWSTR(subkey.as_ptr()),
-                None,
-                KEY_READ,
-                &mut key,
-            )
-            .ok()
-            .with_context(|| format!("cannot open HKCU\\{path}"))?;
+            RegOpenKeyExW(root, PCWSTR(subkey.as_ptr()), None, KEY_READ, &mut key)
+                .ok()
+                .with_context(|| format!("cannot open {root_name}\\{path}"))?;
         }
         Ok(Self(key))
     }

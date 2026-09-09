@@ -111,9 +111,16 @@ So the process tracks the COM reference exactly, on both edges. And it is
 selective: launching and focusing Notepad (`presence-probe watch`) spawned
 nothing at all.
 
-That makes "is `GameBarPresenceWriter.exe` running?" a candidate signal that
-costs nothing, needs no privileges, modifies nothing, and leaves Xbox Live
-presence alone — while still being Windows' own verdict on what a game is.
+That makes "is the presence writer running?" a candidate signal that costs
+nothing, needs no privileges, modifies nothing, and leaves Xbox Live presence
+alone — while still being Windows' own verdict on what a game is.
+
+**Which** executable to watch is read from `ExePath` at run time rather than
+hard-coded, so a machine where another tool has taken over the registration is
+still probed correctly, and a rename or relocation by Windows servicing does
+not silently break detection. Reading that value needs no elevation. Matching
+is on the full image path, so an unrelated process that merely shares the file
+name is not mistaken for it.
 
 **Still unproven, and only a real game can settle it:** whether Windows holds
 its reference for the whole session (the process stays up, and its lifetime is
