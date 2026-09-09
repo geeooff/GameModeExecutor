@@ -100,6 +100,11 @@ entries fall into two families:
 When nothing matches, the actions still run, with the placeholders empty.
 Detection never depends on naming.
 
+## Where this is going
+
+[PLAN.md](PLAN.md) tracks the work in identified lots, what is committed versus
+merely considered, and the assumptions still waiting to be verified.
+
 ## Install
 
 Requires the Rust toolchain (stable, edition 2024).
