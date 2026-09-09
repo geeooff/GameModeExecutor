@@ -9,9 +9,12 @@ arguments, which is enough to drive
 power plan switch, or anything else that has a command line.
 
 ```
-game starts  ->  [[on_game_start]]  ->  FanControl.exe -c gaming.json
-game ends    ->  [[on_game_stop]]   ->  FanControl.exe -c silent.json
+game starts  ->  [[on_game_start]]  ->  your command
+game ends    ->  [[on_game_stop]]   ->  your other command
 ```
+
+FanControl itself needs one extra step, because it requires administrator
+rights — see [Programs that require elevation](#programs-that-require-elevation).
 
 **There is no list of games to maintain.** Detection is Windows' own verdict, and
 the watcher does not poll while you play.
@@ -158,6 +161,43 @@ placeholders are substituted in `program`, `args`, `working_dir` and `env`:
 | `{process_path}` | full image path, when readable |
 
 See [`config.example.toml`](config.example.toml) for the annotated reference.
+
+## Programs that require elevation
+
+The watcher runs unelevated, on purpose. Some programs cannot be started that
+way. **FanControl is one of them**: its manifest declares
+`requestedExecutionLevel level="requireAdministrator"` because it talks to
+hardware, so `CreateProcess` from an unelevated parent fails with error 740,
+`ERROR_ELEVATION_REQUIRED`. That is true whatever its command line, so
+`FanControl.exe -c Game.json` cannot be an action directly.
+
+The bridge is a **scheduled task per command**, registered once with *run with
+highest privileges*. Triggering a task needs no elevation and raises no UAC
+prompt, so the action becomes:
+
+```toml
+[[on_game_start]]
+program = "schtasks.exe"
+args = ["/Run", "/TN", "GameModeExecutor - FanControl Game"]
+```
+
+Register the task once, from an elevated PowerShell:
+
+```powershell
+$exe = 'C:\Path\To\FanControl\FanControl.exe'
+$action = New-ScheduledTaskAction -Execute $exe -Argument '-c Game.json'
+$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
+Register-ScheduledTask -TaskName 'GameModeExecutor - FanControl Game' -Action $action -Principal $principal -Force
+```
+
+Registering it with no trigger means it only ever runs when something asks it to.
+
+**Why not simply run the watcher elevated?** Because the configuration file lives
+in `%APPDATA%` and names arbitrary programs to execute. An elevated watcher would
+turn that file into a way to run code as administrator with no prompt — a local
+privilege escalation for anything running as the user. With the task bridge the
+configuration only names a task; the command itself lives where a
+non-administrator cannot change it.
 
 ## Why a console app and not a Windows service
 

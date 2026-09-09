@@ -142,11 +142,7 @@ impl Engine {
                 return None;
             }
         };
-        let signal = known.identify(&snapshot);
-        if signal.is_none() {
-            tracing::debug!("a game is running but no known game list entry matches it");
-        }
-        signal
+        known.identify(&snapshot)
     }
 
     /// Manual trigger, used by the `trigger start` command.
@@ -159,8 +155,14 @@ impl Engine {
 
     fn fire_start(&self, signal: Option<&GameSignal>) {
         match signal {
-            Some(signal) => tracing::info!("game started: {}", signal.describe()),
-            None => tracing::info!("game started (unidentified)"),
+            Some(signal) => tracing::info!("GAME DETECTED: {}", signal.describe()),
+            // Naming is a convenience; not managing it changes nothing about
+            // detection, so say exactly that rather than looking like a failure.
+            None => tracing::info!(
+                "GAME DETECTED, but no entry in Windows' known game list matched any \
+                 running process, so the game could not be named. Actions still run, \
+                 with the name placeholders empty."
+            ),
         }
         actions::run_all(
             &self.config.on_game_start,
@@ -170,8 +172,8 @@ impl Engine {
 
     pub fn fire_stop(&self, signal: Option<&GameSignal>) {
         match signal {
-            Some(signal) => tracing::info!("game stopped: {}", signal.describe()),
-            None => tracing::info!("game stopped"),
+            Some(signal) => tracing::info!("GAME NO LONGER DETECTED: {}", signal.describe()),
+            None => tracing::info!("GAME NO LONGER DETECTED (it was never named)"),
         }
         actions::run_all(
             &self.config.on_game_stop,

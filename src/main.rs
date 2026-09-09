@@ -124,12 +124,13 @@ fn cmd_run(config: Config, level: &str, hidden: bool) -> Result<()> {
     if hidden {
         win::hide_console();
     }
-    // A hidden instance has nowhere to print, so give it a default log directory.
-    let log_dir = config.general.log_dir.clone().or_else(|| {
-        hidden
-            .then(|| config::roaming_dir().map(|dir| dir.join("logs")))
-            .flatten()
-    });
+    // The watcher always keeps a log file: a hidden instance has nowhere else to
+    // write, and a console one is usually left running unattended anyway.
+    let log_dir = config
+        .general
+        .log_dir
+        .clone()
+        .or_else(|| config::roaming_dir().map(|dir| dir.join("logs")));
     let _guards = logging::init(
         level,
         log_dir.as_deref(),

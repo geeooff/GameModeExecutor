@@ -42,19 +42,30 @@ stop_delay = "5s"
 # works, only the naming is missing.
 # ---------------------------------------------------------------------------
 
+# FanControl requires administrator elevation, so it cannot be started
+# directly by this unelevated watcher (error 740). Go through a scheduled task
+# registered once with "run with highest privileges" - see the README section
+# "Programs that require elevation".
+
 [[on_game_start]]
-name = "FanControl - gaming profile"
-program = 'C:\Program Files (x86)\FanControl\FanControl.exe'
-args = ["-c", "gaming.json"]
-no_window = true
-wait = false
+name = "FanControl - Game profile"
+program = "schtasks.exe"
+args = ["/Run", "/TN", "GameModeExecutor - FanControl Game"]
+wait = true
+timeout = "15s"
 
 [[on_game_stop]]
-name = "FanControl - silent profile"
-program = 'C:\Program Files (x86)\FanControl\FanControl.exe'
-args = ["-c", "silent.json"]
-no_window = true
-wait = false
+name = "FanControl - Quiet profile"
+program = "schtasks.exe"
+args = ["/Run", "/TN", "GameModeExecutor - FanControl Quiet"]
+wait = true
+timeout = "15s"
+
+# A program that does not need elevation can be run directly:
+# [[on_game_start]]
+# name = "power plan - high performance"
+# program = "powercfg.exe"
+# args = ["/setactive", "SCHEME_MIN"]
 
 # Example of a second action, disabled:
 # [[on_game_start]]

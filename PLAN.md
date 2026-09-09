@@ -39,9 +39,10 @@ says when a game is detected and when it is no longer.
 - [x] Per-user logon task via `schtasks`, no elevation
 - [x] Single instance per session
 - [x] Pipeline proven end to end with placeholder actions
-- [ ] File logging on by default, not only when `log_dir` is set
-- [ ] Log lines that state plainly: game detected, game no longer detected
-- [ ] Real FanControl actions, once a `Game.json` profile exists
+- [x] File logging on by default, not only when `log_dir` is set
+- [x] Log lines that state plainly: game detected, game no longer detected
+- [x] Real FanControl actions wired, through a scheduled task (see below)
+- [ ] Register the two elevated tasks (needs one elevated prompt)
 - [ ] One real game session, log read and checked
 - [ ] Logon task installed and confirmed across a reboot
 
@@ -52,21 +53,30 @@ known defects.
 State:
 
 - FanControl **v275, portable**, at
-  `C:\Users\geoff\OneDrive\Applications\FanControl`, with one profile,
-  `Configurations\Quiet.json`. `Game.json` does not exist yet.
-- The CLI assumption held: `-c` / `--config` takes `yourConfig.json`, extension
-  included, and *switches an already-running instance* rather than starting a
-  second one. No correction needed to the README.
-- Working config at `%APPDATA%\GameModeExecutor\config.toml`, currently running
-  harmless placeholder actions (a line in `events.log`, plus a rising or falling
-  beep), with the FanControl actions written out and commented, ready to swap in.
-- Measured 2026-09-09: start fired 2.00 s after the writer appeared (the 2 s idle
-  poll, worst case), stop 5.01 s after it exited (`stop_delay`).
+  `C:\Users\geoff\OneDrive\Applications\FanControl`, with both profiles now
+  present: `Game.json` and `Quiet.json`.
+- The `-c` CLI is correct, but **FanControl cannot be launched by this watcher**.
+  Its manifest declares `requestedExecutionLevel level="requireAdministrator"`,
+  so `CreateProcess` from an unelevated parent fails with error 740,
+  `ERROR_ELEVATION_REQUIRED`. Found by running it for real, not by reading about
+  it.
+- The bridge is one scheduled task per profile, registered with *run with highest
+  privileges*, triggered by the watcher with `schtasks /Run`. Triggering needs no
+  elevation and raises no UAC prompt.
+- Working config and the shipped example now use that form. The README gained a
+  "Programs that require elevation" section, and its headline example no longer
+  shows a FanControl command line that could never have worked.
+- Measured 2026-09-09: start fired ~1 s after the writer appeared, stop 5.01 s
+  after it exited, and FanControl kept the same PID throughout, confirming
+  nothing tried to start a second instance.
 
 Notes:
 
-- File logging is currently opt-in through `log_dir`, and only a hidden instance
-  gets a default path. For this lot it should just always write a log file.
+- **Why not just run the watcher elevated?** The configuration lives in
+  `%APPDATA%` and names arbitrary programs to execute. An elevated watcher would
+  turn that file into a way to run code as administrator with no prompt, for
+  anything running as the user. The task bridge keeps the command somewhere a
+  non-administrator cannot change it.
 - Everything after this lot is polish on an unproven product until a real game
   session has driven real commands.
 
@@ -145,8 +155,8 @@ to name it is not a failure of the program.
 - [x] Packaged Store and Game Pass titles matched by package family name
 - [x] Generic directory names (`x64` and friends) ignored rather than trusted
 - [x] `check <path>` to interrogate the list by hand
-- [ ] Say so plainly when no known game matched, in the log and on screen, at
-      normal level rather than only in debug
+- [x] Say so plainly when no known game matched, in the log, at normal level
+      rather than only in debug
 - [ ] Make the placeholders behave predictably when the name is unknown
 - [ ] Document that this is naming only, never detection
 
@@ -158,8 +168,9 @@ Notes:
 
 - Most of this lot already exists; it was built alongside detection. What remains
   is the messaging, which is the part that matters for the stated goal.
-- Today the unmatched case logs `game started (unidentified)` at info and the
-  detail only at debug. That is close but not explicit enough about *why*.
+- The unmatched case now logs a full sentence at info: the game was detected, no
+  known game list entry matched any running process, and the actions still run
+  with empty name placeholders.
 - Two of two real games were named correctly, but only after packaged titles were
   supported: Starfield carries no executable path at all.
 
@@ -285,7 +296,7 @@ Recorded so they stop coming back:
 
 | Assumption | Status |
 | --- | --- |
-| FanControl switches profiles with `-c <profile>.json` | Confirmed by the official docs, which add that it switches a running instance. Not yet exercised against the binary. |
+| FanControl switches profiles with `-c <profile>.json` | CLI form confirmed, but unreachable directly: the binary requires elevation. Now bridged through a scheduled task, which still needs one real run to confirm. |
 | The presence writer is activated for games only | Notepad was a clean negative control; not proof for every application |
 | Naming covers the titles actually played | Two of two named, once packaged titles were supported |
 | The writer never blinks mid-session | Holds over two sessions including alt-tabs; `watch` polls at 100 ms, so a sub-100 ms dip could hide |
@@ -293,6 +304,8 @@ Recorded so they stop coming back:
 ---
 
 ## Journal
+
+**2026-09-09** — Lot 1 hit the finding it existed to find. FanControl cannot be started by the watcher at all: its manifest requires administrator, so CreateProcess fails with error 740 regardless of the command line. The README had been promising exactly that command since the first sketch. Fixed by going through a scheduled task registered with highest privileges, which the unelevated watcher triggers with schtasks /Run and which raises no UAC prompt. Running the watcher elevated was rejected: it would turn a user-writable config file into a local privilege escalation. Also landed the two remaining code items — file logging on by default, and log lines that say GAME DETECTED and GAME NO LONGER DETECTED, including an explicit sentence when Windows' known game list matched nothing.
 
 **2026-09-09** — Comment preservation dropped as a requirement. The configuration is a convenience, so losing the user's own comments on a rewrite is accepted. That removes the only real tension between Lot 2 and Lot 8 and means no comment-preserving serializer is needed. A rewrite should still re-emit the documented header, so the file keeps explaining its own doubled backslashes instead of decaying into bare JSON.
 
