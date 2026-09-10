@@ -36,7 +36,15 @@ impl FormatTime for LocalTimestamp {
 pub struct Guards(#[allow(dead_code)] Vec<WorkerGuard>);
 
 /// Initialise logging. `RUST_LOG` overrides `level` when set.
-pub fn init(level: &str, log_dir: Option<&Path>, to_console: bool) -> Result<Guards> {
+///
+/// The console layer is unconditional. It used to be switched off for a
+/// `--hidden` instance, which tied two unrelated things together: whether the
+/// window is visible, and whether anything is written to it. When hiding the
+/// window failed -- which it does under Windows Terminal, see
+/// `win::hide_console` -- the result was a visible window that stayed blank
+/// forever. Writing to a console nobody can see costs nothing, so there is no
+/// reason to make that a choice.
+pub fn init(level: &str, log_dir: Option<&Path>) -> Result<Guards> {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         EnvFilter::new(format!(
             "game_mode_executor={level},gamemode_executor={level}"
@@ -73,11 +81,9 @@ pub fn init(level: &str, log_dir: Option<&Path>, to_console: bool) -> Result<Gua
     // Colours only when a person is really at a terminal. Unconditional ANSI
     // writes escape codes into whatever captures the output -- `run > log.txt`,
     // or a pipe -- where they are noise rather than colour.
-    let console_layer = to_console.then(|| {
-        fmt::layer()
-            .with_timer(LocalTimestamp)
-            .with_ansi(std::io::stdout().is_terminal())
-    });
+    let console_layer = fmt::layer()
+        .with_timer(LocalTimestamp)
+        .with_ansi(std::io::stdout().is_terminal());
 
     tracing_subscriber::registry()
         .with(filter)

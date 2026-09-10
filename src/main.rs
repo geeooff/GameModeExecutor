@@ -118,11 +118,11 @@ fn run() -> Result<()> {
             Ok(())
         }
         Some(Commands::Status) => {
-            let _guards = logging::init(&level, None, true)?;
+            let _guards = logging::init(&level, None)?;
             cmd_status(&config)
         }
         Some(Commands::Trigger { event }) => {
-            let _guards = logging::init(&level, None, true)?;
+            let _guards = logging::init(&level, None)?;
             let engine = engine::Engine::new(config)?;
             match event {
                 TriggerEvent::Start => engine.fire_start_manual(),
@@ -148,7 +148,7 @@ fn cmd_run(config: Config, level: &str, hidden: bool) -> Result<()> {
         .log_dir
         .clone()
         .or_else(|| config::roaming_dir().map(|dir| dir.join("logs")));
-    let _guards = logging::init(level, log_dir.as_deref(), !hidden)?;
+    let _guards = logging::init(level, log_dir.as_deref())?;
     let _instance = win::SingleInstance::acquire("GameModeExecutor")?;
 
     let stop = Arc::new(win::StopSignal::new()?);

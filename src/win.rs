@@ -15,6 +15,18 @@ use windows::core::{HSTRING, PCWSTR};
 
 /// Hide the console window this process owns, if any. Used by `run --hidden`
 /// so a logon-started instance does not leave a black window on screen.
+///
+/// **This does not work when Windows Terminal is the default console host**,
+/// which it is out of the box on Windows 11. The process then gets a ConPTY,
+/// and `GetConsoleWindow` returns the pseudo-console's own window -- already
+/// invisible -- rather than the Terminal window the user can see. Hiding
+/// succeeds, hides nothing, and reports nothing, so the window stays.
+///
+/// Left in place because it still works under conhost, and because the flag is
+/// baked into the installed logon task. The real fix is not to own a console at
+/// all: Lot 4 turns this into a Windows-subsystem program. Until then a logon
+/// instance may show a window, which is why logging to the console is now
+/// unconditional -- see `logging::init`.
 pub fn hide_console() {
     let window = unsafe { GetConsoleWindow() };
     if !window.is_invalid() {
