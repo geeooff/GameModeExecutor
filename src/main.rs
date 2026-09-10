@@ -205,9 +205,28 @@ fn cmd_status(_config: &Config) -> Result<()> {
                     known.skipped_generic.join(", ")
                 );
             }
-            match known.identify(&snapshot) {
-                Some(signal) => println!("  identified running   : {}", signal.describe()),
-                None => println!("  identified running   : none"),
+            // Every match, with what the GPU says about it. A title brings
+            // several: seeing them ranked is the only way to tell whether the
+            // right one would be picked.
+            let candidates = known.candidates(&snapshot);
+            if candidates.is_empty() {
+                println!("  matching processes   : none");
+            } else {
+                let load = detect::gpu::rendering_load(std::time::Duration::from_millis(500))
+                    .unwrap_or_default();
+                println!("  matching processes   : {}", candidates.len());
+                for candidate in &candidates {
+                    let share = candidate
+                        .process_id
+                        .and_then(|pid| load.get(&pid))
+                        .copied()
+                        .unwrap_or(0.0);
+                    println!("    {share:>6.1}% rendering  {}", candidate.describe());
+                }
+                match detect::most_active(candidates, &load) {
+                    Some(best) => println!("  would be named       : {}", best.describe()),
+                    None => println!("  would be named       : none"),
+                }
             }
         }
         Err(error) => println!("Known Game List      : unavailable ({error:#})"),

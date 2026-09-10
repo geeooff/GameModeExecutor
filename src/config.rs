@@ -84,6 +84,14 @@ pub struct Detection {
     /// Windows re-activate it. Zero disables the grace period.
     #[serde(with = "humantime_serde")]
     pub stop_delay: Duration,
+    /// How long into a session to wait before asking which of the matched
+    /// processes is really the game. Zero skips the question entirely.
+    #[serde(with = "humantime_serde")]
+    pub identify_after: Duration,
+    /// How long to sample the GPU counters for. Utilisation is a rate, so it
+    /// needs two readings this far apart.
+    #[serde(with = "humantime_serde")]
+    pub gpu_sample: Duration,
 }
 
 impl Default for Detection {
@@ -91,6 +99,8 @@ impl Default for Detection {
         Self {
             poll_interval: Duration::from_secs(2),
             stop_delay: Duration::from_secs(2),
+            identify_after: Duration::from_secs(20),
+            gpu_sample: Duration::from_secs(1),
         }
     }
 }

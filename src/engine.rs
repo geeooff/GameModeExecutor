@@ -16,10 +16,10 @@ use anyhow::Result;
 
 use crate::actions::{self, ActionContext};
 use crate::config::Config;
-use crate::detect::GameSignal;
 use crate::detect::known_games::KnownGames;
 use crate::detect::presence_writer::{self, WaitOutcome};
 use crate::detect::process::Snapshot;
+use crate::detect::{self, GameSignal, gpu};
 use crate::win::StopSignal;
 
 pub struct Engine {
@@ -52,14 +52,28 @@ impl Engine {
         }
 
         while let Some(mut pid) = self.await_writer(stop) {
-            let signal = self.identify();
+            let mut signal = self.identify();
             self.fire_start(signal.as_ref());
 
-            // Stay active across a brief writer restart, so a game that makes
-            // Windows re-activate it does not flap the actions.
+            // The satellites of a title -- launcher stubs, anti-cheat services
+            // -- match the known game list too and usually start first, so the
+            // name captured a moment ago is often the wrong one. Once, a little
+            // way into the session, ask which candidate is actually rendering.
+            let mut refine_due = !self.config.detection.identify_after.is_zero();
+
             let stopped = loop {
-                match presence_writer::wait_for_exit(pid, stop)? {
+                let timeout = refine_due.then_some(self.config.detection.identify_after);
+                // Waiting on the writer's handle rather than sleeping keeps the
+                // refinement from being blind to a game ending in the meantime.
+                match presence_writer::wait_for_exit_until(pid, stop, timeout)? {
                     WaitOutcome::Stopped => break true,
+                    WaitOutcome::TimedOut => {
+                        refine_due = false;
+                        if let Some(better) = self.refine(signal.as_ref()) {
+                            signal = Some(better);
+                        }
+                        continue;
+                    }
                     WaitOutcome::WriterExited => {}
                 }
                 match self.writer_returns(stop) {
@@ -143,6 +157,47 @@ impl Engine {
             }
         };
         known.identify(&snapshot)
+    }
+
+    /// Ask the GPU which of the matched processes is really the game.
+    ///
+    /// Returns `None` when there is nothing better to say, which covers a
+    /// single candidate, counters this account may not read, and a game still
+    /// on its loading screen. Naming is a convenience: no answer is a fine
+    /// answer.
+    fn refine(&self, current: Option<&GameSignal>) -> Option<GameSignal> {
+        let known = KnownGames::load().ok()?;
+        let snapshot = Snapshot::take().ok()?;
+        let candidates = known.candidates(&snapshot);
+        if candidates.len() < 2 {
+            return None;
+        }
+
+        let load = match gpu::rendering_load(self.config.detection.gpu_sample) {
+            Ok(load) => load,
+            Err(error) => {
+                tracing::debug!("cannot read GPU counters, keeping the first match: {error:#}");
+                return None;
+            }
+        };
+
+        let best = detect::most_active(candidates, &load)?;
+        if current.and_then(|signal| signal.process_id) == best.process_id {
+            return None;
+        }
+        let share = best
+            .process_id
+            .and_then(|pid| load.get(&pid))
+            .copied()
+            .unwrap_or(0.0);
+        if share <= 0.0 {
+            return None;
+        }
+        tracing::info!(
+            "game identified more precisely as {} ({share:.0}% of the rendering)",
+            best.describe()
+        );
+        Some(best)
     }
 
     /// Manual trigger, used by the `trigger start` command.

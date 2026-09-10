@@ -79,6 +79,8 @@ pub enum WaitOutcome {
     WriterExited,
     /// The program was asked to shut down.
     Stopped,
+    /// The requested time passed and the writer is still alive.
+    TimedOut,
 }
 
 /// Block until the writer exits or the program is stopped.
@@ -86,7 +88,19 @@ pub enum WaitOutcome {
 /// This is the whole point of the design: while a game runs there is no
 /// polling at all, just a thread parked in the kernel on two handles.
 pub fn wait_for_exit(pid: u32, stop: &crate::win::StopSignal) -> Result<WaitOutcome> {
-    use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+    wait_for_exit_until(pid, stop, None)
+}
+
+/// Same, giving up after `timeout` and reporting `TimedOut`.
+///
+/// Used to do something partway through a session without giving up the
+/// handle: a plain sleep would be blind to the game ending in the meantime.
+pub fn wait_for_exit_until(
+    pid: u32,
+    stop: &crate::win::StopSignal,
+    timeout: Option<std::time::Duration>,
+) -> Result<WaitOutcome> {
+    use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0, WAIT_TIMEOUT};
     use windows::Win32::System::Threading::{
         INFINITE, OpenProcess, PROCESS_SYNCHRONIZE, WaitForMultipleObjects,
     };
@@ -97,12 +111,18 @@ pub fn wait_for_exit(pid: u32, stop: &crate::win::StopSignal) -> Result<WaitOutc
         return Ok(WaitOutcome::WriterExited);
     };
 
+    let millis = match timeout {
+        Some(timeout) => timeout.as_millis().min(u128::from(INFINITE - 1)) as u32,
+        None => INFINITE,
+    };
     let handles = [process, stop.handle()];
-    let result = unsafe { WaitForMultipleObjects(&handles, false, INFINITE) };
+    let result = unsafe { WaitForMultipleObjects(&handles, false, millis) };
     unsafe { _ = CloseHandle(process) };
 
     Ok(if result == WAIT_OBJECT_0 {
         WaitOutcome::WriterExited
+    } else if result == WAIT_TIMEOUT {
+        WaitOutcome::TimedOut
     } else {
         WaitOutcome::Stopped
     })

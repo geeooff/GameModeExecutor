@@ -149,13 +149,25 @@ impl KnownGames {
     /// feed the logs and the action placeholders. Detection never depends on
     /// this succeeding.
     pub fn identify(&self, snapshot: &Snapshot) -> Option<GameSignal> {
+        self.candidates(snapshot).into_iter().next()
+    }
+
+    /// Every process the list matches, not just the first.
+    ///
+    /// A title usually brings several: a launcher stub, an anti-cheat service
+    /// and the game all share an install folder or a package family, so they
+    /// all match. Which one is the game is a separate question, and not one
+    /// this list can answer.
+    pub fn candidates(&self, snapshot: &Snapshot) -> Vec<GameSignal> {
+        let mut found = Vec::new();
         for process in &snapshot.processes {
             let identity = identity(process.pid);
 
             if let Some(path) = &identity.path
                 && let Some(kind) = self.match_exe(path)
             {
-                return Some(signal(process.pid, &process.name, identity.path, kind));
+                found.push(signal(process.pid, &process.name, identity.path, kind));
+                continue;
             }
             // The package family name is asked for unconditionally. An earlier
             // version only asked when the image path sat under WindowsApps,
@@ -165,7 +177,7 @@ impl KnownGames {
             if let Some(family) = &identity.package_family
                 && self.match_package(family)
             {
-                return Some(signal(
+                found.push(signal(
                     process.pid,
                     &process.name,
                     identity.path,
@@ -173,7 +185,7 @@ impl KnownGames {
                 ));
             }
         }
-        None
+        found
     }
 
     pub fn counts(&self) -> Counts {

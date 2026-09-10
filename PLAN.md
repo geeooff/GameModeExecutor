@@ -26,7 +26,7 @@ is recorded per lot rather than hidden, so the plan reflects reality.
 
 ---
 
-## Lot 1 — Correct console behaviour · committed · `[~]`
+## Lot 1 — Correct console behaviour · committed · `[x]` done
 
 Goal: the technical core, as a console program, correct and boring. Configured
 commands run when they should and nothing else happens. Simple file logging that
@@ -289,7 +289,7 @@ prevent the others, and the log has to make clear which one failed. It also
 needs a defined answer for the stop actions racing the next game start, since
 `stop_delay` no longer serialises them.
 
-## Lot 3 — Clean game naming · committed · `[~]`
+## Lot 3 — Clean game naming · committed · `[x]` done
 
 Goal: name the running game from the registry, while being explicit that failing
 to name it is not a failure of the program.
@@ -303,13 +303,18 @@ to name it is not a failure of the program.
       rather than only in debug
 - [x] Packaged titles matched wherever the Store installed them
 - [x] Document that this is naming only, never detection
-- [-] Chase the real game among a title's satellite processes — dropped: it
-      would need a resource-consumption heuristic, which is exactly the kind of
-      guessing this project avoids
+- [x] Tell the real game from its satellites, by GPU rendering load
+- [x] Research what other products do, before building anything
 
 Done when: a session with an unrecognised game runs the commands normally and
 leaves a log line that unambiguously says no entry in Windows' known game list
 matched.
+
+**Reopened and closed 2026-09-10.** The research below found nothing worth
+copying, so the narrower idea was built instead: rank the candidates the known
+game list already produced by their GPU rendering load, once, a little way into
+the session. It never promotes a process the list did not match, and no answer
+is an expected outcome. `status` shows the ranking.
 
 Notes:
 
@@ -453,6 +458,8 @@ Recorded so they stop coming back:
 ---
 
 ## Journal
+
+**2026-09-10** — Lot 3 reopened, researched, and closed. Nothing in the industry was worth copying: the three products with the most incentive all ship allow-lists. What came out of the research instead was a measurement available without privileges — the per-process GPU counters — and a narrower way to use it. Rather than trying to find a game, it ranks the candidates the known game list already matched, once, twenty seconds into a session. The wait happens on the writer's handle rather than in a sleep, so it stays blind to nothing. Lots 1, 2 and 3 are done and tagged.
 
 **2026-09-10** — Measured the delay after quitting a game, and it is not where I guessed. Starfield's process was gone 2.8 s after the click; Windows then held the presence writer for another 52.2 s. I had argued the game was probably slow to exit and dismissed the cloud-save-sync explanation; the measurement says the opposite, and that explanation is now the one still standing. It predicts a much smaller gap on a Steam title, which is worth checking. The same run exposed a naming defect: identify returns the first matching process, and gamelaunchhelper.exe shares Starfield's package family, so the session was named after a stub that died 0.4 s later.
 

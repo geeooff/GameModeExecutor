@@ -103,6 +103,38 @@ entries fall into two families:
 When nothing matches, the actions still run, with the placeholders empty.
 Detection never depends on naming.
 
+### Picking the right one
+
+A title is not one process. A launcher stub, an anti-cheat service and the game
+share an install folder or a package family, so they all match, and the
+satellites usually start first. Naming the session after the first match gave
+`gamelaunchhelper.exe` for Starfield and `EAAntiCheat.GameServiceLauncher.exe`
+for Battlefield 6.
+
+So a little way into a session — `detection.identify_after`, twenty seconds by
+default — the per-process GPU counters are read once, and the candidate that is
+actually rendering wins. Only the engines that mean *drawing* count: video
+decode and copy engines are busy for a video player too.
+
+This ranks candidates the known game list already produced; it never promotes a
+process the list did not match. Reading those counters can be refused depending
+on the account, and a game may still be on its loading screen, so no answer is
+an expected outcome and simply leaves the first match in place.
+
+`status` shows the ranking, which is the only way to see what would be chosen:
+
+```
+matching processes   : 2
+    0.2% rendering  gamelaunchhelper.exe (pid 21952, via package family)
+   94.7% rendering  forzahorizon6.exe (pid 32728, via package family)
+would be named       : forzahorizon6.exe (pid 32728, via package family)
+```
+
+The industry does no better. GeForce Experience and Adrenalin match curated
+databases of known titles and scan folders; Discord matches a table of
+executable names. Only Intel's PresentMon measures the truth, by tracing frame
+presentation through ETW, and that needs administrator rights.
+
 ## Where this is going
 
 [PLAN.md](PLAN.md) tracks the work in identified lots, what is committed versus

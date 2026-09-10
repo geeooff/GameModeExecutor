@@ -43,6 +43,20 @@ poll_interval = "2s"
 # re-activate it. Set to "0s" to react immediately.
 stop_delay = "2s"
 
+# A title brings several processes that all match Windows' known game list: a
+# launcher stub, an anti-cheat service, and the game. The satellites usually
+# start first, so the name captured at the very start is often the wrong one.
+# Once, this far into a session, the per-process GPU counters are read and the
+# candidate that is actually rendering wins. Set to "0s" to skip it and keep
+# whichever process matched first.
+#
+# This only ever changes the *name*: detection never depends on it, and being
+# unable to read the counters simply means no answer.
+identify_after = "20s"
+
+# GPU utilisation is a rate, so it needs two readings this far apart.
+gpu_sample = "1s"
+
 # ---------------------------------------------------------------------------
 # Actions
 #
