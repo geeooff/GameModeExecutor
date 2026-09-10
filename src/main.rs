@@ -156,10 +156,14 @@ fn cmd_run(config: Config, level: &str, hidden: bool) -> Result<()> {
     ctrlc::set_handler(move || handler_stop.signal())
         .context("cannot install the Ctrl-C handler")?;
 
-    tracing::info!("GameModeExecutor {} starting", env!("CARGO_PKG_VERSION"));
+    tracing::info!(
+        target: logging::target::WATCHER,
+        "GameModeExecutor {} starting",
+        env!("CARGO_PKG_VERSION")
+    );
     let mut engine = engine::Engine::new(config)?;
     engine.run(&stop)?;
-    tracing::info!("stopped");
+    tracing::info!(target: logging::target::WATCHER, "Stopped");
     Ok(())
 }
 

@@ -24,7 +24,7 @@ use windows::core::{HSTRING, PCWSTR};
 ///
 /// Left in place because it still works under conhost, and because the flag is
 /// baked into the installed logon task. The real fix is not to own a console at
-/// all: Lot 4 turns this into a Windows-subsystem program. Until then a logon
+/// all: Lot 5 turns this into a Windows-subsystem program. Until then a logon
 /// instance may show a window, which is why logging to the console is now
 /// unconditional -- see `logging::init`.
 pub fn hide_console() {

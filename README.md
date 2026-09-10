@@ -229,6 +229,48 @@ See [`config.example.toml`](config.example.toml) for the annotated reference.
 `validate` is the command to script against: it returns 3 or 4 without starting
 anything.
 
+## Reading the log
+
+The log lives in `%APPDATA%\GameModeExecutor\logs\gamemode-executor.log` unless
+`log_dir` says otherwise, with local timestamps. Run the watcher in a terminal
+instead of hidden and the same lines appear there, coloured.
+
+One log serves two readers, and `log_level` is the dial between them.
+
+| Level | Written for | What it promises |
+| --- | --- | --- |
+| `error` | anyone | Something needs you. It names the file or command and what to check. |
+| `warn` | technician | A degradation the program absorbed and carried on from. |
+| `info` | anyone | The story of a session, in plain sentences. **The default.** |
+| `debug` | technician | Why the program did what it did — and every line above, annotated. |
+| `trace` | technician | Raw measurements. |
+
+`info` is reserved for what this program is for: a game detected, named, or
+gone, and the watcher starting or stopping. Nothing else is allowed to compete
+with those lines.
+
+Each line is `time  LEVEL  category  message`, where the category is one of
+`watcher`, `game` or `commands`.
+
+```
+2026-09-10 17:51:02.433  INFO  watcher   GameModeExecutor 0.1.0 starting
+2026-09-10 17:53:14.080  INFO  game      Game detected: bf6.exe
+2026-09-10 17:58:41.833  INFO  game      Game no longer detected: bf6.exe
+```
+
+Switching to `debug` does not give you a different log. It gives you the same
+one, annotated — the technical detail rides along with each line as fields
+rather than in lines of its own:
+
+```
+2026-09-10 17:53:14.080  INFO  game      Game detected: bf6.exe  pid=14552 matched_by="exe path"
+2026-09-10 17:53:35.458  INFO  game      Game identified more precisely: bf6.exe (74% of the rendering)  pid=14552 rendering_share=73.8
+2026-09-10 17:53:35.462 DEBUG  commands  Running the configured commands  count=2 mode="series"
+```
+
+`RUST_LOG` overrides `log_level` when set, and takes the usual
+`tracing` filter syntax — `RUST_LOG=game=debug` for the detection lines alone.
+
 ## Programs that require elevation
 
 The watcher runs unelevated, on purpose. Some programs cannot be started that

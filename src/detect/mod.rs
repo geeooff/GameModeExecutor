@@ -50,6 +50,17 @@ pub fn most_active(
 }
 
 impl GameSignal {
+    /// Just the name, for a log line someone reads without wanting to know
+    /// what a pid is. The id and how it was matched go in the event's fields,
+    /// where the level decides whether they are shown.
+    pub fn name(&self) -> &str {
+        self.process_name
+            .as_deref()
+            .unwrap_or("an unrecognised process")
+    }
+
+    /// Name and annotations in one string, for `status` and other places that
+    /// print rather than log.
     pub fn describe(&self) -> String {
         match (&self.process_name, self.process_id) {
             (Some(name), Some(pid)) => format!("{name} (pid {pid}, via {})", self.source),

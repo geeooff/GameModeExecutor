@@ -4,9 +4,15 @@ Working document. Updated as work lands, not written once and forgotten.
 
 Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped, with a reason.
 
-Lots 1 to 5 are **committed**. Lots 6 and 7 are **proposed** and carry only
+Lots 1 to 7 are **committed**. Lots 8 to 10 are **proposed** and carry only
 enough detail to decide whether they are wanted: writing detail is how scope
 grows.
+
+The numbering has moved twice. On 2026-09-10 logging became Lot 4 and pushed
+the rest up by one; on 2026-09-14 the tray icon lot was split in two — the
+Windows-subsystem work became Lot 5, the icon itself Lot 6 — and pushed the
+rest up again. Commit messages written before those dates use the numbers of
+their day: "lot 4" in one of them means the tray icon, which is now Lot 6.
 
 ---
 
@@ -22,7 +28,12 @@ mechanism was ruled out.
 Some work already done lands in later lots than the order it was built in. That
 is recorded per lot rather than hidden, so the plan reflects reality.
 
-**Dependency order:** 1 → 2 → 4, with 3 independent, and 5 needing both 3 and 4.
+**Dependency order:** 1 → 2 → 4 → 5 → 6, with 3 independent, and 7 needing
+both 3 and 6. Lot 4 sits before the icon deliberately: the icon will log too,
+and writing it in the finished vocabulary is cheaper than converting it after.
+Lot 5 sits before it for the same reason in the other direction: the icon hangs
+off a window and a message loop, and those are worth proving with nothing on
+screen before anything is drawn on them.
 
 ---
 
@@ -370,22 +381,179 @@ Notes:
 
 ---
 
-## Lot 4 — Windows program with a tray icon · committed · `[ ]`
+## Lot 4 — Logs that speak · committed · `[x]` done
 
-Goal: stop being a console program. No window, just a notification area icon with
-a small context menu: edit the configuration, open the log, quit.
+Goal: one log that serves two readers. Someone who just wants to know what
+happened reads it at `info` and sees plain sentences about games. A technician
+reads the same log at `debug` and gets those same lines annotated, plus the
+reasoning behind them.
 
-- [ ] Switch to the Windows subsystem
+- [x] Categories replace Rust module paths: `watcher`, `game`, `commands`
+- [x] The level filter is generated from the category list, never hand-listed
+- [x] A test refuses any logging call without a category
+- [x] One `FormatEvent` for both sinks: aligned category column, colour only on a real terminal
+- [x] Message carries the sentence, structured fields carry the technical annex
+- [x] Fields printed only when the reader asked for `debug` or `trace`
+- [x] All 30 call sites audited against the level contract below
+- [x] The contract written in the README, where a reader of the log will find it
+
+Done when: the same session reads correctly at `info` for a non-technical
+reader and at `debug` for someone diagnosing, with no line written twice.
+
+### Who each level is for
+
+This is the contract. It is in the README too, because it is a promise made to
+whoever opens the log, not an internal convention.
+
+| Level | Reader | Rule |
+| --- | --- | --- |
+| `error` | anyone | Something needs you. Name the file or command and what to check. No jargon. |
+| `warn` | technician | A degradation the program absorbed. May be technical. |
+| `info` | anyone | The story of a session, in plain sentences. |
+| `debug` | technician | *Why* the program did what it did, plus every `info` line annotated. |
+| `trace` | technician | Raw measurements. |
+
+**`info` is reserved for what this program is for**: a game was detected, named,
+or lost, and the watcher started or stopped. Everything else had to earn its
+place or move down. Three lines lost that argument — the writer path echoed at
+startup, each command being started, each command's exit status — and are now
+`debug`. That took `info` from 11 lines to 8, five of which are the detection
+itself, which is the whole point: the lines that matter are no longer buried in
+the ones that do not.
+
+### Why the messages are not centralised
+
+Asked whether to collect all log strings in one module, the way some codebases
+do. **No**, and deliberately: in Rust that breaks locality — you jump to another
+file to learn what a line says — and it turns literals the compiler checks into
+runtime `format!` calls. It is not the idiom, and `tracing` is built against it.
+
+What is centralised is the machinery: the categories, the filter built from
+them, the single formatter, and the error types. That is where duplication
+actually hurts.
+
+The door is left open. If the tone of the public lines ever drifts, the 14
+`info`/`error` messages can move behind an enum with a `Display` impl — one
+file, reviewable in a pass, and unit-testable. Fourteen variants is defensible;
+two hundred would not be. It can be added later without disturbing anything,
+which is not true in the other direction. It is also the only way to localise
+the log, which is worth having eventually but is nowhere near worth it now for
+one user on an English-language codebase.
+
+### The trap this lot walks past
+
+An event whose target is not in `target::ALL` matches no filter directive and
+is dropped **silently**. No warning, no error: the line simply never appears,
+and nobody knows to look for it. Two things guard it — the filter is generated
+from the same list the categories come from, so the two cannot drift, and
+`every_log_site_declares_a_category` fails the build for any logging call
+without a `target:`. That test earned its place immediately by catching its own
+author's first version.
+
+---
+
+## Lot 5 — A Windows program with no window · committed · `[ ]`
+
+Goal: the same program as today, minus the console. Nothing on screen — not a
+window, not an icon, not a flash at logon. Behaviour identical, including what
+happens when the user logs off during a game.
+
+- [ ] Build the watcher as a Windows-subsystem binary
+- [ ] Keep every CLI command working from a terminal, exit codes included — see the decision below
 - [ ] Invert the threading: message loop on the main thread, engine on a worker
-- [ ] Notification area icon
+- [ ] A hidden top-level window whose procedure answers `WM_QUERYENDSESSION` and `WM_ENDSESSION`, so logoff and shutdown still run the stop actions
+- [ ] `install-task` points the logon task at the windowless binary, without `--hidden`
+- [ ] `--hidden` still accepted, ignored, so a task installed before this lot keeps starting; `hide_console` deleted
+- [ ] Verified: logon shows nothing; `status`, `validate` and `trigger` are unchanged from a terminal, exit codes included; logging off during a game restores the profile
+
+Done when: the logon task starts the watcher with nothing on screen, every CLI
+command behaves exactly as before from a terminal, and a logoff during a game
+restores the profile — which it does today.
+
+### Why the window and the threading inversion are here and not with the icon
+
+Because they preserve something the console version already does. `ctrlc`'s
+Windows handler ignores the event type it is given (`os_handler(_: u32)`), so
+today a logoff or shutdown reaches the watcher as a stop signal and, with
+`stop_actions_on_exit`, the profile is restored. A Windows-subsystem process
+with no window receives none of that. It is simply terminated, mid-game profile
+and all.
+
+The fix is a hidden top-level window whose procedure answers
+`WM_QUERYENDSESSION` — which needs a thread pumping messages, which is the
+threading inversion. It was scheduled with the icon because the icon needs it
+too; it turns out "same behaviour as before" needs it first.
+
+**Not a message-only window.** Those are documented as not receiving broadcast
+messages, and `WM_QUERYENDSESSION` is one. So is `WM_SETTINGCHANGE`, which the
+icon will need for the theme switch. A top-level window that is never shown
+costs the same and receives both, and it is the window the icon will hang off
+in the next lot.
+
+### Keeping the CLI: three ways, one recommended
+
+A Windows-subsystem process has no console. `status`, `validate`, `check` and
+`trigger` all print to one, and scripts read `validate`'s exit code. The earlier
+version of this plan said attaching to the parent console was the cheapest first
+step. **It is not; it is the one that breaks a promise.**
+
+**1. Two binaries, the `w` convention — recommended.** `gamemode-executor.exe`
+stays the console program, every command, unchanged. `gamemode-executorw.exe`
+is its Windows-subsystem twin: same crate, same code, `run` only, and the logon
+task points at it. This is how Python ships (`python.exe` / `pythonw.exe`), and
+Perl, and it exists precisely because the two subsystems cannot share one file.
+Nothing to hack. The shell keeps waiting on the console binary, so exit codes,
+pipes, redirection and colours all keep working. Cost: one more file to ship,
+and both binaries are a few lines over the library that already exists.
+
+**2. One binary, Windows subsystem, `AttachConsole(ATTACH_PARENT_PROCESS)`.**
+Attach to the terminal it was launched from and reopen `stdout`. Single file.
+But a shell does not wait for a GUI-subsystem process: the prompt comes back
+before the output, which then prints over it — and `$LASTEXITCODE` and
+`%ERRORLEVEL%` are not set, which breaks `validate` in any script, silently.
+Working around that means `Start-Process -Wait` or `start /wait` on the user's
+side. This is the hack the project said it would not do, and it trades Lot 2's
+exit-code contract for one fewer file.
+
+**3. Stay a console program, `FreeConsole()` at the top of `run --hidden`.**
+Three lines. But the console is allocated before `main` runs, so a window
+flashes at logon before it goes — and under Windows Terminal, whether the tab
+closes at all when its only client detaches is untested. Cheapest, and it does
+not meet "nothing on screen".
+
+Decision pending. The rest of the lot is the same whichever way it goes.
+
+### What stays out
+
+No icon, no menu, nothing drawn. Also no `ShutdownBlockReasonCreate`
+("Restoring the fan profile…" in Windows' shutdown screen) — worth having,
+belongs with the rest of the shutdown work in Lot 9.
+
+---
+
+## Lot 6 — Notification area icon · committed · `[ ]`
+
+Goal: a notification area icon with a small context menu: edit the
+configuration, open the log, quit. Hung off the window Lot 5 created.
+
+- [ ] Notification area icon, on the Lot 5 window
 - [ ] Context menu: edit configuration · open log · quit
 - [ ] Open both through the shell, so the user's own default program handles them
 - [ ] Re-add the icon when Explorer restarts
+- [ ] Follow the taskbar theme: `SystemUsesLightTheme`, re-read on `WM_SETTINGCHANGE` / `ImmersiveColorSet`
 - [ ] Quit shuts the watcher down cleanly, stop actions included
+- [ ] Icons from the Claude Design handoff: `.ico` files, eight sizes each, PNG frames, no C2PA payload — use those, not the standalone PNGs
 
-Done when: the program runs with no console, the icon appears at logon, both menu
-entries open the right file in the user's chosen editor and viewer, Quit exits
-cleanly, and the icon survives killing and restarting Explorer.
+Done when: the icon appears at logon in the right variant for the taskbar
+theme, both menu entries open the right file in the user's chosen editor and
+viewer, Quit exits cleanly, and the icon survives killing and restarting
+Explorer.
+
+Open on the artwork: the idle icon carries a diagonal slash, which in Windows
+iconography reads as *disabled*. Idle is the state the program spends nearly all
+its time in, and it means the opposite. Proposed: idle is the same gamepad
+without the slash, in a duller grey; the slashed version is kept for a genuine
+error state. The user's call.
 
 On "the most modern APIs, no exotic libraries":
 
@@ -401,23 +569,19 @@ On "the most modern APIs, no exotic libraries":
   private bytes, no measurable CPU, and +30–60 KB of binary. Avoid
   `LoadIconMetric`, which would pull `comctl32.dll`.
 
-Decision to take: switching to the Windows subsystem silences `status`, `check`
-and `validate`, which print to a console that no longer exists. Either attach to
-the parent console when started from one, or keep a separate console binary for
-those commands. Cheapest first step is the former.
-
 Notes:
 
-- The threading inversion is the only structurally invasive step: the tray window
-  needs a thread that pumps messages, and today the main thread blocks in
-  `WaitForMultipleObjects`. The engine stays pure and testable; the tray lives in
-  its own module.
+- The subsystem switch, the CLI decision and the threading inversion moved to
+  Lot 5, where they are needed for reasons of their own. By the time this lot
+  starts, the window and the message loop exist and have been proven with
+  nothing on them. The engine stays pure and testable; the tray lives in its
+  own module.
 - Re-adding the icon on `TaskbarCreated` is not optional. Skipping it is the
   classic bug where the icon vanishes forever after Explorer restarts.
 
 ---
 
-## Lot 5 — Tray experience · committed · `[ ]`
+## Lot 7 — Tray experience · committed · `[ ]`
 
 Goal: the icon says at a glance whether a game is detected, and which one.
 
@@ -431,14 +595,15 @@ the menu shows the game name, or says clearly that it is unknown.
 
 Notes:
 
-- Needs Lot 3 for the name and Lot 4 for the icon, so it comes last of the five.
+- Needs Lot 3 for the name and Lot 6 for the icon, so it comes last of the
+  committed lots.
 - Icons should carry 16/20/24/32 pixel sizes so they stay sharp on HiDPI.
 - The disabled menu entry is the natural place for the "no known game matched"
   message from Lot 3, so the two lots should agree on one wording.
 
 ---
 
-## Lot 6 — Distribution · proposed
+## Lot 8 — Distribution · proposed
 
 Nothing ships anywhere yet: the repository is still local.
 
@@ -449,17 +614,19 @@ Nothing ships anywhere yet: the repository is still local.
 
 ---
 
-## Lot 7 — Robustness · proposed
+## Lot 9 — Robustness · proposed
 
-- Run the stop actions on logoff and shutdown. Becomes cheap once Lot 4 gives us
-  a window: `WM_QUERYENDSESSION` / `WM_ENDSESSION`.
-- Reload the configuration without restarting, which pairs with the Lot 4 menu
+- ~~Run the stop actions on logoff and shutdown~~ — moved into Lot 5, where it
+  turned out to be a behaviour to preserve rather than one to add. What is left
+  for here is the polish: `ShutdownBlockReasonCreate`, so Windows' shutdown
+  screen says "Restoring the fan profile…" instead of naming the process.
+- Reload the configuration without restarting, which pairs with the Lot 6 menu
   entry that opens it for editing.
 - Behaviour across two games launched back to back.
 
 ---
 
-## Lot 8 — Configuration window · proposed
+## Lot 10 — Configuration window · proposed
 
 The first lot with a real window. It edits the JSONC configuration through a UI,
 so hand-editing mistakes — doubled backslashes above all — stop being possible.
@@ -470,7 +637,7 @@ without destroying what the user wrote. JSON would have made that a rewrite from
 scratch. Losing comments is still acceptable, but it may no longer be necessary.
 
 To settle when it is taken: it supersedes the "edit configuration" menu entry
-from Lot 4, which should then open the window rather than the shell.
+from Lot 6, which should then open the window rather than the shell.
 
 ---
 
@@ -480,7 +647,7 @@ Recorded so they stop coming back:
 
 - No FanControl-specific integration. The program runs executables; that is all.
 - No Windows service. Session 0 cannot see the desktop or the user's apps.
-- No configuration GUI **before Lot 8**. Until then Lot 4 opens the file and the
+- No configuration GUI **before Lot 10**. Until then Lot 6 opens the file and the
   user brings their own editor.
 - No allow-list of game executables, and no heuristics that guess at what a game
   is. Detection stays Windows' verdict.
@@ -501,7 +668,11 @@ Recorded so they stop coming back:
 
 ## Journal
 
-**2026-09-10** — The logon task leaves a visible, permanently blank console window, and both halves of that were ours. `--hidden` was overloaded: it hid the window *and* switched off console logging, so nothing was ever written to the window it failed to hide. And it fails to hide under Windows Terminal, the Windows 11 default: the process gets a ConPTY, `GetConsoleWindow` returns the pseudo-console's already-invisible window rather than the Terminal one, so the call succeeds, hides nothing, and reports nothing. Console logging is now unconditional — writing to a console nobody can see costs nothing, and when hiding fails the window is at least useful. The flag keeps only its "try to hide" meaning, still correct under conhost. Lot 4 is the real fix: a Windows-subsystem program owns no console to hide.
+**2026-09-14** — The tray icon lot split in two at the user's request: the Windows-subsystem work is Lot 5, the icon itself Lot 6, everything after shifts up one. The split exposed something the old lot had wrong. Checking what "same behaviour as before" actually covers turned up `ctrlc`'s Windows handler, which signals on every control event including logoff and shutdown — so the console watcher restores the fan profile when the user logs off mid-game, and a windowless process would not. That pulls a hidden top-level window and the threading inversion into Lot 5 for a reason that has nothing to do with the icon, and rules out a message-only window, which does not receive the broadcasts. The old plan also called `AttachConsole` the cheapest way to keep the CLI; reversed, because a shell does not wait for a GUI-subsystem process and `validate`'s exit code would silently stop reaching scripts. Three options recorded, two binaries recommended, decision pending.
+
+**2026-09-10** — Lot 4, logging, written and moved ahead of the tray icon so the icon is written in the finished vocabulary rather than converted after. The categories were the visible complaint — `game_mode_executor::engine` means nothing to a reader — but the useful part was the rule that came with it: `info` belongs to what the program is for, and everything else has to earn its place. Three lines did not, and the detection lines stopped being buried. The mechanism is `tracing` used as intended rather than as `println!`: the message is the sentence, the fields are the technical annex, and the level decides whether the annex prints. One event, two readings, nothing written twice — which also retired the duplicate `info`/`debug` pair I had proposed a few hours earlier. Declined to centralise the message strings, which is an anti-pattern in Rust; centralised the machinery instead, and recorded what would justify revisiting that. Renumbered lots 4 to 8 into 5 to 9.
+
+**2026-09-10** — The logon task leaves a visible, permanently blank console window, and both halves of that were ours. `--hidden` was overloaded: it hid the window *and* switched off console logging, so nothing was ever written to the window it failed to hide. And it fails to hide under Windows Terminal, the Windows 11 default: the process gets a ConPTY, `GetConsoleWindow` returns the pseudo-console's already-invisible window rather than the Terminal one, so the call succeeds, hides nothing, and reports nothing. Console logging is now unconditional — writing to a console nobody can see costs nothing, and when hiding fails the window is at least useful. The flag keeps only its "try to hide" meaning, still correct under conhost. Lot 6 is the real fix: a Windows-subsystem program owns no console to hide.
 
 **2026-09-10** — Lots 2 and 3 tested in real conditions, on Battlefield 6. Lot 3 did exactly what it exists for: the session opened named after `EAAntiCheat.GameServiceLauncher.exe`, and 21.4 s later — the configured 20 s plus the 1 s sample plus overhead — it corrected itself to `bf6.exe` on 74 % of the rendering, a name that then survived into the stop message. That is the first time the GPU ranking has run against a real title; before this it was only unit tests and a `status` display. Lot 2 held up too, both modes visible in the timestamps rather than merely labelled, and exit code 5 turned up unplanned in Task Scheduler when a restart raced the old instance. The session also produced the thing worth keeping: the user reported the stop as very long, and it was — 2 min 4 s, of which 2 s were ours. Establishing that needed Steam's logs because our own said nothing about when the writer exited, so the engine now records that moment and whether the named game was already gone. The measurement retired the per-title theory of the post-quit delay and reopened whether the identified process should also end a session; see the section above rather than deciding from one session.
 
@@ -519,20 +690,20 @@ Recorded so they stop coming back:
 
 **2026-09-09** — The scheduled task bridge works. With both tasks registered, a simulated game session drove FanControl from Quiet to Game and back, confirmed by reading CurrentConfigFileName out of FanControl's own CACHE file rather than trusting the exit code. About 2.4 s from game start to the profile being applied, 6.6 s back, 5 s of which is the configured grace period. The technical core of Lot 1 is closed; what is left is a real game and a reboot.
 
-**2026-09-09** — Reversed the move to JSON: staying on TOML, for the INI-like shape. That keeps comments, keeps Windows paths readable in single-quoted literal strings, and removes the comment-blanking trick that JSONC would have needed. Checked what the parser already reports and found the line-and-column requirement already met, with a caret under the offending token and the list of valid field names for a misspelt key, so that item was marked done rather than built. Lot 2 shrinks to the execution mode, the exit codes and template polish. Side effect on Lot 8: toml_edit can round-trip a file without destroying comments, so a configuration window may not have to lose them after all.
+**2026-09-09** — Reversed the move to JSON: staying on TOML, for the INI-like shape. That keeps comments, keeps Windows paths readable in single-quoted literal strings, and removes the comment-blanking trick that JSONC would have needed. Checked what the parser already reports and found the line-and-column requirement already met, with a caret under the offending token and the list of valid field names for a misspelt key, so that item was marked done rather than built. Lot 2 shrinks to the execution mode, the exit codes and template polish. Side effect on Lot 10: toml_edit can round-trip a file without destroying comments, so a configuration window may not have to lose them after all.
 
 **2026-09-09** — Discovered that files written to %APPDATA% during these sessions land in an MSIX package container and are invisible to a normal shell, so the working config and the task definitions had to move into the repository, which is not redirected. The program behaviour verified so far still stands — the presence writer, the scheduled tasks and the elevation failure are all system-wide facts — but anything checked through a file under %APPDATA% was checked inside that container.
 
 **2026-09-09** — Lot 1 hit the finding it existed to find. FanControl cannot be started by the watcher at all: its manifest requires administrator, so CreateProcess fails with error 740 regardless of the command line. The README had been promising exactly that command since the first sketch. Fixed by going through a scheduled task registered with highest privileges, which the unelevated watcher triggers with schtasks /Run and which raises no UAC prompt. Running the watcher elevated was rejected: it would turn a user-writable config file into a local privilege escalation. Also landed the two remaining code items — file logging on by default, and log lines that say GAME DETECTED and GAME NO LONGER DETECTED, including an explicit sentence when Windows' known game list matched nothing.
 
-**2026-09-09** — Comment preservation dropped as a requirement. The configuration is a convenience, so losing the user's own comments on a rewrite is accepted. That removes the only real tension between Lot 2 and Lot 8 and means no comment-preserving serializer is needed. A rewrite should still re-emit the documented header, so the file keeps explaining its own doubled backslashes instead of decaying into bare JSON.
+**2026-09-09** — Comment preservation dropped as a requirement. The configuration is a convenience, so losing the user's own comments on a rewrite is accepted. That removes the only real tension between Lot 2 and Lot 10 and means no comment-preserving serializer is needed. A rewrite should still re-emit the documented header, so the file keeps explaining its own doubled backslashes instead of decaying into bare JSON.
 
 **2026-09-09** — Lot 2 decided: JSONC, so the template can explain its own
 fields and warn about doubled backslashes. Added a validation step and a
 dedicated exit code for an invalid configuration. Found that comments need no
 dependency at all — blanking them with spaces of the same length keeps
 `serde_json`'s error line and column pointing at the real position in the user's
-file. Added Lot 8, a configuration window, which is where hand-editing mistakes
+file. Added Lot 10, a configuration window, which is where hand-editing mistakes
 stop being possible; noted that it must not silently destroy the comments Lot 2
 introduces.
 

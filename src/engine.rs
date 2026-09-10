@@ -20,6 +20,7 @@ use crate::detect::known_games::KnownGames;
 use crate::detect::presence_writer::{self, WaitOutcome};
 use crate::detect::process::Snapshot;
 use crate::detect::{self, GameSignal, gpu};
+use crate::logging::target;
 use crate::win::StopSignal;
 
 pub struct Engine {
@@ -39,14 +40,17 @@ impl Engine {
     }
 
     pub fn run(&mut self, stop: &StopSignal) -> Result<()> {
-        tracing::info!(
-            "watching {} (idle poll {:?})",
-            self.writer_exe.display(),
-            self.config.detection.poll_interval
+        tracing::debug!(
+            target: target::WATCHER,
+            writer = %self.writer_exe.display(),
+            idle_poll = ?self.config.detection.poll_interval,
+            "Watching for games"
         );
         if !presence_writer::is_microsoft_default(&self.writer_exe) {
             tracing::warn!(
-                "the presence writer registration is not the Microsoft default; \
+                target: target::WATCHER,
+                writer = %self.writer_exe.display(),
+                "The registered Game Bar presence writer is not the one Windows ships; \
                  detection follows whatever is registered"
             );
         }
@@ -82,7 +86,9 @@ impl Engine {
                 match self.writer_returns(stop) {
                     Some(new_pid) => {
                         tracing::debug!(
-                            "presence writer restarted as pid {new_pid}, still playing"
+                            target: target::GAME,
+                            pid = new_pid,
+                            "Presence writer came back, the session is still running"
                         );
                         pid = new_pid;
                     }
@@ -92,7 +98,13 @@ impl Engine {
 
             if stopped {
                 if self.config.general.stop_actions_on_exit {
-                    tracing::info!("shutting down while a game is running");
+                    // Stays at info: without it the reader sees a session end
+                    // and has no way to tell the game stopped from the watcher
+                    // stopping under it.
+                    tracing::info!(
+                        target: target::WATCHER,
+                        "Stopping while a game is running, so the stop commands run now"
+                    );
                     self.fire_stop(signal.as_ref());
                 }
                 return Ok(());
@@ -160,16 +172,22 @@ impl Engine {
         });
         match named {
             Some((pid, true)) => tracing::debug!(
-                "presence writer exited {elapsed:?} into the session; \
-                 the identified game (pid {pid}) is still running"
+                target: target::GAME,
+                pid,
+                session = ?elapsed,
+                "Windows released the presence writer while the identified game is still running"
             ),
             Some((pid, false)) => tracing::debug!(
-                "presence writer exited {elapsed:?} into the session; \
-                 the identified game (pid {pid}) had already exited, so the wait \
-                 since then was Windows releasing the writer, not this program"
+                target: target::GAME,
+                pid,
+                session = ?elapsed,
+                "Windows released the presence writer; the identified game had already \
+                 exited, so the wait since then was Windows, not this program"
             ),
             None => tracing::debug!(
-                "presence writer exited {elapsed:?} into the session (game never named)"
+                target: target::GAME,
+                session = ?elapsed,
+                "Windows released the presence writer; the game was never named"
             ),
         }
     }
@@ -180,14 +198,14 @@ impl Engine {
         let known = match KnownGames::load() {
             Ok(known) => known,
             Err(error) => {
-                tracing::warn!("cannot read the known game list: {error:#}");
+                tracing::warn!(target: target::GAME, error = %format!("{error:#}"), "Cannot read Windows' known game list, so the game cannot be named");
                 return None;
             }
         };
         let snapshot = match Snapshot::take() {
             Ok(snapshot) => snapshot,
             Err(error) => {
-                tracing::warn!("cannot enumerate processes: {error:#}");
+                tracing::warn!(target: target::GAME, error = %format!("{error:#}"), "Cannot list running processes, so the game cannot be named");
                 return None;
             }
         };
@@ -204,23 +222,23 @@ impl Engine {
         let known = match KnownGames::load() {
             Ok(known) => known,
             Err(error) => {
-                tracing::debug!("refinement skipped, cannot read the known game list: {error:#}");
+                tracing::debug!(target: target::GAME, error = %format!("{error:#}"), "Refinement skipped, cannot read the known game list");
                 return None;
             }
         };
         let snapshot = match Snapshot::take() {
             Ok(snapshot) => snapshot,
             Err(error) => {
-                tracing::debug!("refinement skipped, cannot enumerate processes: {error:#}");
+                tracing::debug!(target: target::GAME, error = %format!("{error:#}"), "Refinement skipped, cannot list running processes");
                 return None;
             }
         };
         let candidates = known.candidates(&snapshot);
         if candidates.len() < 2 {
             tracing::debug!(
-                "refinement has nothing to arbitrate: {} process(es) match the known \
-                 game list, keeping the current name",
-                candidates.len()
+                target: target::GAME,
+                candidates = candidates.len(),
+                "Refinement has nothing to arbitrate, keeping the current name"
             );
             return None;
         }
@@ -228,7 +246,7 @@ impl Engine {
         let load = match gpu::rendering_load(self.config.detection.gpu_sample) {
             Ok(load) => load,
             Err(error) => {
-                tracing::debug!("cannot read GPU counters, keeping the first match: {error:#}");
+                tracing::debug!(target: target::GAME, error = %format!("{error:#}"), "Cannot read the GPU counters, keeping the first match");
                 return None;
             }
         };
@@ -243,22 +261,28 @@ impl Engine {
         // name can quote the share that confirms it.
         if share <= 0.0 {
             tracing::debug!(
-                "none of the matched processes is rendering yet, so there is nothing to \
-                 go on; keeping the current name"
+                target: target::GAME,
+                "None of the matched processes is rendering yet, keeping the current name"
             );
             return None;
         }
         if current.and_then(|signal| signal.process_id) == best.process_id {
             tracing::debug!(
-                "the GPU confirms the name already in use: {} is drawing {share:.0}% of \
-                 the rendering",
-                best.describe()
+                target: target::GAME,
+                pid = best.process_id,
+                rendering_share = share,
+                "The GPU confirms the name already in use: {}",
+                best.name()
             );
             return None;
         }
         tracing::info!(
-            "game identified more precisely as {} ({share:.0}% of the rendering)",
-            best.describe()
+            target: target::GAME,
+            pid = best.process_id,
+            matched_by = best.source,
+            rendering_share = share,
+            "Game identified more precisely: {} ({share:.0}% of the rendering)",
+            best.name()
         );
         Some(best)
     }
@@ -273,13 +297,20 @@ impl Engine {
 
     fn fire_start(&self, signal: Option<&GameSignal>) {
         match signal {
-            Some(signal) => tracing::info!("GAME DETECTED: {}", signal.describe()),
+            Some(signal) => tracing::info!(
+                target: target::GAME,
+                pid = signal.process_id,
+                matched_by = signal.source,
+                path = signal.process_path.as_deref(),
+                "Game detected: {}",
+                signal.name()
+            ),
             // Naming is a convenience; not managing it changes nothing about
             // detection, so say exactly that rather than looking like a failure.
             None => tracing::info!(
-                "GAME DETECTED, but no entry in Windows' known game list matched any \
-                 running process, so the game could not be named. Actions still run, \
-                 with the name placeholders empty."
+                target: target::GAME,
+                "Game detected, but Windows does not name this one. The commands still \
+                 run, with the name placeholders empty"
             ),
         }
         actions::run_all(
@@ -295,9 +326,13 @@ impl Engine {
         // assert something we cannot vouch for.
         match signal.and_then(|signal| signal.process_name.as_deref()) {
             Some(name) => tracing::info!(
-                "GAME NO LONGER DETECTED (the session was identified as {name} when it started)"
+                target: target::GAME,
+                "Game no longer detected: {name}"
             ),
-            None => tracing::info!("GAME NO LONGER DETECTED (it was never named)"),
+            None => tracing::info!(
+                target: target::GAME,
+                "Game no longer detected, it was never named"
+            ),
         }
         actions::run_all(
             &self.config.on_game_stop,

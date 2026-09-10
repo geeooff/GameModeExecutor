@@ -24,13 +24,21 @@ stop_actions_on_exit = true
 # error | warn | info | debug | trace. The RUST_LOG environment variable
 # overrides this when set.
 #
-# "debug" is the level worth knowing about. It adds the lines that explain a
-# session rather than just report it: when Windows released the presence writer
-# and whether the game had already exited by then, and why a refinement
-# declined to rename anything. It costs a handful of extra lines per session.
+# This is the dial between two readers of the same log.
+#
+# At "info" it stays on what this program is for: a game detected, named or
+# gone, and the watcher starting or stopping. Nothing else competes with those
+# lines.
+#
+# At "debug" you get that same log annotated -- process ids, paths, error codes
+# attached to each line -- plus why the program did what it did: when Windows
+# released the presence writer and whether the game had already exited by then,
+# why a refinement declined to rename anything. A handful of extra lines per
+# session.
 #
 # Run in a terminal rather than hidden and the same lines appear there too,
-# identical to the file and coloured when the terminal is a real one.
+# identical to the file and coloured when the terminal is a real one. See
+# "Reading the log" in the README.
 log_level = "info"
 
 # Where the log file goes. Defaults to %APPDATA%\GameModeExecutor\logs.

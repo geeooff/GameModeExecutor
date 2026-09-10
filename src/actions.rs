@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 
 use crate::config::{Action, Event, Mode};
 use crate::detect::GameSignal;
+use crate::logging::target;
 
 /// CREATE_NO_WINDOW: no console window for the child process.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -57,7 +58,7 @@ pub fn run_all(event: &Event, context: &ActionContext) {
         .iter()
         .filter(|action| {
             if !action.enabled {
-                tracing::debug!("skipping disabled action `{}`", action.label());
+                tracing::debug!(target: target::COMMANDS, "Skipping disabled command `{}`", action.label());
             }
             action.enabled
         })
@@ -67,9 +68,10 @@ pub fn run_all(event: &Event, context: &ActionContext) {
         return;
     }
     tracing::debug!(
-        "running {} action(s) in {}",
-        actions.len(),
-        event.mode.label()
+        target: target::COMMANDS,
+        count = actions.len(),
+        mode = event.mode.label(),
+        "Running the configured commands"
     );
 
     match event.mode {
@@ -78,7 +80,12 @@ pub fn run_all(event: &Event, context: &ActionContext) {
                 match start(action, context) {
                     Ok(child) => join(action, child),
                     Err(error) => {
-                        tracing::error!("action `{}` failed: {error:#}", action.label())
+                        tracing::error!(
+                            target: target::COMMANDS,
+                            error = %format!("{error:#}"),
+                            "Command `{}` could not be started; check its program path in the configuration",
+                            action.label()
+                        )
                     }
                 }
             }
@@ -89,7 +96,12 @@ pub fn run_all(event: &Event, context: &ActionContext) {
                 match start(action, context) {
                     Ok(child) => started.push((action, child)),
                     Err(error) => {
-                        tracing::error!("action `{}` failed: {error:#}", action.label())
+                        tracing::error!(
+                            target: target::COMMANDS,
+                            error = %format!("{error:#}"),
+                            "Command `{}` could not be started; check its program path in the configuration",
+                            action.label()
+                        )
                     }
                 }
             }
@@ -118,7 +130,7 @@ fn start(action: &Action, context: &ActionContext) -> Result<Child> {
         command.env(key, context.render(value));
     }
 
-    tracing::info!("running `{program}` {args:?}");
+    tracing::debug!(target: target::COMMANDS, program, args = ?args, "Starting a command");
     command
         .spawn()
         .with_context(|| format!("cannot start `{program}`"))
@@ -130,9 +142,18 @@ fn join(action: &Action, mut child: Child) {
     }
     let label = action.label();
     match wait_for(&mut child, action.timeout) {
-        Ok(Some(status)) => tracing::info!("`{label}` exited with {status}"),
-        Ok(None) => tracing::warn!("`{label}` still running after its timeout, left detached"),
-        Err(error) => tracing::error!("cannot wait for `{label}`: {error:#}"),
+        Ok(Some(status)) => {
+            tracing::debug!(target: target::COMMANDS, status = %status, "`{label}` finished")
+        }
+        Ok(None) => tracing::warn!(
+            target: target::COMMANDS,
+            "`{label}` is still running after its timeout and was left to finish on its own"
+        ),
+        Err(error) => tracing::error!(
+            target: target::COMMANDS,
+            error = %format!("{error:#}"),
+            "Lost track of `{label}` while waiting for it to finish"
+        ),
     }
 }
 
