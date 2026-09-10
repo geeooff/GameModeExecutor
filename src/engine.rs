@@ -201,10 +201,27 @@ impl Engine {
     /// on its loading screen. Naming is a convenience: no answer is a fine
     /// answer.
     fn refine(&self, current: Option<&GameSignal>) -> Option<GameSignal> {
-        let known = KnownGames::load().ok()?;
-        let snapshot = Snapshot::take().ok()?;
+        let known = match KnownGames::load() {
+            Ok(known) => known,
+            Err(error) => {
+                tracing::debug!("refinement skipped, cannot read the known game list: {error:#}");
+                return None;
+            }
+        };
+        let snapshot = match Snapshot::take() {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                tracing::debug!("refinement skipped, cannot enumerate processes: {error:#}");
+                return None;
+            }
+        };
         let candidates = known.candidates(&snapshot);
         if candidates.len() < 2 {
+            tracing::debug!(
+                "refinement has nothing to arbitrate: {} process(es) match the known \
+                 game list, keeping the current name",
+                candidates.len()
+            );
             return None;
         }
 
@@ -217,15 +234,26 @@ impl Engine {
         };
 
         let best = detect::most_active(candidates, &load)?;
-        if current.and_then(|signal| signal.process_id) == best.process_id {
-            return None;
-        }
         let share = best
             .process_id
             .and_then(|pid| load.get(&pid))
             .copied()
             .unwrap_or(0.0);
+        // Checked before comparing with the current name, so that confirming a
+        // name can quote the share that confirms it.
         if share <= 0.0 {
+            tracing::debug!(
+                "none of the matched processes is rendering yet, so there is nothing to \
+                 go on; keeping the current name"
+            );
+            return None;
+        }
+        if current.and_then(|signal| signal.process_id) == best.process_id {
+            tracing::debug!(
+                "the GPU confirms the name already in use: {} is drawing {share:.0}% of \
+                 the rendering",
+                best.describe()
+            );
             return None;
         }
         tracing::info!(

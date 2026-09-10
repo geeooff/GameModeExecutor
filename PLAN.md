@@ -114,18 +114,33 @@ comes from:
 | Forza Horizon 6 | Game Pass | 6.2 s |
 | Battlefield 6 | Steam | 4.4 s |
 | Battlefield 6, second session | Steam | **about 2 min 2 s** |
+| Starfield, second session | Game Pass | **2.7 s** |
 
-So it is neither a Game Pass trait nor a Windows constant: Forza is a Game Pass
-title and releases in six seconds. Both explanations offered earlier are dead:
-the game closing slowly (its process was gone in 2.8 s) and cloud save
-synchronisation as a store-wide behaviour.
+Both explanations offered earlier are dead: the game closing slowly (its
+process was gone in 2.8 s) and cloud save synchronisation as a store-wide
+behaviour.
 
-**The fourth row breaks the per-title theory.** The first three rows were read
-as "Starfield is the outlier", one number per title. Then Battlefield 6 was
-measured again on 2026-09-10 at 14:32 and took **2 min 2 s** where it had taken
-4.4 s — same title, same store, same machine. The delay is not a property of
-the title, so no table of titles will ever predict it, and there is nothing to
-tune. Windows releases the writer when it decides to.
+**The last two rows kill the per-title theory outright.** The first three were
+read as "Starfield is the outlier", one number per title. Then both titles were
+measured a second time on 2026-09-10, and both moved — in opposite directions.
+Battlefield 6 took **2 min 2 s** where it had taken 4.4 s. Starfield, the
+supposed outlier at 52.2 s, released the writer in **2.7 s**. Same titles, same
+stores, same machine, same afternoon.
+
+So the delay is not a property of the title. No table of titles will ever
+predict it, there is nothing to tune, and a session that stops promptly proves
+nothing about the next one. Windows releases the writer when it decides to.
+
+Measuring the second session of each needed a different source per store, since
+our own log did not record the writer's exit until this was written: Steam's
+`gameoverlay_ui.txt` for Battlefield 6, and for Starfield the AppX container
+destruction in `Microsoft-Windows-AppModel-Runtime/Admin` (event 217) at
+16:12:53.112 against a writer exit at 16:12:55.801. The engine now logs that
+exit itself, so the qualitative half — was the game already gone? — no longer
+needs any of this. The quantitative half still does: we learn the game had
+exited, never when. Holding a handle on the identified process and reading
+`GetProcessTimes` at writer exit would give the exact figure with no polling,
+and is the same handle a process-exit stop signal would need.
 
 That second session is the one where the wait became visible to the user, who
 reported it unprompted as "very long". Corroborated by two independent sources
