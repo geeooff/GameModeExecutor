@@ -1,12 +1,12 @@
 //! Running the configured executables.
 
 use std::os::windows::process::CommandExt;
-use std::process::Command;
+use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
-use crate::config::Action;
+use crate::config::{Action, Event, Mode};
 use crate::detect::GameSignal;
 
 /// CREATE_NO_WINDOW: no console window for the child process.
@@ -47,21 +47,62 @@ impl ActionContext {
     }
 }
 
-/// Run every enabled action in order. A failing action is logged and does not
-/// prevent the following ones from running.
-pub fn run_all(actions: &[Action], context: &ActionContext) {
-    for action in actions {
-        if !action.enabled {
-            tracing::debug!("skipping disabled action `{}`", action.label());
-            continue;
+/// Run an event's commands, in series or all at once.
+///
+/// A command that fails to start is logged and never stops the others: an event
+/// is a set of independent side effects, not a pipeline.
+pub fn run_all(event: &Event, context: &ActionContext) {
+    let actions: Vec<&Action> = event
+        .actions
+        .iter()
+        .filter(|action| {
+            if !action.enabled {
+                tracing::debug!("skipping disabled action `{}`", action.label());
+            }
+            action.enabled
+        })
+        .collect();
+
+    if actions.is_empty() {
+        return;
+    }
+    tracing::debug!(
+        "running {} action(s) in {}",
+        actions.len(),
+        event.mode.label()
+    );
+
+    match event.mode {
+        Mode::Series => {
+            for action in actions {
+                match start(action, context) {
+                    Ok(child) => join(action, child),
+                    Err(error) => {
+                        tracing::error!("action `{}` failed: {error:#}", action.label())
+                    }
+                }
+            }
         }
-        if let Err(error) = run_one(action, context) {
-            tracing::error!("action `{}` failed: {error:#}", action.label());
+        Mode::Parallel => {
+            let mut started = Vec::with_capacity(actions.len());
+            for action in actions {
+                match start(action, context) {
+                    Ok(child) => started.push((action, child)),
+                    Err(error) => {
+                        tracing::error!("action `{}` failed: {error:#}", action.label())
+                    }
+                }
+            }
+            // Everything is running before anything is waited for. Waiting as
+            // we started would have been series with extra steps.
+            for (action, child) in started {
+                join(action, child);
+            }
         }
     }
 }
 
-fn run_one(action: &Action, context: &ActionContext) -> Result<()> {
+fn start(action: &Action, context: &ActionContext) -> Result<Child> {
     let program = context.render(&action.program.to_string_lossy());
     let args: Vec<String> = action.args.iter().map(|arg| context.render(arg)).collect();
 
@@ -78,19 +119,21 @@ fn run_one(action: &Action, context: &ActionContext) -> Result<()> {
     }
 
     tracing::info!("running `{program}` {args:?}");
-    let mut child = command
+    command
         .spawn()
-        .with_context(|| format!("cannot start `{program}`"))?;
+        .with_context(|| format!("cannot start `{program}`"))
+}
 
+fn join(action: &Action, mut child: Child) {
     if !action.wait {
-        return Ok(());
+        return;
     }
-
-    match wait_for(&mut child, action.timeout)? {
-        Some(status) => tracing::info!("`{program}` exited with {status}"),
-        None => tracing::warn!("`{program}` still running after timeout, leaving it detached"),
+    let label = action.label();
+    match wait_for(&mut child, action.timeout) {
+        Ok(Some(status)) => tracing::info!("`{label}` exited with {status}"),
+        Ok(None) => tracing::warn!("`{label}` still running after its timeout, left detached"),
+        Err(error) => tracing::error!("cannot wait for `{label}`: {error:#}"),
     }
-    Ok(())
 }
 
 /// Wait for the child process, giving up after the timeout when one is set.

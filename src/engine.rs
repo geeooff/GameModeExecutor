@@ -171,8 +171,14 @@ impl Engine {
     }
 
     pub fn fire_stop(&self, signal: Option<&GameSignal>) {
-        match signal {
-            Some(signal) => tracing::info!("GAME NO LONGER DETECTED: {}", signal.describe()),
+        // Deliberately no process id here. The name was captured when the
+        // session started; by now that process is usually long gone, and a
+        // satellite of the real game as often as not. Reporting the id would
+        // assert something we cannot vouch for.
+        match signal.and_then(|signal| signal.process_name.as_deref()) {
+            Some(name) => tracing::info!(
+                "GAME NO LONGER DETECTED (the session was identified as {name} when it started)"
+            ),
             None => tracing::info!("GAME NO LONGER DETECTED (it was never named)"),
         }
         actions::run_all(

@@ -11,7 +11,7 @@ use game_mode_executor::config::{self, Config};
 use game_mode_executor::detect::known_games::KnownGames;
 use game_mode_executor::detect::presence_writer;
 use game_mode_executor::detect::process::Snapshot;
-use game_mode_executor::{detect, engine, logging, task, win};
+use game_mode_executor::{detect, engine, exit, logging, task, win};
 
 /// Default config file shipped with the program, also used by `init`.
 const EXAMPLE_CONFIG: &str = include_str!("../config.example.toml");
@@ -81,7 +81,17 @@ enum TriggerEvent {
     Stop,
 }
 
-fn main() -> Result<()> {
+fn main() -> std::process::ExitCode {
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("Error: {error:#}");
+            std::process::ExitCode::from(exit::code_for(&error))
+        }
+    }
+}
+
+fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Some(Commands::Init { force }) => return cmd_init(cli.config.as_deref(), force),

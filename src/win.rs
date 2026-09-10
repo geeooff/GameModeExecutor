@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, WAIT_OBJECT_0,
 };
@@ -67,6 +67,19 @@ impl Drop for StopSignal {
     }
 }
 
+/// Carried as error context so the program can exit with a code that says a
+/// second instance was refused, rather than a generic failure.
+#[derive(Debug)]
+pub struct AlreadyRunning;
+
+impl std::fmt::Display for AlreadyRunning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "another instance is already running in this session")
+    }
+}
+
+impl std::error::Error for AlreadyRunning {}
+
 /// Named mutex kept alive for the lifetime of the process, so a second
 /// instance can detect the first one and bail out.
 pub struct SingleInstance {
@@ -81,7 +94,7 @@ impl SingleInstance {
             .context("CreateMutexW failed")?;
         if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
             unsafe { _ = CloseHandle(handle) };
-            bail!("another instance is already running in this session");
+            return Err(anyhow::Error::new(AlreadyRunning));
         }
         Ok(Self { handle })
     }

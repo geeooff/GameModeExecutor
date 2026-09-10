@@ -11,6 +11,7 @@ pub mod actions;
 pub mod config;
 pub mod detect;
 pub mod engine;
+pub mod exit;
 pub mod logging;
 pub mod registry;
 pub mod task;

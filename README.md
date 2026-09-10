@@ -150,8 +150,29 @@ Without `--config`, the file is looked up next to the executable first
 
 ## Actions
 
-Each `[[on_game_start]]` / `[[on_game_stop]]` entry starts one executable. These
-placeholders are substituted in `program`, `args`, `working_dir` and `env`:
+Each event has a mode and a list of commands:
+
+```toml
+[on_game_start]
+mode = "series"        # or "parallel"
+
+[[on_game_start.actions]]
+name = "FanControl - Game profile"
+program = "schtasks.exe"
+args = ["/Run", "/TN", "GameModeExecutor - FanControl Game"]
+wait = true
+timeout = "15s"
+```
+
+`series` runs each command after the previous one has been waited for.
+`parallel` starts them all at once and then waits. Two commands sleeping two
+seconds each take 4.5 s in series and 2.2 s in parallel.
+
+A command that fails to start is logged and never prevents the others from
+running: an event is a set of independent side effects, not a pipeline.
+
+These placeholders are substituted in `program`, `args`, `working_dir` and
+`env`:
 
 | Placeholder | Value |
 | --- | --- |
@@ -161,6 +182,20 @@ placeholders are substituted in `program`, `args`, `working_dir` and `env`:
 | `{process_path}` | full image path, when readable |
 
 See [`config.example.toml`](config.example.toml) for the annotated reference.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | success |
+| 1 | anything else |
+| 2 | command line misuse (returned by the argument parser) |
+| 3 | configuration file not found |
+| 4 | configuration invalid: syntax or validation |
+| 5 | another instance is already running |
+
+`validate` is the command to script against: it returns 3 or 4 without starting
+anything.
 
 ## Programs that require elevation
 

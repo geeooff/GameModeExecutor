@@ -379,10 +379,7 @@ fn cmd_watch(seconds: u64) -> windows::core::Result<()> {
     let mut game: Option<(u32, String)> = None;
     let mut game_left_at: Option<std::time::Instant> = None;
 
-    log(&format!(
-        "watch: watching {} for {seconds}s",
-        exe.display()
-    ));
+    log(&format!("watch: watching {} for {seconds}s", exe.display()));
 
     // 200ms is a compromise: fast enough not to miss a brief launch, slow
     // enough that one process snapshot per tick stays cheap while a game runs.
@@ -408,13 +405,17 @@ fn cmd_watch(seconds: u64) -> windows::core::Result<()> {
             && let Some(signal) = known.identify(&snapshot)
             && let (Some(pid), Some(name)) = (signal.process_id, signal.process_name.clone())
         {
-            log(&format!("watch: GAME {name} (pid {pid}) identified at +{at:.1}s"));
+            log(&format!(
+                "watch: GAME {name} (pid {pid}) identified at +{at:.1}s"
+            ));
             game = Some((pid, name));
         }
         if let Some((pid, name)) = &game
             && snapshot.by_pid(*pid).is_none()
         {
-            log(&format!("watch: GAME {name} (pid {pid}) EXITED at +{at:.1}s"));
+            log(&format!(
+                "watch: GAME {name} (pid {pid}) EXITED at +{at:.1}s"
+            ));
             game_left_at = Some(std::time::Instant::now());
             game = None;
         }
@@ -438,9 +439,9 @@ fn cmd_watch(seconds: u64) -> windows::core::Result<()> {
                 ));
                 game_left_at = None;
             }
-            (Some(old), Some(new)) if old != new => {
-                log(&format!("watch: WRITER RESTARTED pid {old} -> {new} at +{at:.1}s"))
-            }
+            (Some(old), Some(new)) if old != new => log(&format!(
+                "watch: WRITER RESTARTED pid {old} -> {new} at +{at:.1}s"
+            )),
             _ => {}
         }
         writer = current_writer;

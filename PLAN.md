@@ -50,7 +50,6 @@ says when a game is detected and when it is no longer.
 - [x] Confirm the logon task across a reboot
 - [x] Measure what happens between closing a game and the writer being released
 - [-] Act on the game process exiting as well as the writer — dropped, see below
-- [ ] Stop the stop-edge log claiming a pid it can no longer vouch for
 - [x] Log timestamps in local time rather than UTC
 - [x] Logon task registered from XML, without the schtasks defaults that kill it
 
@@ -168,7 +167,7 @@ Notes:
 
 ---
 
-## Lot 2 — Configuration and how commands run · committed · `[ ]`
+## Lot 2 — Configuration and how commands run · committed · `[x]` done
 
 Goal: control over how several commands run for one event, and a configuration
 that fails loudly and precisely when it is wrong.
@@ -181,13 +180,19 @@ than anything hand-rolled.
 
 - [x] Several commands per event, at game start and at game stop
 - [x] Validation errors that point at a line and column
-- [ ] Per-event execution mode: parallel or serial
-- [ ] A dedicated exit code when the configuration is invalid
-- [ ] Template polish: document every field in the shipped example
+- [x] Per-event execution mode: parallel or serial
+- [x] A dedicated exit code when the configuration is invalid
+- [x] Template polish: document every field in the shipped example
+- [x] Stop the stop-edge log claiming a pid it can no longer vouch for
 
 Done when: a config with several commands per event runs them in the configured
 order or concurrently; an invalid config makes the program refuse to start, say
 exactly where the problem is, and exit with the dedicated code.
+
+**Verified 2026-09-10.** Two commands sleeping two seconds each: 4.54 s in
+series, 2.22 s in parallel. Exit codes measured end to end: 3 for a missing
+file, 4 for one that will not parse, 4 for one that fails validation, 0 for a
+good one, 2 from the argument parser.
 
 ### What the parser already gives, verified 2026-09-09
 

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 pub const CONFIG_FILE_NAME: &str = "config.toml";
@@ -16,10 +16,37 @@ pub const APP_DIR_NAME: &str = "GameModeExecutor";
 pub struct Config {
     pub general: General,
     pub detection: Detection,
-    /// Actions run once, when a game has been detected long enough.
-    pub on_game_start: Vec<Action>,
-    /// Actions run once, when no game has been detected for long enough.
-    pub on_game_stop: Vec<Action>,
+    /// What to run when a game is detected.
+    pub on_game_start: Event,
+    /// What to run once the game is gone.
+    pub on_game_stop: Event,
+}
+
+/// One set of commands, and how they run relative to each other.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Event {
+    pub mode: Mode,
+    pub actions: Vec<Action>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    /// One after another. An action that is waited for holds up the next.
+    #[default]
+    Series,
+    /// All started at once, then waited for.
+    Parallel,
+}
+
+impl Mode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Series => "series",
+            Self::Parallel => "parallel",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -63,7 +90,7 @@ impl Default for Detection {
     fn default() -> Self {
         Self {
             poll_interval: Duration::from_secs(2),
-            stop_delay: Duration::from_secs(5),
+            stop_delay: Duration::from_secs(2),
         }
     }
 }
@@ -112,13 +139,41 @@ impl Action {
     }
 }
 
+/// The configuration file is missing. Carried as error context so the program
+/// can exit with a code that says which of the two failures happened.
+#[derive(Debug)]
+pub struct Missing(pub PathBuf);
+
+impl std::fmt::Display for Missing {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "cannot read config file `{}`", self.0.display())
+    }
+}
+
+impl std::error::Error for Missing {}
+
+/// The configuration file is present but unusable, whether it failed to parse
+/// or failed validation.
+#[derive(Debug)]
+pub struct Invalid(pub PathBuf);
+
+impl std::fmt::Display for Invalid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "config file `{}` is not usable", self.0.display())
+    }
+}
+
+impl std::error::Error for Invalid {}
+
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
         let text = std::fs::read_to_string(path)
-            .with_context(|| format!("cannot read config file `{}`", path.display()))?;
+            .map_err(|error| anyhow::Error::new(error).context(Missing(path.to_path_buf())))?;
         let config: Self = toml::from_str(&text)
-            .with_context(|| format!("cannot parse config file `{}`", path.display()))?;
-        config.validate()?;
+            .map_err(|error| anyhow::Error::new(error).context(Invalid(path.to_path_buf())))?;
+        config
+            .validate()
+            .map_err(|error| error.context(Invalid(path.to_path_buf())))?;
         Ok(config)
     }
 
@@ -126,10 +181,17 @@ impl Config {
         if self.detection.poll_interval.is_zero() {
             anyhow::bail!("detection.poll_interval must be greater than zero");
         }
-        if self.on_game_start.is_empty() && self.on_game_stop.is_empty() {
-            anyhow::bail!("no actions configured: add [[on_game_start]] or [[on_game_stop]]");
+        if self.on_game_start.actions.is_empty() && self.on_game_stop.actions.is_empty() {
+            anyhow::bail!(
+                "no actions configured: add [[on_game_start.actions]] or [[on_game_stop.actions]]"
+            );
         }
-        for action in self.on_game_start.iter().chain(&self.on_game_stop) {
+        for action in self
+            .on_game_start
+            .actions
+            .iter()
+            .chain(&self.on_game_stop.actions)
+        {
             if action.program.as_os_str().is_empty() {
                 anyhow::bail!("an action has an empty `program`");
             }
@@ -187,6 +249,41 @@ mod tests {
         assert_eq!(config.general.log_level, "info");
         // A config with no actions at all does nothing, so it is rejected.
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn the_execution_mode_defaults_to_series() {
+        let config: Config = toml::from_str("").unwrap();
+        assert_eq!(config.on_game_start.mode, Mode::Series);
+        assert_eq!(config.on_game_stop.mode, Mode::Series);
+    }
+
+    #[test]
+    fn parallel_is_spelled_the_way_the_template_spells_it() {
+        let config: Config = toml::from_str(
+            "[on_game_start]
+mode = \"parallel\"
+
+[[on_game_start.actions]]
+program = \"cmd.exe\"
+",
+        )
+        .unwrap();
+        assert_eq!(config.on_game_start.mode, Mode::Parallel);
+        assert_eq!(config.on_game_start.actions.len(), 1);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn an_unknown_mode_is_rejected() {
+        assert!(
+            toml::from_str::<Config>(
+                "[on_game_start]
+mode = \"concurrent\"
+"
+            )
+            .is_err()
+        );
     }
 
     #[test]

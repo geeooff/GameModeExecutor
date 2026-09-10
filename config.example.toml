@@ -3,73 +3,110 @@
 # Copy this file next to gamemode-executor.exe as `config.toml`,
 # or run `gamemode-executor init` to drop it in %APPDATA%\GameModeExecutor.
 #
-# There is no list of games to maintain here. Detection is Windows' own:
-# the program watches the Game Bar presence writer, which Windows starts for
-# a game and releases when it is gone.
+# There is no list of games to maintain here. Detection is Windows' own: the
+# program watches the Game Bar presence writer, which Windows starts for a game
+# and releases when it is gone.
+#
+# Paths are easiest written between single quotes: TOML takes those literally,
+# so Windows separators need no doubling.
+#
+# `gamemode-executor validate` checks this file and points at the line and
+# column of anything wrong.
 
+# ---------------------------------------------------------------------------
 [general]
-# Run on_game_stop when the watcher itself exits while a game is running.
+# ---------------------------------------------------------------------------
+
+# Run the on_game_stop actions when the watcher itself exits while a game is
+# running, so a shutdown does not leave the gaming profile applied.
 stop_actions_on_exit = true
-# error | warn | info | debug | trace  (the RUST_LOG env var overrides this)
+
+# error | warn | info | debug | trace. The RUST_LOG environment variable
+# overrides this when set.
 log_level = "info"
-# Where the log file goes (absolute path). Defaults to
-# %APPDATA%\GameModeExecutor\logs. Timestamps are in local time.
+
+# Where the log file goes. Defaults to %APPDATA%\GameModeExecutor\logs.
+# Timestamps are local time.
 #log_dir = 'C:\Users\me\AppData\Roaming\GameModeExecutor\logs'
 
+# ---------------------------------------------------------------------------
 [detection]
+# ---------------------------------------------------------------------------
+
 # How often to look for the presence writer while no game is running. This is
-# the only polling the program does: once a game starts, it parks on the
+# the only polling the program does: once a game starts it parks on the
 # writer's process handle and does nothing until Windows releases it.
 poll_interval = "2s"
+
 # After the writer exits, how long to wait for it to come back before running
 # the stop actions. Guards against a game that briefly makes Windows
 # re-activate it. Set to "0s" to react immediately.
-stop_delay = "5s"
+stop_delay = "2s"
 
 # ---------------------------------------------------------------------------
-# Actions. Each entry starts one executable.
+# Actions
 #
-# Placeholders usable in program, args, working_dir and env values:
-#   {event}         game_start | game_stop
+# Each event has a mode and a list of commands:
+#
+#   mode = "series"    each command runs after the previous one has been
+#                      waited for. This is the default.
+#   mode = "parallel"  all commands are started at once, then waited for.
+#
+# A command that fails to start is logged and never prevents the others from
+# running.
+#
+# Every command accepts:
+#
+#   name         label used in the log; defaults to the program path
+#   program      the executable to run
+#   args         its arguments, one string per argument
+#   working_dir  directory to run it from
+#   env          extra environment variables, as key = "value"
+#   no_window    hide the console window of the child process (default true)
+#   wait         wait for it to finish (default false)
+#   timeout      give up waiting after this long; ignored unless `wait`
+#   enabled      set to false to keep a command without running it
+#
+# These placeholders are substituted in program, args, working_dir and env:
+#
+#   {event}         game_start or game_stop
 #   {process_name}  e.g. FarmingSimulator2025Game.exe
 #   {process_id}    e.g. 12345
 #   {process_path}  full path, when readable
 #
-# The placeholders are filled from Windows' known game list. They can come out
-# empty for a title Windows tracks but does not describe: detection still
+# They are filled from Windows' known game list and are best effort: a title
+# Windows tracks but does not describe leaves them empty. Detection still
 # works, only the naming is missing.
 # ---------------------------------------------------------------------------
+
+[on_game_start]
+mode = "series"
 
 # FanControl requires administrator elevation, so it cannot be started
 # directly by this unelevated watcher (error 740). Go through a scheduled task
 # registered once with "run with highest privileges" - see the README section
 # "Programs that require elevation".
-
-[[on_game_start]]
+[[on_game_start.actions]]
 name = "FanControl - Game profile"
 program = "schtasks.exe"
 args = ["/Run", "/TN", "GameModeExecutor - FanControl Game"]
 wait = true
 timeout = "15s"
 
-[[on_game_stop]]
+# A program that needs no elevation can be run directly:
+#[[on_game_start.actions]]
+#name = "power plan - high performance"
+#program = "powercfg.exe"
+#args = ["/setactive", "SCHEME_MIN"]
+#wait = true
+#timeout = "10s"
+
+[on_game_stop]
+mode = "series"
+
+[[on_game_stop.actions]]
 name = "FanControl - Quiet profile"
 program = "schtasks.exe"
 args = ["/Run", "/TN", "GameModeExecutor - FanControl Quiet"]
 wait = true
 timeout = "15s"
-
-# A program that does not need elevation can be run directly:
-# [[on_game_start]]
-# name = "power plan - high performance"
-# program = "powercfg.exe"
-# args = ["/setactive", "SCHEME_MIN"]
-
-# Example of a second action, disabled:
-# [[on_game_start]]
-# enabled = false
-# name = "log the game"
-# program = "cmd.exe"
-# args = ["/c", "echo {event} {process_name} >> C:\\temp\\games.log"]
-# wait = true
-# timeout = "10s"
