@@ -52,6 +52,7 @@ impl Engine {
         }
 
         while let Some(mut pid) = self.await_writer(stop) {
+            let session_start = std::time::Instant::now();
             let mut signal = self.identify();
             self.fire_start(signal.as_ref());
 
@@ -74,7 +75,9 @@ impl Engine {
                         }
                         continue;
                     }
-                    WaitOutcome::WriterExited => {}
+                    WaitOutcome::WriterExited => {
+                        self.log_writer_exit(session_start, signal.as_ref());
+                    }
                 }
                 match self.writer_returns(stop) {
                     Some(new_pid) => {
@@ -136,6 +139,38 @@ impl Engine {
             if let Some(pid) = presence_writer::running_pid(&self.writer_exe) {
                 return Some(pid);
             }
+        }
+    }
+
+    /// Record what the writer's exit actually means.
+    ///
+    /// Windows releases the presence writer well after the game process dies,
+    /// and by an amount that is not a per-title constant: one BF6 session was
+    /// measured at 2 min 4 s, an earlier one at seconds. Without this line the
+    /// log jumps straight from the start to the stop, and telling "Windows was
+    /// slow" from "we were slow" needs Steam's own logs. So say whether the
+    /// game we identified was already gone when Windows finally let go.
+    fn log_writer_exit(&self, session_start: std::time::Instant, signal: Option<&GameSignal>) {
+        let elapsed = session_start.elapsed();
+        let named = signal.and_then(|signal| signal.process_id).map(|pid| {
+            let alive = Snapshot::take()
+                .ok()
+                .is_some_and(|snapshot| snapshot.by_pid(pid).is_some());
+            (pid, alive)
+        });
+        match named {
+            Some((pid, true)) => tracing::debug!(
+                "presence writer exited {elapsed:?} into the session; \
+                 the identified game (pid {pid}) is still running"
+            ),
+            Some((pid, false)) => tracing::debug!(
+                "presence writer exited {elapsed:?} into the session; \
+                 the identified game (pid {pid}) had already exited, so the wait \
+                 since then was Windows releasing the writer, not this program"
+            ),
+            None => tracing::debug!(
+                "presence writer exited {elapsed:?} into the session (game never named)"
+            ),
         }
     }
 

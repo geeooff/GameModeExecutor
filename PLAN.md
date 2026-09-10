@@ -113,16 +113,42 @@ comes from:
 | Starfield | Game Pass | **52.2 s** |
 | Forza Horizon 6 | Game Pass | 6.2 s |
 | Battlefield 6 | Steam | 4.4 s |
+| Battlefield 6, second session | Steam | **about 2 min 2 s** |
 
 So it is neither a Game Pass trait nor a Windows constant: Forza is a Game Pass
-title and releases in six seconds. **Starfield is the outlier**, for reasons we
-have not identified and are not worth chasing. Both explanations offered
-earlier are dead: the game closing slowly (its process was gone in 2.8 s) and
-cloud save synchronisation as a store-wide behaviour.
+title and releases in six seconds. Both explanations offered earlier are dead:
+the game closing slowly (its process was gone in 2.8 s) and cloud save
+synchronisation as a store-wide behaviour.
 
-**Decided: the writer stays the only trigger.** Acting on the game process
-exiting would buy a few seconds on typical titles, at the cost of making
-detection depend on naming — and naming is exactly the part that keeps failing.
+**The fourth row breaks the per-title theory.** The first three rows were read
+as "Starfield is the outlier", one number per title. Then Battlefield 6 was
+measured again on 2026-09-10 at 14:32 and took **2 min 2 s** where it had taken
+4.4 s — same title, same store, same machine. The delay is not a property of
+the title, so no table of titles will ever predict it, and there is nothing to
+tune. Windows releases the writer when it decides to.
+
+That second session is the one where the wait became visible to the user, who
+reported it unprompted as "very long". Corroborated by two independent sources
+rather than our own log: Steam's `gameoverlay_ui.txt`, attached to pid 14552 —
+the pid our refinement had named — logged the game gone at 14:32:50, and the
+`EAAntiCheat` filter unloaded at 14:32:46. Our stop fired at 14:34:53.8, of
+which 2 s is `stop_delay`.
+
+**Reopened: should the identified game process also end a session?** The
+decision to keep the writer as the only trigger rested on two premises that
+this session broke. It would "buy a few seconds" — it would have bought two
+minutes. And it would "make detection depend on naming, which keeps failing" —
+but Lot 3 named that process correctly and with evidence, 74 % of the
+rendering, two minutes before the writer let go.
+
+Not a decision to take from a single session, and it cuts against the standing
+instruction that the writer alone drives the architecture. What is clear is
+that the start trigger should not move: the writer is what makes a session
+begin, and it is right. Only the stop path is in question, and only as a second
+signal beside the writer, never replacing it. Risks to weigh first: a game that
+restarts its own process mid-session (Forza did exactly this after a settings
+change) would look like a quit, and a refinement that picked a satellite would
+end the session early.
 A few seconds of the wrong fan profile is not worth trading away the one signal
 that has never been wrong.
 
@@ -458,6 +484,8 @@ Recorded so they stop coming back:
 ---
 
 ## Journal
+
+**2026-09-10** — Lots 2 and 3 tested in real conditions, on Battlefield 6. Lot 3 did exactly what it exists for: the session opened named after `EAAntiCheat.GameServiceLauncher.exe`, and 21.4 s later — the configured 20 s plus the 1 s sample plus overhead — it corrected itself to `bf6.exe` on 74 % of the rendering, a name that then survived into the stop message. That is the first time the GPU ranking has run against a real title; before this it was only unit tests and a `status` display. Lot 2 held up too, both modes visible in the timestamps rather than merely labelled, and exit code 5 turned up unplanned in Task Scheduler when a restart raced the old instance. The session also produced the thing worth keeping: the user reported the stop as very long, and it was — 2 min 4 s, of which 2 s were ours. Establishing that needed Steam's logs because our own said nothing about when the writer exited, so the engine now records that moment and whether the named game was already gone. The measurement retired the per-title theory of the post-quit delay and reopened whether the identified process should also end a session; see the section above rather than deciding from one session.
 
 **2026-09-10** — Lot 3 reopened, researched, and closed. Nothing in the industry was worth copying: the three products with the most incentive all ship allow-lists. What came out of the research instead was a measurement available without privileges — the per-process GPU counters — and a narrower way to use it. Rather than trying to find a game, it ranks the candidates the known game list already matched, once, twenty seconds into a session. The wait happens on the writer's handle rather than in a sleep, so it stays blind to nothing. Lots 1, 2 and 3 are done and tagged.
 
