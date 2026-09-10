@@ -49,9 +49,14 @@ pub fn is_microsoft_default(exe: &Path) -> bool {
 /// shares the file name is not mistaken for it. When the image path cannot be
 /// read the file name alone is accepted, which is the best we can do.
 pub fn running_pid(exe: &Path) -> Option<u32> {
+    find_in(&super::process::Snapshot::take().ok()?, exe)
+}
+
+/// Same, against a snapshot the caller already has. Useful when one tick needs
+/// to look at several processes and should not pay for a snapshot each time.
+pub fn find_in(snapshot: &super::process::Snapshot, exe: &Path) -> Option<u32> {
     let file_name = exe.file_name()?.to_string_lossy().to_ascii_lowercase();
     let expected = exe.to_string_lossy().to_ascii_lowercase();
-    let snapshot = super::process::Snapshot::take().ok()?;
 
     for process in &snapshot.processes {
         if !process.name.eq_ignore_ascii_case(&file_name) {

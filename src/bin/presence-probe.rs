@@ -353,44 +353,97 @@ fn foreground_process_name() -> String {
     format!("{name} (pid {pid})")
 }
 
-/// Purely passive: log when the registered presence writer comes and goes.
-/// Nothing is modified, nothing needs admin. Run it, then play a game.
+/// Purely passive: log when the registered presence writer comes and goes, and
+/// alongside it the game process itself. Nothing is modified, nothing needs
+/// admin. Run it, then play a game.
+///
+/// Tracking both is the point: it splits the delay a user feels when closing a
+/// game into the part where the game is still shutting down and the part where
+/// Windows is still holding its presence reference.
 fn cmd_watch(seconds: u64) -> windows::core::Result<()> {
+    use game_mode_executor::detect::known_games::KnownGames;
+    use game_mode_executor::detect::process::Snapshot;
+
     let exe = writer_exe();
-    let mut last = presence_writer::running_pid(&exe);
-    log(&format!(
-        "watch: {} is {} at start, watching for {seconds}s",
-        exe.display(),
-        match last {
-            Some(pid) => format!("RUNNING (pid {pid})"),
-            None => "not running".to_owned(),
+    let known = match KnownGames::load() {
+        Ok(known) => Some(known),
+        Err(error) => {
+            log(&format!(
+                "watch: known game list unavailable ({error:#}); the game process will not be tracked"
+            ));
+            None
         }
+    };
+
+    let mut writer: Option<u32> = None;
+    let mut game: Option<(u32, String)> = None;
+    let mut game_left_at: Option<std::time::Instant> = None;
+
+    log(&format!(
+        "watch: watching {} for {seconds}s",
+        exe.display()
     ));
 
-    // 100ms so a short-lived launch is not missed. This is a measurement
-    // tool, not the shipping detector: it costs a process snapshot per tick.
+    // 200ms is a compromise: fast enough not to miss a brief launch, slow
+    // enough that one process snapshot per tick stays cheap while a game runs.
     let started = std::time::Instant::now();
+    let mut first = true;
     while started.elapsed().as_secs() < seconds {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        let current = presence_writer::running_pid(&exe);
-        match (last, current) {
+        if !first {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        first = false;
+        let at = started.elapsed().as_secs_f32();
+
+        let Ok(snapshot) = Snapshot::take() else {
+            continue;
+        };
+        let current_writer = presence_writer::find_in(&snapshot, &exe);
+
+        // The game is identified once, when the writer appears; after that it
+        // is only checked for still being in the snapshot, which is cheap.
+        if game.is_none()
+            && current_writer.is_some()
+            && let Some(known) = &known
+            && let Some(signal) = known.identify(&snapshot)
+            && let (Some(pid), Some(name)) = (signal.process_id, signal.process_name.clone())
+        {
+            log(&format!("watch: GAME {name} (pid {pid}) identified at +{at:.1}s"));
+            game = Some((pid, name));
+        }
+        if let Some((pid, name)) = &game
+            && snapshot.by_pid(*pid).is_none()
+        {
+            log(&format!("watch: GAME {name} (pid {pid}) EXITED at +{at:.1}s"));
+            game_left_at = Some(std::time::Instant::now());
+            game = None;
+        }
+
+        match (writer, current_writer) {
             (None, Some(pid)) => log(&format!(
-                "watch: STARTED pid {pid} at +{:.1}s, foreground = {}",
-                started.elapsed().as_secs_f32(),
+                "watch: WRITER STARTED pid {pid} at +{at:.1}s, foreground = {}",
                 foreground_process_name()
             )),
-            (Some(old), None) => log(&format!(
-                "watch: EXITED pid {old} at +{:.1}s, foreground = {}",
-                started.elapsed().as_secs_f32(),
-                foreground_process_name()
-            )),
-            (Some(old), Some(new)) if old != new => log(&format!(
-                "watch: RESTARTED pid {old} -> {new} at +{:.1}s",
-                started.elapsed().as_secs_f32()
-            )),
+            (Some(old), None) => {
+                let gap = match game_left_at {
+                    Some(when) => format!(
+                        ", {:.1}s after the game process itself exited",
+                        when.elapsed().as_secs_f32()
+                    ),
+                    None => ", the game process was never identified".to_owned(),
+                };
+                log(&format!(
+                    "watch: WRITER EXITED pid {old} at +{at:.1}s{gap}, foreground = {}",
+                    foreground_process_name()
+                ));
+                game_left_at = None;
+            }
+            (Some(old), Some(new)) if old != new => {
+                log(&format!("watch: WRITER RESTARTED pid {old} -> {new} at +{at:.1}s"))
+            }
             _ => {}
         }
-        last = current;
+        writer = current_writer;
     }
     log("watch: done");
     Ok(())

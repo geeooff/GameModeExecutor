@@ -48,7 +48,9 @@ says when a game is detected and when it is no longer.
 - [x] Real game sessions: both games detected, named and switching profiles
 - [x] Packaged title named after the fix, on both edges
 - [x] Confirm the logon task across a reboot
-- [ ] Measure what happens between closing a game and the writer being released
+- [x] Measure what happens between closing a game and the writer being released
+- [-] Act on the game process exiting as well as the writer — dropped, see below
+- [ ] Stop the stop-edge log claiming a pid it can no longer vouch for
 - [x] Log timestamps in local time rather than UTC
 - [x] Logon task registered from XML, without the schtasks defaults that kill it
 
@@ -88,6 +90,71 @@ State:
   from game end to it being restored, of which 5 s is the configured
   `stop_delay`. FanControl kept the same PID throughout: nothing started a
   second instance.
+
+### Where the delay after quitting a game goes
+
+Measured 2026-09-10 on Starfield, with `presence-probe watch` tracking both the
+writer and the game process, and the user noting the exact moment they quit:
+
+| Segment | Duration |
+| --- | --- |
+| click quit to the game process being gone | 2.8 s |
+| **game process gone to Windows releasing the writer** | **52.2 s** |
+| writer released to our stop actions | 1.9 s (`stop_delay`) |
+| our action to the profile applied | about 1.4 s |
+
+So roughly a minute from quitting to the fans changing, and **all but six
+seconds of it is Windows**. Tuning `stop_delay` is noise at this scale.
+
+Two more titles, measured the same way on 2026-09-10, settle where that 52 s
+comes from:
+
+| Title | Store | Game process gone to writer released |
+| --- | --- | --- |
+| Starfield | Game Pass | **52.2 s** |
+| Forza Horizon 6 | Game Pass | 6.2 s |
+| Battlefield 6 | Steam | 4.4 s |
+
+So it is neither a Game Pass trait nor a Windows constant: Forza is a Game Pass
+title and releases in six seconds. **Starfield is the outlier**, for reasons we
+have not identified and are not worth chasing. Both explanations offered
+earlier are dead: the game closing slowly (its process was gone in 2.8 s) and
+cloud save synchronisation as a store-wide behaviour.
+
+**Decided: the writer stays the only trigger.** Acting on the game process
+exiting would buy a few seconds on typical titles, at the cost of making
+detection depend on naming — and naming is exactly the part that keeps failing.
+A few seconds of the wrong fan profile is not worth trading away the one signal
+that has never been wrong.
+
+### Why naming a game is hard, and why it stays optional
+
+A game is not one process. It is an installer stub for dependencies, a splash
+screen, a third-party launcher, an anti-cheat service, and somewhere among them
+the executable a player would name. They share an install folder or a package
+family, so they all match, and the satellites usually start first.
+
+Three sessions, three different ways of getting it wrong: Starfield was named
+after `gamelaunchhelper.exe`, Battlefield 6 after
+`EAAntiCheat.GameServiceLauncher.exe` matched through its parent directory, and
+Forza kept a process id that a mid-session restart had replaced.
+
+Telling the real game apart would mean waiting to see which process actually
+consumes CPU, GPU or memory. That is a heuristic, it is fragile, and it is the
+kind of guessing this project set out to avoid.
+
+**So naming stays deliberately best effort and is not a work item.** It feeds
+the log and the placeholders; it never feeds detection. The only thing worth
+fixing is the wording: the stop-edge line should not assert a process id it can
+no longer vouch for.
+
+### Windows tracks the title, not the process
+
+Forza restarted itself mid-session after a settings change, replacing its
+process. The writer never exited: Windows held the presence across a new
+process id, and the fan profile stayed on Game throughout. Our own grace period
+was never even reached. Worth knowing, because it means the writer is a
+title-level signal rather than a process-level one.
 
 Notes:
 
@@ -189,8 +256,10 @@ to name it is not a failure of the program.
 - [x] Say so plainly when no known game matched, in the log, at normal level
       rather than only in debug
 - [x] Packaged titles matched wherever the Store installed them
-- [ ] Make the placeholders behave predictably when the name is unknown
-- [ ] Document that this is naming only, never detection
+- [x] Document that this is naming only, never detection
+- [-] Chase the real game among a title's satellite processes — dropped: it
+      would need a resource-consumption heuristic, which is exactly the kind of
+      guessing this project avoids
 
 Done when: a session with an unrecognised game runs the commands normally and
 leaves a log line that unambiguously says no entry in Windows' known game list
@@ -338,6 +407,8 @@ Recorded so they stop coming back:
 ---
 
 ## Journal
+
+**2026-09-10** — Measured the delay after quitting a game, and it is not where I guessed. Starfield's process was gone 2.8 s after the click; Windows then held the presence writer for another 52.2 s. I had argued the game was probably slow to exit and dismissed the cloud-save-sync explanation; the measurement says the opposite, and that explanation is now the one still standing. It predicts a much smaller gap on a Steam title, which is worth checking. The same run exposed a naming defect: identify returns the first matching process, and gamelaunchhelper.exe shares Starfield's package family, so the session was named after a stub that died 0.4 s later.
 
 **2026-09-10** — The installed logon task carried three schtasks defaults that were wrong for a watcher meant to run forever, the worst being ExecutionTimeLimit PT72H, which would have had Windows kill it after three days. The two battery settings would have stopped it on an unplugged laptop. Ironic, since the FanControl task definitions written by hand had all three right. install-task now registers from an XML definition like those, and gained a restart-on-failure. Logs moved to local timestamps via GetLocalTime, and the daily rotation was dropped: it only ever bought filenames dated in UTC, which was the confusion being fixed. log_keep_days goes with it, so an existing configuration has to be replaced rather than kept.
 
