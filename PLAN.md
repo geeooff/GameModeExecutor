@@ -149,21 +149,22 @@ the pid our refinement had named — logged the game gone at 14:32:50, and the
 `EAAntiCheat` filter unloaded at 14:32:46. Our stop fired at 14:34:53.8, of
 which 2 s is `stop_delay`.
 
-**Reopened: should the identified game process also end a session?** The
-decision to keep the writer as the only trigger rested on two premises that
-this session broke. It would "buy a few seconds" — it would have bought two
-minutes. And it would "make detection depend on naming, which keeps failing" —
-but Lot 3 named that process correctly and with evidence, 74 % of the
-rendering, two minutes before the writer let go.
+**Reopened, then closed the same day: the writer stays the only signal.** The
+two-minute session made the case for also ending on the identified game process
+exiting, and Lot 3 had removed the old objection by naming that process
+correctly, on 74 % of the rendering, two minutes before the writer let go.
 
-Not a decision to take from a single session, and it cuts against the standing
-instruction that the writer alone drives the architecture. What is clear is
-that the start trigger should not move: the writer is what makes a session
-begin, and it is right. Only the stop path is in question, and only as a second
-signal beside the writer, never replacing it. Risks to weigh first: a game that
-restarts its own process mid-session (Forza did exactly this after a settings
-change) would look like a quit, and a refinement that picked a satellite would
-end the session early.
+Put to the user with the alternatives and the risks — a game that restarts its
+own process mid-session (Forza did exactly this after a settings change) would
+look like a quit, and a refinement that picked a satellite would end a session
+early. **Decision: change nothing.** The variable delay is accepted in exchange
+for an architecture with one signal in it, and the committed diagnostics are
+enough to explain any particular wait after the fact.
+
+So this is settled, not pending. Reopen it only on new evidence, and note that
+the case for changing is weaker than a single two-minute session suggests: the
+delay is random, so the same change that saves two minutes on one session saves
+nothing on the next.
 A few seconds of the wrong fan profile is not worth trading away the one signal
 that has never been wrong.
 

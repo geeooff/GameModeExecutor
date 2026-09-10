@@ -1,5 +1,6 @@
 //! Console and file logging setup.
 
+use std::io::IsTerminal;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -63,8 +64,20 @@ pub fn init(level: &str, log_dir: Option<&Path>, to_console: bool) -> Result<Gua
         None => None,
     };
 
-    let console_layer =
-        to_console.then(|| fmt::layer().with_target(false).with_timer(LocalTimestamp));
+    // The console shows exactly what the file records, same fields and same
+    // filter: the watcher is a long-running process, and someone leaving it in
+    // a terminal is watching it work, not reading a summary. It used to drop
+    // the target, so the terminal said `stopped` where the file said which
+    // module stopped.
+    //
+    // Colours only when a person is really at a terminal. Unconditional ANSI
+    // writes escape codes into whatever captures the output -- `run > log.txt`,
+    // or a pipe -- where they are noise rather than colour.
+    let console_layer = to_console.then(|| {
+        fmt::layer()
+            .with_timer(LocalTimestamp)
+            .with_ansi(std::io::stdout().is_terminal())
+    });
 
     tracing_subscriber::registry()
         .with(filter)
