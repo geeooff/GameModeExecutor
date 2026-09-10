@@ -126,6 +126,47 @@ detection depend on naming — and naming is exactly the part that keeps failing
 A few seconds of the wrong fan profile is not worth trading away the one signal
 that has never been wrong.
 
+### What everyone else does about it, researched 2026-09-10
+
+The vendors with the most incentive to solve this have not solved it. They
+recognise *known* games rather than detecting *a* game:
+
+| Product | How it identifies a game |
+| --- | --- |
+| NVIDIA GeForce Experience | a curated database of supported titles, plus scanning configured folders |
+| AMD Adrenalin | scans the usual game directories; anything elsewhere is added by hand |
+| Discord | a hash table of executable names, with parts of the folder path to disambiguate generic ones |
+
+All three are allow-lists, and all three fail on the same things: unusual
+install paths, launchers, and executables with generic names. That is the
+approach this project rejected at the start, and it is what the industry ships.
+
+The exception is **Intel PresentMon**, which is open source and measures the
+truth: it traces ETW frame-presentation events and knows which process is
+actually rendering. It needs administrator rights or membership of the
+*Performance Log Users* group, and an ETW trace session.
+
+Two things follow. First, our position is already better than the allow-list
+products: we read Microsoft's own Known Game List, which is the same kind of
+database but maintained by the OS vendor and updated without us, plus a
+presence signal none of them have. Second, there is nothing to copy.
+
+### The one measurement available without privileges
+
+Windows exposes per-process GPU counters — the ones Task Manager shows.
+Verified on this machine, unelevated, `GPU Engine(*)` returned 807 valid
+instances named `pid_<id>_..._engtype_3d`, correctly attributing load to
+processes.
+
+That is close to what PresentMon measures, without ETW or elevation. It cannot
+find a game from nothing, but it can do something narrower and more useful:
+**rank the candidates the Known Game List already produced**. A launcher stub
+and an anti-cheat service sit near zero on the 3D engine; the game does not.
+
+Caveat: this machine's account is a member of *Performance Log Users*, so the
+reading proves the counters work here, not that they work for every account.
+Any use of them needs a fallback.
+
 ### Why naming a game is hard, and why it stays optional
 
 A game is not one process. It is an installer stub for dependencies, a splash

@@ -245,7 +245,7 @@ mod tests {
     fn empty_config_falls_back_to_defaults() {
         let config: Config = toml::from_str("").unwrap();
         assert_eq!(config.detection.poll_interval, Duration::from_secs(2));
-        assert_eq!(config.detection.stop_delay, Duration::from_secs(5));
+        assert_eq!(config.detection.stop_delay, Duration::from_secs(2));
         assert_eq!(config.general.log_level, "info");
         // A config with no actions at all does nothing, so it is rejected.
         assert!(config.validate().is_err());
