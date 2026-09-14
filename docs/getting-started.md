@@ -75,8 +75,8 @@ administrator rights, no password, no window.
 
 **That is the end of the setup.** Play. The commands fire by themselves.
 
-Want a complete worked example rather than a blank page? [Recipes](recipes.md)
-has one, fans included.
+Want a complete worked example rather than a blank page? [Recipes](recipes/) has
+one per job, each with a `config.toml` you can copy straight over.
 
 ## Checking that it is alive
 
@@ -124,7 +124,8 @@ The way round it is a scheduled task per command, registered once with *run with
 highest privileges*. Triggering one needs no rights and raises no prompt, so
 your command becomes `schtasks /Run` instead.
 
-[Recipes](recipes.md) walks through it end to end, with ready-made task files.
+[Fan profiles with FanControl](recipes/fancontrol-fan-profiles/) walks through
+that case end to end, with ready-made task files.
 
 ## When something is not right
 

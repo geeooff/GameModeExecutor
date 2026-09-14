@@ -679,11 +679,12 @@ running in five minutes, and someone curious can find out how it works without
 reading Rust.
 
 - [x] `docs/getting-started.md` — features and the shortest path to a result
-- [x] `docs/recipes.md` — worked examples end to end, FanControl in full
+- [x] `docs/recipes/` — one folder per worked example, each with a ready-made `config.toml`
 - [x] `docs/how-it-works.md` — the mechanism, for a curious non-programmer
 - [x] All three linked from the top of the README, above the reference material
 - [x] The README keeps the reference and the reasoning; the new pages do not repeat them
-- [x] FanControl lives in the recipe and nowhere else in the user docs
+- [x] FanControl lives in its recipe and nowhere else in the user docs; `tasks/` moved in beside it
+- [x] Every shipped `config.toml` passes `validate` — they are files people copy, not illustrations
 
 Done when: the two questions a newcomer actually asks — "how do I make it do my
 thing" and "why are there two .exe files" — are answered without opening the
@@ -707,7 +708,7 @@ Three documents, three readers, no overlap:
 | | Reader | Answers |
 | --- | --- | --- |
 | `docs/getting-started.md` | wants it working | what do I type, where do I put my commands, why is nothing happening |
-| `docs/recipes.md` | has a specific job in mind | give me the whole thing for my case, copy-paste |
+| `docs/recipes/<job>/` | has a specific job in mind | give me the whole thing for my case, copy-paste |
 | `docs/how-it-works.md` | curious, not a programmer, knows what a process is | how does it know a game is running, why two executables, why the wait after quitting |
 | `README.md` | evaluating or contributing | the reference, the measurements, why every other approach was ruled out |
 
@@ -721,6 +722,18 @@ The middle one earns its place: the design has three things a user will
 *notice* and misread as bugs — the unpredictable wait after quitting, the two
 executables, and a game that is detected but not named. Each has a real reason.
 Left unexplained, each looks like a defect.
+
+### One folder per recipe
+
+Each recipe is a folder holding its own `README.md` and a complete
+`config.toml`, plus whatever else it needs — the FanControl one carries its two
+Task Scheduler templates, which is why `tasks/` at the repository root is gone.
+Adding a recipe adds a folder and one row in the index; nothing else moves, and
+no existing recipe is touched.
+
+The shipped `config.toml` files are checked with `validate` rather than written
+and hoped for. They are files people copy over their own configuration, so a
+typo in one is a typo in theirs.
 
 ### The maintenance rule
 

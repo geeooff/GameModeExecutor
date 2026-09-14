@@ -1,0 +1,47 @@
+# Fan profiles with FanControl
+#
+# Quiet fans outside games, the Game profile while playing.
+# Full instructions: see README.md next to this file.
+#
+# Before this works you need two scheduled tasks, registered once with
+# "run with highest privileges":
+#
+#   GameModeExecutor - FanControl Game    ->  FanControl.exe -c Game.json
+#   GameModeExecutor - FanControl Quiet   ->  FanControl.exe -c Quiet.json
+#
+# The detour exists because FanControl requires administrator rights and this
+# watcher deliberately has none. Triggering a task needs no rights at all.
+#
+# Notice there is no path to FanControl in this file. It lives in the task
+# instead, which is what keeps this file editable by a non-administrator.
+
+[general]
+# Restore the quiet profile if the watcher stops while a game is running --
+# logging off and shutting down included.
+stop_actions_on_exit = true
+
+# "debug" adds the detail behind each line: which process was matched, and how
+# long Windows took to release its "a game is running" signal.
+log_level = "info"
+
+[on_game_start]
+mode = "series"
+
+[[on_game_start.actions]]
+name = "FanControl - Game profile"
+program = "schtasks.exe"
+args = ["/Run", "/TN", "GameModeExecutor - FanControl Game"]
+# Wait for the trigger to be accepted, so the log records whether it was.
+# schtasks returns in about 100 ms; the timeout is only a safety net.
+wait = true
+timeout = "15s"
+
+[on_game_stop]
+mode = "series"
+
+[[on_game_stop.actions]]
+name = "FanControl - Quiet profile"
+program = "schtasks.exe"
+args = ["/Run", "/TN", "GameModeExecutor - FanControl Quiet"]
+wait = true
+timeout = "15s"

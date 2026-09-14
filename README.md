@@ -24,7 +24,7 @@ the watcher does not poll while you play.
 | | |
 | --- | --- |
 | **[Getting started](docs/getting-started.md)** | Running in five minutes. Start here. |
-| **[Recipes](docs/recipes.md)** | Worked examples, start to finish — including quiet fans outside games and a game profile while playing, with FanControl. |
+| **[Recipes](docs/recipes/)** | Worked examples, start to finish, one folder each with a ready-made `config.toml` — including quiet fans outside games and a game profile while playing, with FanControl. |
 | **[How it works](docs/how-it-works.md)** | For the curious: how it knows a game is running, why the two executables, why the wait after you quit. No programming needed. |
 
 The rest of this file is the reference, and the reasoning and measurements
@@ -329,9 +329,10 @@ Register-ScheduledTask -TaskName 'GameModeExecutor - FanControl Game' -Action $a
 
 Registering it with no trigger means it only ever runs when something asks it to.
 
-Ready-made task definitions live in [`tasks/`](tasks/), with a note on why each
-setting is what it is — several of them are not obvious and get this wrong in
-ways that fail silently.
+Ready-made task definitions, and a note on why each setting is what it is, live
+with the recipe that uses them:
+[Fan profiles with FanControl](docs/recipes/fancontrol-fan-profiles/). Several
+of those settings are not obvious and get this wrong in ways that fail silently.
 
 **Why not simply run the watcher elevated?** Because the configuration file lives
 in `%APPDATA%` and names arbitrary programs to execute. An elevated watcher would

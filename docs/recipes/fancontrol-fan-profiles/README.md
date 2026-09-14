@@ -1,23 +1,20 @@
-# Recipes
-
-Worked examples, start to finish. If you have not set the program up yet, read
-[Getting started](getting-started.md) first.
-
-- [Quiet fans outside games, game profile while playing (FanControl)](#quiet-fans-outside-games-game-profile-while-playing)
-- [Switch the Windows power plan](#switch-the-windows-power-plan)
-- [Run anything else](#run-anything-else)
-
----
-
-## Quiet fans outside games, game profile while playing
+# Fan profiles with FanControl
 
 **The goal.** FanControl sits on its `Quiet` profile normally, and switches to
 `Game` the moment Windows sees a game start — then back to `Quiet` when you
 stop.
 
+In this folder:
+
+| File | |
+| --- | --- |
+| [`config.toml`](config.toml) | the complete configuration, ready to copy |
+| [`FanControl-Game.xml`](FanControl-Game.xml) | Task Scheduler definition for the `Game` profile |
+| [`FanControl-Quiet.xml`](FanControl-Quiet.xml) | the same for `Quiet` |
+
 This one takes a detour, and it is worth understanding why before you start.
 
-### Why it is not a one-liner
+## Why it is not a one-liner
 
 FanControl talks to your hardware, so it declares in its manifest that it
 requires administrator rights. This watcher runs **without** administrator
@@ -32,22 +29,22 @@ run FanControl.
 
 You do this once. After that it is invisible.
 
-### 1. Check FanControl's side
+## 1. Check FanControl's side
 
 You need two profiles saved in FanControl, named exactly:
 
 - `Quiet.json`
 - `Game.json`
 
-Create them in FanControl's interface if you have not already (configure the
-curves you want, then **Save configuration as…**). They land in the
-`Configurations` folder next to `FanControl.exe`.
+Create them in FanControl's interface if you have not already — set the curves
+you want, then **Save configuration as…**. They land in the `Configurations`
+folder next to `FanControl.exe`.
 
-### 2. Find where FanControl actually lives
+## 2. Find where FanControl actually lives
 
 **FanControl has no standard install folder.** It is distributed as an archive
 you extract wherever you like, so there is no path this guide can assume — and
-several ways of installing it end up somewhere different.
+the several ways of installing it each end up somewhere different.
 
 This finds it:
 
@@ -61,11 +58,11 @@ This finds it:
 ```
 
 If it prints nothing, you have a portable copy somewhere of your own choosing —
-right-click your FanControl shortcut, **Open file location**.
+right-click your FanControl shortcut and pick **Open file location**.
 
 Keep that folder path. Everything below calls it **the FanControl folder**.
 
-### 3. Create the two tasks
+## 3. Create the two tasks
 
 Each task runs FanControl with `-c` and a profile name. That flag does exactly
 what is needed here: it applies the profile, and if FanControl is *already*
@@ -80,29 +77,40 @@ Registering a task that runs with highest privileges **needs administrator
 rights, once**. Without them the registration is refused with `Access is
 denied`.
 
-#### The quick way: import the templates
+### The quick way: import the templates
 
-Two ready-made definitions ship in [`tasks/`](../tasks/). Open each in a text
-editor and replace two placeholders:
+Open [`FanControl-Game.xml`](FanControl-Game.xml) and
+[`FanControl-Quiet.xml`](FanControl-Quiet.xml) in a text editor and replace two
+placeholders in each:
 
 | Placeholder | Replace with |
 | --- | --- |
 | `__DOMAIN__\__USERNAME__` | your account — run `whoami` to print it |
 | `__FANCONTROL_DIR__` | the FanControl folder (it appears **twice** per file) |
 
-Then, from a PowerShell or Command Prompt **opened as administrator**, in the
-`tasks` folder:
+Both files are UTF-16 with a BOM, the encoding Task Scheduler itself exports —
+keep it if your editor asks.
+
+Then, from a PowerShell or Command Prompt **opened as administrator**, in this
+folder:
 
 ```
 schtasks /Create /XML "FanControl-Game.xml"  /TN "GameModeExecutor - FanControl Game"  /F
 schtasks /Create /XML "FanControl-Quiet.xml" /TN "GameModeExecutor - FanControl Quiet" /F
 ```
 
-#### Or by hand, in Task Scheduler
+Check what landed:
+
+```powershell
+Get-ScheduledTask -TaskName 'GameModeExecutor - FanControl *' |
+  Select-Object TaskName, @{n='RunLevel';e={$_.Principal.RunLevel}}
+```
+
+### Or by hand, in Task Scheduler
 
 Press `Win+R`, type `taskschd.msc`, and run it **as administrator**. Then
-**Action → Create Task…** (not *Create Basic Task* — it does not offer the
-settings that matter).
+**Action → Create Task…** — not *Create Basic Task*, which does not offer the
+settings that matter.
 
 Do this twice, once per profile. For the `Game` one:
 
@@ -126,7 +134,7 @@ Do this twice, once per profile. For the `Game` one:
 - ☐ Uncheck **Start the task only if the computer is on AC power**
 - ☐ Uncheck **Stop if the computer switches to battery power**
 
-  *(Otherwise nothing happens on a laptop running on battery.)*
+  *Otherwise nothing happens on a laptop running on battery.*
 
 **Settings tab**
 - ☐ Uncheck **Stop the task if it runs longer than**
@@ -134,15 +142,15 @@ Do this twice, once per profile. For the `Game` one:
 - At the bottom, *If the task is already running…*: choose **Run a new instance
   in parallel**
 
-  *(These three matter for one reason: if FanControl was not already running,
-  the task's own process **is** FanControl and stays alive. With the defaults,
-  Task Scheduler would eventually kill it, and would silently ignore every
-  later request to switch profile.)*
+  *These three matter for one reason: if FanControl was not already running, the
+  task's own process **is** FanControl and stays alive. With the defaults, Task
+  Scheduler would eventually kill it, and would silently ignore every later
+  request to switch profile.*
 
 Then repeat, changing only the name to `GameModeExecutor - FanControl Quiet` and
 the argument to `-c Quiet.json`.
 
-### 4. Test the tasks on their own
+## 4. Test the tasks on their own
 
 Before involving any game. From a normal, **non**-administrator prompt:
 
@@ -154,12 +162,12 @@ schtasks /Run /TN "GameModeExecutor - FanControl Quiet"
 Watch FanControl's window: the active configuration should change each time. If
 this does not work, nothing further will, and the problem is on this side.
 
-### 5. The configuration
+## 5. The configuration
+
+Copy [`config.toml`](config.toml) over your own. It is the complete file:
 
 ```toml
 [general]
-# Restore the quiet profile if the watcher is stopped -- logging off or
-# shutting down while a game is running included.
 stop_actions_on_exit = true
 log_level = "info"
 
@@ -184,13 +192,15 @@ wait = true
 timeout = "15s"
 ```
 
-That is the whole file. Save it as your `config.toml`, then:
+Note there is no path to FanControl anywhere in it. That is the point of the
+detour: the command lives in the task, so this file stays something a
+non-administrator can edit freely.
 
 ```bash
 gamemode-executor validate
 ```
 
-### 6. Test the chain, then turn it on
+## 6. Test the chain, then turn it on
 
 ```bash
 gamemode-executor trigger start   # should switch FanControl to Game
@@ -214,10 +224,10 @@ gamemode-executor install-task
 
 Done. Play a game and the fans follow.
 
-### Worth knowing
+## Worth knowing
 
 **FanControl must be running** for a profile switch to apply to a live system.
-If it is not, the task starts it — which is fine, but slower. Most people have
+If it is not, the task starts it — which works, but is slower. Most people have
 it start with Windows.
 
 **Nothing happens at logon.** There is no "no game" event when the watcher
@@ -225,51 +235,26 @@ starts, so FanControl keeps whatever profile it had. Since it remembers its last
 profile across restarts, and the watcher restores `Quiet` whenever a session
 ends, it settles correctly on its own.
 
-**The switch back can lag.** Sometimes by a minute or more. That wait is
-Windows releasing its own "a game is running" signal, not this program —
-[How it works](how-it-works.md#the-wait-after-you-quit) explains it, and there
-is nothing to tune.
+**The switch back can lag**, sometimes by a minute or more. That wait is Windows
+releasing its own "a game is running" signal, not this program —
+[How it works](../../how-it-works.md#the-wait-after-you-quit) explains it, and
+there is nothing to tune.
 
----
+## Adapting this to another program
 
-## Switch the Windows power plan
+Nothing here is FanControl-specific beyond `<Command>` and `<Arguments>` in the
+task files. Any program needing administrator rights can use the same shape:
+copy a template, change those two elements and the description, register it
+under a new name, and point an action at it with `schtasks /Run`.
 
-No elevation, no tasks, no detour — most programs are like this.
+The settings to keep, and why:
 
-```toml
-[[on_game_start.actions]]
-name = "high performance"
-program = "powercfg.exe"
-args = ["/setactive", "SCHEME_MIN"]
-wait = true
-timeout = "10s"
-
-[[on_game_stop.actions]]
-name = "balanced"
-program = "powercfg.exe"
-args = ["/setactive", "SCHEME_BALANCED"]
-wait = true
-timeout = "10s"
-```
-
-## Run anything else
-
-Anything with a command line works the same way. A few useful knobs:
-
-```toml
-[[on_game_start.actions]]
-name = "label used in the log"
-program = 'C:\Tools\something.exe'   # single quotes: no doubled backslashes
-args = ["--mode", "gaming", "--title", "{process_name}"]
-working_dir = 'C:\Tools'
-wait = true            # wait for it to finish before the next command
-timeout = "15s"        # give up waiting after this long
-enabled = true         # set false to keep a command without running it
-```
-
-Set `mode = "parallel"` on an event to start every command at once instead of
-one after another.
-
-`{process_name}`, `{process_id}`, `{process_path}` and `{event}` are filled in
-where known. They are a convenience — a game Windows tracks but does not
-describe leaves them empty, and every command still runs.
+| Setting | Value | Reason |
+| --- | --- | --- |
+| `<Triggers />` | empty | The task must only run when something asks. A trigger would fire it on its own. |
+| `RunLevel` | `HighestAvailable` | The whole point: runs the program elevated without a prompt. |
+| `LogonType` | `InteractiveToken` | A desktop application belongs in your interactive session. |
+| `MultipleInstancesPolicy` | `Parallel` | If the program was not already running, the task's process *is* it. `IgnoreNew` would silently drop every later request. |
+| `ExecutionTimeLimit` | `PT0S` | Same reason inverted: a limit would eventually kill the program. |
+| `AllowHardTerminate` | `false` | Keeps the scheduler from force-killing a program it happens to own. |
+| battery settings | `false` | Otherwise nothing happens on a laptop on battery. |

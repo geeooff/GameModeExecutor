@@ -1,0 +1,38 @@
+# Windows power plan
+#
+# High performance while playing, balanced the rest of the time.
+# Full instructions: see README.md next to this file.
+#
+# powercfg.exe ships with Windows and needs no administrator rights, so there
+# is no scheduled-task detour here. This is what most recipes look like.
+#
+# SCHEME_MIN = High performance, SCHEME_BALANCED = Balanced,
+# SCHEME_MAX = Power saver. For a plan with no alias -- Ultimate Performance,
+# or one from your laptop's manufacturer -- use its GUID from `powercfg /list`.
+
+[general]
+# Restore the balanced plan if the watcher stops while a game is running --
+# logging off and shutting down included.
+stop_actions_on_exit = true
+
+log_level = "info"
+
+[on_game_start]
+mode = "series"
+
+[[on_game_start.actions]]
+name = "power plan - high performance"
+program = "powercfg.exe"
+args = ["/setactive", "SCHEME_MIN"]
+wait = true
+timeout = "10s"
+
+[on_game_stop]
+mode = "series"
+
+[[on_game_stop.actions]]
+name = "power plan - balanced"
+program = "powercfg.exe"
+args = ["/setactive", "SCHEME_BALANCED"]
+wait = true
+timeout = "10s"
