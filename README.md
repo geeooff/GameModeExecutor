@@ -219,7 +219,7 @@ mode = "series"        # or "parallel"
 [[on_game_start.actions]]
 name = "FanControl - Game profile"
 program = "schtasks.exe"
-args = ["/Run", "/TN", "GameModeExecutor - FanControl Game"]
+args = ["/Run", "/TN", 'GameModeExecutor\FanControl Game']
 wait = true
 timeout = "15s"
 ```
@@ -315,7 +315,7 @@ prompt, so the action becomes:
 ```toml
 [[on_game_start]]
 program = "schtasks.exe"
-args = ["/Run", "/TN", "GameModeExecutor - FanControl Game"]
+args = ["/Run", "/TN", 'GameModeExecutor\FanControl Game']
 ```
 
 Register the task once, from an elevated PowerShell:
@@ -324,8 +324,11 @@ Register the task once, from an elevated PowerShell:
 $exe = 'C:\Path\To\FanControl\FanControl.exe'
 $action = New-ScheduledTaskAction -Execute $exe -Argument '-c Game.json'
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
-Register-ScheduledTask -TaskName 'GameModeExecutor - FanControl Game' -Action $action -Principal $principal -Force
+Register-ScheduledTask -TaskName 'FanControl Game' -TaskPath '\GameModeExecutor\' -Action $action -Principal $principal -Force
 ```
+
+Everything this program installs lives in a **`GameModeExecutor` folder** in
+Task Scheduler rather than loose at its root — the watcher's own task included.
 
 Registering it with no trigger means it only ever runs when something asks it to.
 

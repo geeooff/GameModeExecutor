@@ -95,27 +95,36 @@ Then, from a PowerShell or Command Prompt **opened as administrator**, in this
 folder:
 
 ```
-schtasks /Create /XML "FanControl-Game.xml"  /TN "GameModeExecutor - FanControl Game"  /F
-schtasks /Create /XML "FanControl-Quiet.xml" /TN "GameModeExecutor - FanControl Quiet" /F
+schtasks /Create /XML "FanControl-Game.xml"  /TN "GameModeExecutor\FanControl Game"  /F
+schtasks /Create /XML "FanControl-Quiet.xml" /TN "GameModeExecutor\FanControl Quiet" /F
 ```
+
+The backslash in the name puts the task inside a **`GameModeExecutor` folder**
+in Task Scheduler rather than loose at the root, next to Windows' own. The
+folder is created on demand; nothing has to make it first.
 
 Check what landed:
 
 ```powershell
-Get-ScheduledTask -TaskName 'GameModeExecutor - FanControl *' |
+Get-ScheduledTask -TaskPath '\GameModeExecutor\' |
   Select-Object TaskName, @{n='RunLevel';e={$_.Principal.RunLevel}}
 ```
 
 ### Or by hand, in Task Scheduler
 
-Press `Win+R`, type `taskschd.msc`, and run it **as administrator**. Then
-**Action → Create Task…** — not *Create Basic Task*, which does not offer the
-settings that matter.
+Press `Win+R`, type `taskschd.msc`, and run it **as administrator**.
+
+First make the folder, once: right-click **Task Scheduler Library** in the left
+pane → **New Folder…** → `GameModeExecutor`. Then select that folder, so what
+you create next lands inside it rather than at the root.
+
+Then **Action → Create Task…** — not *Create Basic Task*, which does not offer
+the settings that matter.
 
 Do this twice, once per profile. For the `Game` one:
 
 **General tab**
-- Name: `GameModeExecutor - FanControl Game`
+- Name: `FanControl Game` — the folder already says which program it belongs to
 - ☑ **Run with highest privileges** ← this is the entire point of the detour
 - Leave *Run only when user is logged on* selected
 
@@ -147,16 +156,16 @@ Do this twice, once per profile. For the `Game` one:
   Scheduler would eventually kill it, and would silently ignore every later
   request to switch profile.*
 
-Then repeat, changing only the name to `GameModeExecutor - FanControl Quiet` and
-the argument to `-c Quiet.json`.
+Then repeat, changing only the name to `FanControl Quiet` and the argument to
+`-c Quiet.json`.
 
 ## 4. Test the tasks on their own
 
 Before involving any game. From a normal, **non**-administrator prompt:
 
 ```powershell
-schtasks /Run /TN "GameModeExecutor - FanControl Game"
-schtasks /Run /TN "GameModeExecutor - FanControl Quiet"
+schtasks /Run /TN "GameModeExecutor\FanControl Game"
+schtasks /Run /TN "GameModeExecutor\FanControl Quiet"
 ```
 
 Watch FanControl's window: the active configuration should change each time. If
@@ -177,7 +186,7 @@ mode = "series"
 [[on_game_start.actions]]
 name = "FanControl - Game profile"
 program = "schtasks.exe"
-args = ["/Run", "/TN", "GameModeExecutor - FanControl Game"]
+args = ["/Run", "/TN", 'GameModeExecutor\FanControl Game']
 wait = true
 timeout = "15s"
 
@@ -187,7 +196,7 @@ mode = "series"
 [[on_game_stop.actions]]
 name = "FanControl - Quiet profile"
 program = "schtasks.exe"
-args = ["/Run", "/TN", "GameModeExecutor - FanControl Quiet"]
+args = ["/Run", "/TN", 'GameModeExecutor\FanControl Quiet']
 wait = true
 timeout = "15s"
 ```

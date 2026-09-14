@@ -119,7 +119,7 @@ mode = "series"
 [[on_game_start.actions]]
 name = "FanControl - Game profile"
 program = "schtasks.exe"
-args = ["/Run", "/TN", "GameModeExecutor - FanControl Game"]
+args = ["/Run", "/TN", 'GameModeExecutor\FanControl Game']
 wait = true
 timeout = "15s"
 
@@ -137,6 +137,6 @@ mode = "series"
 [[on_game_stop.actions]]
 name = "FanControl - Quiet profile"
 program = "schtasks.exe"
-args = ["/Run", "/TN", "GameModeExecutor - FanControl Quiet"]
+args = ["/Run", "/TN", 'GameModeExecutor\FanControl Quiet']
 wait = true
 timeout = "15s"

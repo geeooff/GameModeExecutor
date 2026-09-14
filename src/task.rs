@@ -11,7 +11,14 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
-pub const TASK_NAME: &str = "GameModeExecutor";
+/// Task Scheduler folder everything this program installs lives in, rather than
+/// scattered across the root alongside Windows' own tasks. `schtasks` creates
+/// it on demand, so nothing has to make it first.
+pub const TASK_FOLDER: &str = "GameModeExecutor";
+
+/// The watcher's task, folder included. Named `Watcher` rather than repeating
+/// the folder's name, so it reads as `GameModeExecutor \ Watcher` in the tree.
+pub const TASK_NAME: &str = "GameModeExecutor\\Watcher";
 
 /// The windowless twin this task is meant to run. Sits beside the console
 /// binary, which is the one the user types and therefore the one running now.
@@ -56,6 +63,7 @@ pub fn install(config_path: &Path, delay: Duration) -> Result<()> {
     result?;
 
     println!("Scheduled task `{TASK_NAME}` created for {user}.");
+    println!("  folder  : \\{TASK_FOLDER} in Task Scheduler");
     println!("  program : {}", exe.display());
     println!("  config  : {}", config_path.display());
     println!("  delay   : {delay:?} after logon, no execution time limit");
@@ -65,6 +73,11 @@ pub fn install(config_path: &Path, delay: Duration) -> Result<()> {
 pub fn uninstall() -> Result<()> {
     run_schtasks(&["/Delete", "/TN", TASK_NAME, "/F"])?;
     println!("Scheduled task `{TASK_NAME}` deleted.");
+    // The folder is left behind on purpose: anything else the user put in it --
+    // the elevated tasks a recipe asks for, for instance -- is theirs, and
+    // removing a folder that still holds their work would be worse than
+    // leaving an empty one they can delete in a click.
+    println!("  the \\{TASK_FOLDER} folder is left in place, empty or not.");
     Ok(())
 }
 
@@ -210,6 +223,20 @@ mod tests {
         // And it must stay unelevated.
         assert!(xml.contains("<RunLevel>LeastPrivilege</RunLevel>"));
         assert!(xml.contains("<Delay>PT15S</Delay>"));
+    }
+
+    /// The URI has to carry the folder too, or the task registers at the path
+    /// `/TN` asks for while describing itself as living somewhere else.
+    #[test]
+    fn the_task_lives_in_its_own_folder() {
+        let xml = definition(
+            r"C:\tools\gamemode-executorw.exe",
+            r"C:\config.toml",
+            r"PC\me",
+            Duration::ZERO,
+        );
+        assert_eq!(TASK_NAME, format!(r"{TASK_FOLDER}\Watcher"));
+        assert!(xml.contains(&format!(r"<URI>\{TASK_NAME}</URI>")), "{xml}");
     }
 
     /// The task must run the windowless binary with no subcommand. `run` and
