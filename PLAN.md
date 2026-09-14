@@ -679,9 +679,11 @@ running in five minutes, and someone curious can find out how it works without
 reading Rust.
 
 - [x] `docs/getting-started.md` — features and the shortest path to a result
+- [x] `docs/recipes.md` — worked examples end to end, FanControl in full
 - [x] `docs/how-it-works.md` — the mechanism, for a curious non-programmer
-- [x] Both linked from the top of the README, above the reference material
-- [x] The README keeps the reference and the reasoning; neither new page repeats them
+- [x] All three linked from the top of the README, above the reference material
+- [x] The README keeps the reference and the reasoning; the new pages do not repeat them
+- [x] FanControl lives in the recipe and nowhere else in the user docs
 
 Done when: the two questions a newcomer actually asks — "how do I make it do my
 thing" and "why are there two .exe files" — are answered without opening the
@@ -705,8 +707,15 @@ Three documents, three readers, no overlap:
 | | Reader | Answers |
 | --- | --- | --- |
 | `docs/getting-started.md` | wants it working | what do I type, where do I put my commands, why is nothing happening |
+| `docs/recipes.md` | has a specific job in mind | give me the whole thing for my case, copy-paste |
 | `docs/how-it-works.md` | curious, not a programmer, knows what a process is | how does it know a game is running, why two executables, why the wait after quitting |
 | `README.md` | evaluating or contributing | the reference, the measurements, why every other approach was ruled out |
+
+FanControl is confined to the recipe on purpose. It is the example that drove
+the project, and left loose it would spread through every page until the program
+looked like a FanControl accessory rather than something that runs commands.
+`getting-started.md` names the *problem* — programs needing administrator rights
+— and points at the recipe for the cure.
 
 The middle one earns its place: the design has three things a user will
 *notice* and misread as bugs — the unpredictable wait after quitting, the two

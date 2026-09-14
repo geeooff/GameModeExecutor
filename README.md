@@ -24,6 +24,7 @@ the watcher does not poll while you play.
 | | |
 | --- | --- |
 | **[Getting started](docs/getting-started.md)** | Running in five minutes. Start here. |
+| **[Recipes](docs/recipes.md)** | Worked examples, start to finish — including quiet fans outside games and a game profile while playing, with FanControl. |
 | **[How it works](docs/how-it-works.md)** | For the curious: how it knows a game is running, why the two executables, why the wait after you quit. No programming needed. |
 
 The rest of this file is the reference, and the reasoning and measurements

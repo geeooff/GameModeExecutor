@@ -75,6 +75,9 @@ administrator rights, no password, no window.
 
 **That is the end of the setup.** Play. The commands fire by themselves.
 
+Want a complete worked example rather than a blank page? [Recipes](recipes.md)
+has one, fans included.
+
 ## Checking that it is alive
 
 ```bash
@@ -113,24 +116,15 @@ leaves them empty, and everything still runs.
 
 ## If your program needs administrator rights
 
-Some do — FanControl, for instance, because it talks to hardware. The watcher
-runs without administrator rights on purpose and cannot start those directly:
-Windows refuses with error 740.
+Some do, usually because they talk to hardware. The watcher runs without
+administrator rights on purpose and cannot start those directly: Windows refuses
+with error 740.
 
 The way round it is a scheduled task per command, registered once with *run with
-highest privileges*. Triggering one needs no rights and raises no prompt:
+highest privileges*. Triggering one needs no rights and raises no prompt, so
+your command becomes `schtasks /Run` instead.
 
-```toml
-[[on_game_start.actions]]
-name = "FanControl - Game profile"
-program = "schtasks.exe"
-args = ["/Run", "/TN", "GameModeExecutor - FanControl Game"]
-wait = true
-timeout = "15s"
-```
-
-The full recipe, with ready-made task files, is in the main
-[README](../README.md#programs-that-require-elevation).
+[Recipes](recipes.md) walks through it end to end, with ready-made task files.
 
 ## When something is not right
 
