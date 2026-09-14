@@ -148,8 +148,22 @@ Requires the Rust toolchain (stable, edition 2024).
 cargo build --release
 ```
 
-Two self-contained executables, no runtime dependencies:
-`gamemode-executor.exe` (about 1.1 MB) and `presence-probe.exe` (about 180 KB).
+Self-contained executables, no runtime dependencies:
+
+| Executable | About | What it is for |
+| --- | --- | --- |
+| `gamemode-executor.exe` | 1.1 MB | Everything you type. A console program, so a shell waits for it, pipes work and exit codes come back. |
+| `gamemode-executorw.exe` | 1.1 MB | Watching, and nothing else. No console at all — this is what the logon task runs. |
+| `presence-probe.exe` | 180 KB | Diagnostics. See the end of this file. |
+
+The `w` suffix is the same convention as `python.exe` and `pythonw.exe`, and it
+exists for the same reason: a program cannot be both a console and a windowless
+one in a single file. The alternative — one windowless binary that attaches to
+the terminal it was launched from — was rejected because a shell does not wait
+for a windowless process, so `validate`'s exit code would silently stop reaching
+scripts.
+
+Both binaries share one library, so the watcher they run is the same code.
 
 ## Quick start
 
@@ -158,20 +172,23 @@ gamemode-executor init        # write a starter config in %APPDATA%\GameModeExec
 gamemode-executor validate    # check it
 gamemode-executor status      # what the detector sees right now
 gamemode-executor run         # watch, in the foreground, logging to the console
-gamemode-executor install-task  # start it hidden at every logon, no admin needed
+gamemode-executor install-task  # start it at every logon, no window, no admin needed
 ```
 
 ## Commands
 
+These all belong to `gamemode-executor.exe`. `gamemode-executorw.exe` takes only
+`--config` and `--log-level`, and watches.
+
 | Command | What it does |
 | --- | --- |
-| `run [--hidden]` | Watch and react. `--hidden` hides the console and logs to a file. This is the default command. |
+| `run` | Watch and react, in this console. This is the default command. For an unattended instance use `gamemode-executorw.exe`. |
 | `status` | Print the registration, whether a game is running, and what the known game list holds. |
 | `check <path>` | Ask whether Windows knows a given executable as a game. |
 | `trigger start\|stop` | Run one set of actions immediately, ignoring detection. Handy to test your commands. |
 | `validate` | Parse and check the configuration. |
 | `init [--force]` | Write a starter configuration file. |
-| `install-task [--delay HHHH:MM]` | Register a per-user logon task that runs the watcher hidden. |
+| `install-task [--delay HHHH:MM]` | Register a per-user logon task that runs `gamemode-executorw.exe`, with no window. The configuration path is stored absolute. |
 | `uninstall-task` | Remove that task. |
 
 Global options: `--config <PATH>`, `--log-level <LEVEL>`.

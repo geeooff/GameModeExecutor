@@ -31,7 +31,11 @@ windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Storage_Packaging_Appx",
     "Win32_Security",
+    # WNDCLASSEXW names HBRUSH, HICON and HCURSOR, so the window class needs Gdi
+    # even though this program never draws anything.
+    "Win32_Graphics_Gdi",
     "Win32_System_Console",
+    "Win32_System_LibraryLoader",
     "Win32_UI_Shell",
     "Win32_System_Com",
     "Win32_UI_WindowsAndMessaging",

@@ -452,23 +452,50 @@ author's first version.
 
 ---
 
-## Lot 5 — A Windows program with no window · committed · `[ ]`
+## Lot 5 — A Windows program with no window · committed · `[x]` done
 
 Goal: the same program as today, minus the console. Nothing on screen — not a
 window, not an icon, not a flash at logon. Behaviour identical, including what
 happens when the user logs off during a game.
 
-- [ ] Build the watcher as a Windows-subsystem binary
-- [ ] Keep every CLI command working from a terminal, exit codes included — see the decision below
-- [ ] Invert the threading: message loop on the main thread, engine on a worker
-- [ ] A hidden top-level window whose procedure answers `WM_QUERYENDSESSION` and `WM_ENDSESSION`, so logoff and shutdown still run the stop actions
-- [ ] `install-task` points the logon task at the windowless binary, without `--hidden`
-- [ ] `--hidden` still accepted, ignored, so a task installed before this lot keeps starting; `hide_console` deleted
-- [ ] Verified: logon shows nothing; `status`, `validate` and `trigger` are unchanged from a terminal, exit codes included; logging off during a game restores the profile
+- [x] Build the watcher as a Windows-subsystem binary
+- [x] Keep every CLI command working from a terminal, exit codes included — two binaries, see below
+- [x] Invert the threading: message loop on the main thread, engine on a worker
+- [x] A hidden top-level window whose procedure answers `WM_QUERYENDSESSION` and `WM_ENDSESSION`, so logoff and shutdown still run the stop actions
+- [x] `install-task` points the logon task at the windowless binary, without `--hidden`
+- [x] `install-task` stores an absolute configuration path — found by shipping a relative one
+- [x] `--hidden` still accepted, ignored, so a task installed before this lot keeps starting; `hide_console` deleted
+- [x] Verified: the task starts it with no window (`MainWindowHandle` 0); `status`, `validate` and the exit codes 0/2/3/4 are unchanged from a terminal; the session-end sequence drives a clean shutdown
+- [ ] Still unverified: a real logoff **while a game is running**, which is the one case the window exists for
 
 Done when: the logon task starts the watcher with nothing on screen, every CLI
 command behaves exactly as before from a terminal, and a logoff during a game
 restores the profile — which it does today.
+
+### What the build looks like now
+
+| Binary | Subsystem | For |
+| --- | --- | --- |
+| `gamemode-executor.exe` | `WINDOWS_CUI` | everything you type: `status`, `validate`, `check`, `trigger`, `init`, `install-task`, and `run` |
+| `gamemode-executorw.exe` | `WINDOWS_GUI` | watching, and nothing else. What the logon task runs. |
+
+Both are a few lines over the same library, and `src/service.rs` holds the one
+implementation of "run the watcher" that they share. Verified by reading the
+subsystem field out of each PE header rather than by trusting the build
+settings.
+
+### Verifying the session-end path without logging off
+
+`WM_QUERYENDSESSION` and `WM_ENDSESSION` were sent to the running watcher's own
+window, which is what Windows does at logoff. It answered 1, released
+`WM_ENDSESSION` in 7 ms, logged `Stopped` and exited on its own.
+
+One detour worth recording: `FindWindow` could not find the window, which looked
+like a defect and was not. `FindWindow` resolves a class name through the global
+atom table, and a class registered with `RegisterClassEx` is local to its
+process. `EnumWindows` plus `GetClassName` asks each window directly and found
+it immediately. The test method was wrong, not the code — worth knowing before
+the same trap costs an hour during the icon lot.
 
 ### Why the window and the threading inversion are here and not with the icon
 
@@ -667,6 +694,8 @@ Recorded so they stop coming back:
 ---
 
 ## Journal
+
+**2026-09-14** — Lot 5 built: the watcher is now a windowless program, and the console one keeps every command. Two binaries on the `pythonw` convention, sharing one library through a new `service` module, verified by reading the subsystem out of each PE header rather than trusting the build. The session-end path was tested without logging off, by sending `WM_QUERYENDSESSION` and `WM_ENDSESSION` to the watcher's own window: it answered 1, released in 7 ms, logged `Stopped` and exited by itself. Two things worth keeping. `FindWindow` could not find that window and looked like a bug — it resolves class names through the global atom table, and `RegisterClassEx` registers locally, so `EnumWindows` is the way to find it; the test was wrong, not the code. And `install-task` shipped a *relative* configuration path into the task, which would have exited 3 at the next logon with nobody watching; found by reading back what was actually registered instead of trusting the success message. Now absolute, with a test. Still unverified: a real logoff while a game is running, which is the single case the window exists for.
 
 **2026-09-14** — The tray icon lot split in two at the user's request: the Windows-subsystem work is Lot 5, the icon itself Lot 6, everything after shifts up one. The split exposed something the old lot had wrong. Checking what "same behaviour as before" actually covers turned up `ctrlc`'s Windows handler, which signals on every control event including logoff and shutdown — so the console watcher restores the fan profile when the user logs off mid-game, and a windowless process would not. That pulls a hidden top-level window and the threading inversion into Lot 5 for a reason that has nothing to do with the icon, and rules out a message-only window, which does not receive the broadcasts. The old plan also called `AttachConsole` the cheapest way to keep the CLI; reversed, because a shell does not wait for a GUI-subsystem process and `validate`'s exit code would silently stop reaching scripts. Three options recorded, two binaries recommended, decision pending.
 

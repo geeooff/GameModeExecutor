@@ -2,7 +2,6 @@
 //! when it starts and stops.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -11,7 +10,7 @@ use game_mode_executor::config::{self, Config};
 use game_mode_executor::detect::known_games::KnownGames;
 use game_mode_executor::detect::presence_writer;
 use game_mode_executor::detect::process::Snapshot;
-use game_mode_executor::{detect, engine, exit, logging, task, win};
+use game_mode_executor::{detect, engine, exit, logging, service, task};
 
 /// Default config file shipped with the program, also used by `init`.
 const EXAMPLE_CONFIG: &str = include_str!("../config.example.toml");
@@ -35,9 +34,14 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Watch for games and run the configured actions (default).
+    ///
+    /// For an unattended instance use `gamemode-executorw.exe`, which is the
+    /// same watcher with no console at all. `install-task` registers that one.
     Run {
-        /// Hide the console window, for a logon-started instance.
-        #[arg(long)]
+        /// Accepted and ignored. A task registered before this binary had a
+        /// windowless twin still passes it, and refusing it would stop that
+        /// task dead at the next logon.
+        #[arg(long, hide = true)]
         hidden: bool,
     },
     /// Print what the detectors currently see, then exit.
@@ -118,11 +122,11 @@ fn run() -> Result<()> {
             Ok(())
         }
         Some(Commands::Status) => {
-            let _guards = logging::init(&level, None)?;
+            let _guards = logging::init(&level, None, true)?;
             cmd_status(&config)
         }
         Some(Commands::Trigger { event }) => {
-            let _guards = logging::init(&level, None)?;
+            let _guards = logging::init(&level, None, true)?;
             let engine = engine::Engine::new(config)?;
             match event {
                 TriggerEvent::Start => engine.fire_start_manual(),
@@ -130,41 +134,13 @@ fn run() -> Result<()> {
             }
             Ok(())
         }
-        command => {
-            let hidden = matches!(command, Some(Commands::Run { hidden: true }));
-            cmd_run(config, &level, hidden)
-        }
+        _ => cmd_run(config, &level),
     }
 }
 
-fn cmd_run(config: Config, level: &str, hidden: bool) -> Result<()> {
-    if hidden {
-        win::hide_console();
-    }
-    // The watcher always keeps a log file: a hidden instance has nowhere else to
-    // write, and a console one is usually left running unattended anyway.
-    let log_dir = config
-        .general
-        .log_dir
-        .clone()
-        .or_else(|| config::roaming_dir().map(|dir| dir.join("logs")));
-    let _guards = logging::init(level, log_dir.as_deref())?;
-    let _instance = win::SingleInstance::acquire("GameModeExecutor")?;
-
-    let stop = Arc::new(win::StopSignal::new()?);
-    let handler_stop = Arc::clone(&stop);
-    ctrlc::set_handler(move || handler_stop.signal())
-        .context("cannot install the Ctrl-C handler")?;
-
-    tracing::info!(
-        target: logging::target::WATCHER,
-        "GameModeExecutor {} starting",
-        env!("CARGO_PKG_VERSION")
-    );
-    let mut engine = engine::Engine::new(config)?;
-    engine.run(&stop)?;
-    tracing::info!(target: logging::target::WATCHER, "Stopped");
-    Ok(())
+fn cmd_run(config: Config, level: &str) -> Result<()> {
+    // This binary is a console program, so it always has one to log to.
+    service::serve(config, level, true)
 }
 
 fn cmd_status(_config: &Config) -> Result<()> {

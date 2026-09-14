@@ -209,14 +209,16 @@ fn verbose_for(level: &str) -> bool {
 
 /// Initialise logging. `RUST_LOG` overrides `level` when set.
 ///
-/// The console layer is unconditional. It used to be switched off for a
-/// `--hidden` instance, which tied two unrelated things together: whether the
-/// window is visible, and whether anything is written to it. When hiding the
-/// window failed -- which it does under Windows Terminal, see
-/// `win::hide_console` -- the result was a visible window that stayed blank
-/// forever. Writing to a console nobody can see costs nothing, so there is no
-/// reason to make that a choice.
-pub fn init(level: &str, log_dir: Option<&Path>) -> Result<Guards> {
+/// `console` says whether this process has a console at all, which is a
+/// property of the binary rather than a preference: `gamemode-executor` is a
+/// console program and always passes `true`, `gamemode-executorw` has no
+/// console and passes `false`.
+///
+/// It must never become a user-facing switch again. It was one once -- tied to
+/// `--hidden` -- and that conflated two unrelated things: whether a window is
+/// visible, and whether anything is written to it. The result was a visible
+/// window that stayed blank forever.
+pub fn init(level: &str, log_dir: Option<&Path>, console: bool) -> Result<Guards> {
     let verbose = verbose_for(level);
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(directives(level)));
@@ -247,9 +249,11 @@ pub fn init(level: &str, log_dir: Option<&Path>) -> Result<Guards> {
     // Colours only when a person is really at a terminal. Unconditional ANSI
     // writes escape codes into whatever captures the output -- `run > log.txt`,
     // or a pipe -- where they are noise rather than colour.
-    let console_layer = fmt::layer().event_format(Line {
-        verbose,
-        ansi: std::io::stdout().is_terminal(),
+    let console_layer = console.then(|| {
+        fmt::layer().event_format(Line {
+            verbose,
+            ansi: std::io::stdout().is_terminal(),
+        })
     });
 
     tracing_subscriber::registry()

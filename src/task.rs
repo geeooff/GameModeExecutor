@@ -13,10 +13,27 @@ use anyhow::{Context, Result, bail};
 
 pub const TASK_NAME: &str = "GameModeExecutor";
 
-/// Create (or replace) a logon task that starts the watcher hidden.
+/// The windowless twin this task is meant to run. Sits beside the console
+/// binary, which is the one the user types and therefore the one running now.
+const WATCHER_EXE: &str = "gamemode-executorw.exe";
+
+/// Create (or replace) a logon task that starts the watcher with no console.
 /// Runs only while the user is logged on, so no password and no elevation.
 pub fn install(config_path: &Path, delay: Duration) -> Result<()> {
-    let exe = std::env::current_exe().context("cannot locate the running executable")?;
+    let here = std::env::current_exe().context("cannot locate the running executable")?;
+    let exe = here.with_file_name(WATCHER_EXE);
+    if !exe.exists() {
+        bail!(
+            "`{}` is missing. It is built alongside this program and is the one the task \
+             runs, because it has no console to leave on screen.",
+            exe.display()
+        );
+    }
+    // The task runs from whatever working directory Task Scheduler feels like,
+    // so a relative path here would resolve at logon against somewhere else and
+    // the watcher would exit 3 before anyone noticed. Absolute, always.
+    let config_path = absolute(config_path)?;
+
     let user = current_user().context("cannot determine the current user")?;
     let xml = definition(
         &exe.to_string_lossy(),
@@ -99,7 +116,7 @@ fn definition(exe: &str, config: &str, user: &str, delay: Duration) -> String {
   <Actions Context="Author">
     <Exec>
       <Command>{exe}</Command>
-      <Arguments>run --hidden --config "{config}"</Arguments>
+      <Arguments>--config "{config}"</Arguments>
     </Exec>
   </Actions>
 </Task>
@@ -110,6 +127,17 @@ fn definition(exe: &str, config: &str, user: &str, delay: Duration) -> String {
         exe = escape(exe),
         config = escape(config),
     )
+}
+
+/// Make a path absolute without requiring it to exist, and without the `\\?\`
+/// prefix `canonicalize` adds -- Task Scheduler shows the command line to the
+/// user, and that prefix is noise in it.
+fn absolute(path: &Path) -> Result<std::path::PathBuf> {
+    if path.is_absolute() {
+        return Ok(path.to_path_buf());
+    }
+    let here = std::env::current_dir().context("cannot read the current directory")?;
+    Ok(here.join(path))
 }
 
 /// Task Scheduler durations are ISO 8601. Seconds are enough here.
@@ -176,11 +204,43 @@ mod tests {
         assert!(xml.contains("<Delay>PT15S</Delay>"));
     }
 
+    /// The task must run the windowless binary with no subcommand. `run` and
+    /// `--hidden` belong to the console binary, and passing either here would
+    /// make the task fail at every logon with an argument error nobody sees,
+    /// because there is no console to see it in.
+    #[test]
+    fn the_task_passes_only_the_configuration() {
+        let xml = definition(
+            r"C:\tools\gamemode-executorw.exe",
+            r"C:\config.toml",
+            r"PC\me",
+            Duration::from_secs(15),
+        );
+        assert!(
+            xml.contains(r#"<Arguments>--config "C:\config.toml"</Arguments>"#),
+            "{xml}"
+        );
+        assert!(!xml.contains("--hidden"), "{xml}");
+    }
+
     #[test]
     fn xml_special_characters_are_escaped() {
         let xml = definition("C:\\a&b.exe", "C:\\<config>.toml", "PC\\me", Duration::ZERO);
         assert!(xml.contains("C:\\a&amp;b.exe"));
         assert!(xml.contains("&lt;config&gt;"));
+    }
+
+    /// A relative path would resolve at logon against Task Scheduler's own
+    /// working directory, and the watcher would exit 3 with nobody watching.
+    #[test]
+    fn a_relative_configuration_path_is_made_absolute() {
+        let here = std::env::current_dir().unwrap();
+        let made = absolute(Path::new(".local/config.toml")).unwrap();
+        assert!(made.is_absolute(), "{}", made.display());
+        assert!(made.starts_with(&here), "{}", made.display());
+
+        let already = Path::new(r"C:\elsewhere\config.toml");
+        assert_eq!(absolute(already).unwrap(), already);
     }
 
     #[test]
