@@ -720,16 +720,27 @@ where it cannot desynchronise from the code it describes. Everything else reads
 it from there: `--version`, `status`, the tray menu entry in Lot 6, and the
 readme the release script generates.
 
-Three mechanics to get right when this is built:
+**The stamping is done already, on 2026-09-14**, since Lot 6's menu entry needs
+it before this lot is taken. `build.rs` emits the commit through
+`cargo:rustc-env`; `src/build_info.rs` exposes it as constants and nothing
+else. Every branch — commit known or not, which reference the link should use —
+is taken in `build.rs`, so the program side has no runtime assembly at all,
+which is also what clap requires of a version string.
 
-- **Stamp it at build time**, from `git rev-parse HEAD`, through a `build.rs`
-  emitting `cargo:rustc-env`. Nothing else stays in step by itself.
-- **Degrade rather than fail** when there is no git — a source tarball has
-  none. Fall back to the version tag, and say so.
-- **Refuse to release from a dirty working tree.** A binary built from
-  uncommitted changes would name a commit that does not contain what was built,
-  which is exactly the kind of quiet lie the rest of this checklist exists to
-  catch. `scripts/build.ps1 release` should stop.
+- `-V` prints `0.1.0 (de538e33-dirty)`.
+- `--version` adds the full commit, the repository and the documentation link.
+- `status` prints the same three lines first, before anything it reports.
+- The startup log line carries the commit as a field, visible at debug.
+- No git, no failure: the commit reads `unknown (built outside a git checkout)`
+  and the link falls back to `main`. A source archive compiles fine.
+- **`scripts/build.ps1 release` refuses a dirty tree**, checked before anything
+  else so it costs a second rather than a full build. A binary built from
+  uncommitted changes would name a commit that does not contain what it ships,
+  and the documentation link would point at code the user does not have.
+
+Fallback note: the plan first said to fall back to the version tag. Changed to
+the branch, because no `v*` tag exists yet and a precise 404 is worse than an
+approximate page that loads.
 
 One caveat with a date on it: the link resolves only once the repository is
 public. Until then it is correct and unreachable, which is the right way round.
@@ -916,6 +927,8 @@ Recorded so they stop coming back:
 ---
 
 ## Journal
+
+**2026-09-14** — The development machine now runs the program the way an installed copy would: binaries in `%LOCALAPPDATA%\Programs\GameModeExecutor`, the logon task pointing there, the repository no longer involved at runtime — which also ends the routine of stopping the watcher before every `cargo build`, since it no longer holds the file being rebuilt. Getting there caught a claim of mine that was wrong. Asked to confirm the session could still read and write the destination, I wrote a file and read it back from the same shell, saw it round-trip, and said there was no redirection. That test cannot detect what it was looking for: the Claude desktop app is an MSIX package, so both ends of it happen inside the same container. The real test writes from the shell and reads from a scheduled task, which runs outside. Measured that way, `%APPDATA%\GameModeExecutor` and `%LOCALAPPDATA%\GameModeExecutor` are container-only while `%LOCALAPPDATA%\Programs\GameModeExecutor` is shared. The symptom that exposed it: the task exiting 4 with no log line at all while `validate` passed from the shell — two different files, the real one a configuration from 2026-09-09 still using the old `[[on_game_start]]` syntax. So this machine keeps its configuration and log in the shared tree, with the measurement written into the file itself, and the stale roaming copy was renamed out of the way from outside the container so nothing can pick it up later.
 
 **2026-09-14** — Everything this program registers now lives in a `\GameModeExecutor` folder in Task Scheduler instead of loose at the root: the watcher becomes `\GameModeExecutor\Watcher`, and the recipe's elevated tasks `\GameModeExecutor\FanControl <profile>`. `schtasks` creates the folder from the backslash in `/TN`, so nothing had to make it first; only the `<URI>` had to learn about it too. `uninstall-task` deliberately leaves the folder behind — a user's own elevated tasks live in it, and deleting a folder that still holds their work would be worse than leaving an empty one. Migrating the machine turned up something the move itself did not cause: all four FanControl tasks there carried `ExecutionTimeLimit PT1M`, three had `IgnoreNew`, and none set `AllowHardTerminate false` — the exact three settings the recipe calls out as failing silently. They worked only because FanControl already happened to be running, which makes the task's process short-lived; started cold, Task Scheduler would have killed FanControl after a minute and then ignored every later switch. So they were regenerated from the template rather than moved as they were. Also re-learned, the hard way, that `sed` eats backslashes: a substitution turned `GameModeExecutor\FanControl Game` into `GameModeExecutorFanControl Game` in three configuration files, which `validate` accepted happily because it is a perfectly good string.
 

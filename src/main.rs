@@ -10,13 +10,19 @@ use game_mode_executor::config::{self, Config};
 use game_mode_executor::detect::known_games::KnownGames;
 use game_mode_executor::detect::presence_writer;
 use game_mode_executor::detect::process::Snapshot;
-use game_mode_executor::{detect, engine, exit, logging, service, task};
+use game_mode_executor::{build_info, detect, engine, exit, logging, service, task};
 
 /// Default config file shipped with the program, also used by `init`.
 const EXAMPLE_CONFIG: &str = include_str!("../config.example.toml");
 
 #[derive(Parser, Debug)]
-#[command(name = "gamemode-executor", version, about, long_about = None)]
+#[command(
+    name = "gamemode-executor",
+    version = build_info::VERSION,
+    long_version = build_info::LONG_VERSION,
+    about,
+    long_about = None
+)]
 struct Cli {
     /// Path to the configuration file. Defaults to config.toml next to the
     /// executable, then %APPDATA%\GameModeExecutor\config.toml.
@@ -144,6 +150,12 @@ fn cmd_run(config: Config, level: &str) -> Result<()> {
 }
 
 fn cmd_status(_config: &Config) -> Result<()> {
+    // First, because when someone is diagnosing a machine that is not theirs,
+    // knowing which build they are looking at comes before anything it reports.
+    println!("Build                : {}", build_info::VERSION);
+    println!("  commit             : {}", build_info::COMMIT_DISPLAY);
+    println!("  documentation      : {}", build_info::DOCS_URL);
+
     let snapshot = Snapshot::take()?;
 
     // The detector itself.

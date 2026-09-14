@@ -55,10 +55,14 @@ pub fn serve(config: Config, level: &str, console: bool) -> Result<()> {
             .context("cannot install the Ctrl-C handler")?;
     }
 
+    // The commit rides along as a field, so it is there at debug level when
+    // someone is working out which build wrote a log they were sent, and out of
+    // the way otherwise.
     tracing::info!(
         target: logging::target::WATCHER,
+        commit = crate::build_info::COMMIT,
         "GameModeExecutor {} starting",
-        env!("CARGO_PKG_VERSION")
+        crate::build_info::VERSION
     );
 
     let worker_stop = Arc::clone(&stop);

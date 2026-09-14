@@ -153,6 +153,27 @@ your command becomes `schtasks /Run` instead.
 [Fan profiles with FanControl](recipes/fancontrol-fan-profiles/) walks through
 that case end to end, with ready-made task files.
 
+## Which build is this?
+
+```bash
+gamemode-executor --version
+```
+
+```
+gamemode-executor 0.1.0 (de538e33)
+commit:        de538e33ac376c062064131c8bbb5bcf2444ac82
+repository:    https://github.com/Geeooff/GameModeExecutor
+documentation: https://github.com/Geeooff/GameModeExecutor/blob/de538e33.../docs/getting-started.md
+```
+
+The first question to ask of a machine that is not yours. The commit is the
+exact revision these executables were built from, and the documentation link
+goes to this page **as it was at that commit** — so it describes the program in
+front of you rather than whatever the project looks like today.
+
+`gamemode-executorw.exe --version` says the same thing, and `status` prints it
+too.
+
 ## When something is not right
 
 **Nothing happens when I start a game.**

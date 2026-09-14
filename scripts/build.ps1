@@ -44,6 +44,25 @@ function Run([string] $command, [string[]] $commandArgs) {
     if ($LASTEXITCODE -ne 0) { Fail "$command $($commandArgs -join ' ') exited $LASTEXITCODE" }
 }
 
+# The binaries carry the commit they were built from, and a release is the one
+# artefact where that claim has to be true: from a dirty tree it would name a
+# commit that does not contain what was built, and the documentation link would
+# point at code the user does not have. Checked before anything else, so a
+# dirty tree costs a second rather than a full build.
+function Assert-CleanTree {
+    Step "Working tree is clean"
+    $changes = & git status --porcelain
+    if ($LASTEXITCODE -ne 0) {
+        Fail "git is unavailable here, so the commit cannot be stamped into a release"
+    }
+    if ($changes) {
+        $changes | Select-Object -First 10 | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+        if (@($changes).Count -gt 10) { Write-Host "    ... and more" -ForegroundColor Red }
+        Fail "commit or stash first -- a release must name a commit that contains what it ships"
+    }
+    Write-Host "    $(& git rev-parse --short HEAD)"
+}
+
 function Get-Version {
     $line = Select-String -Path (Join-Path $root 'Cargo.toml') -Pattern '^version\s*=\s*"([^"]+)"' |
             Select-Object -First 1
@@ -151,8 +170,19 @@ function Invoke-Release {
     # One copy means the bundle cannot describe a version that no longer exists.
     Copy-Item (Join-Path $root 'docs') $stage -Recurse
 
+    # Asked of the binary rather than of git, so the readme cannot claim a
+    # commit different from the one actually compiled in.
+    $stamp = & (Join-Path $stage 'gamemode-executor.exe') --version
+
     Set-Content -Path (Join-Path $stage 'README.txt') -Encoding UTF8 -Value @"
 GameModeExecutor $version - portable
+
+$($stamp -join "`r`n")
+
+The documentation link above names the exact commit these executables were
+built from, so it describes this build and not whatever the project looks like
+by the time you follow it.
+
 
 Runs the programs you configure when a game starts, and others when it stops.
 There is no list of games to maintain: detection is Windows' own.
@@ -161,7 +191,8 @@ Nothing to install. Keep this folder where you put it -- the scheduled task
 will remember this path.
 
 START HERE
-    docs\getting-started.md
+    docs\getting-started.md, next to this file -- or the documentation link
+    above, which is the same page at the exact commit this was built from.
 
 THE RECIPE THIS BUNDLE IS SET UP FOR
     docs\recipes\fancontrol-fan-profiles\
@@ -222,6 +253,7 @@ https://github.com/Geeooff/GameModeExecutor
 
 # --- go ---------------------------------------------------------------------
 
+if ($Task -eq 'release') { Assert-CleanTree }
 Invoke-Tests
 if ($Task -in @('build', 'release')) { Invoke-Build }
 if ($Task -eq 'release') { Invoke-Release }

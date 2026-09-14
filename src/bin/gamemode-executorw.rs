@@ -24,7 +24,8 @@ use game_mode_executor::{exit, service};
 #[derive(Parser, Debug)]
 #[command(
     name = "gamemode-executorw",
-    version,
+    version = game_mode_executor::build_info::VERSION,
+    long_version = game_mode_executor::build_info::LONG_VERSION,
     about = "Watches for games with no console. Use gamemode-executor.exe for every other command."
 )]
 struct Cli {
