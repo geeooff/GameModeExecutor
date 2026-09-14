@@ -19,6 +19,16 @@ rights — see [Programs that require elevation](#programs-that-require-elevatio
 **There is no list of games to maintain.** Detection is Windows' own verdict, and
 the watcher does not poll while you play.
 
+## Documentation
+
+| | |
+| --- | --- |
+| **[Getting started](docs/getting-started.md)** | Running in five minutes. Start here. |
+| **[How it works](docs/how-it-works.md)** | For the curious: how it knows a game is running, why the two executables, why the wait after you quit. No programming needed. |
+
+The rest of this file is the reference, and the reasoning and measurements
+behind the design.
+
 ## How it works
 
 Windows ships a Game Bar *presence writer*: an out-of-proc WinRT server it

@@ -4,9 +4,13 @@ Working document. Updated as work lands, not written once and forgotten.
 
 Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped, with a reason.
 
-Lots 1 to 7 are **committed**. Lots 8 to 10 are **proposed** and carry only
-enough detail to decide whether they are wanted: writing detail is how scope
-grows.
+Lots 1 to 7 are **committed**, plus Lot 11, which is numbered last but was
+written early — see the lot for why. Lots 8 to 10 are **proposed** and carry
+only enough detail to decide whether they are wanted: writing detail is how
+scope grows.
+
+**Standing rule from Lot 11:** any lot that changes what the user sees updates
+`docs/getting-started.md` and `docs/how-it-works.md` in the same commit.
 
 The numbering has moved twice. On 2026-09-10 logging became Lot 4 and pushed
 the rest up by one; on 2026-09-14 the tray icon lot was split in two — the
@@ -665,6 +669,63 @@ scratch. Losing comments is still acceptable, but it may no longer be necessary.
 
 To settle when it is taken: it supersedes the "edit configuration" menu entry
 from Lot 6, which should then open the window rather than the shell.
+
+---
+
+## Lot 11 — Documentation for the people who use it · committed · `[x]` done
+
+Goal: someone who has never seen this repository can get their own commands
+running in five minutes, and someone curious can find out how it works without
+reading Rust.
+
+- [x] `docs/getting-started.md` — features and the shortest path to a result
+- [x] `docs/how-it-works.md` — the mechanism, for a curious non-programmer
+- [x] Both linked from the top of the README, above the reference material
+- [x] The README keeps the reference and the reasoning; neither new page repeats them
+
+Done when: the two questions a newcomer actually asks — "how do I make it do my
+thing" and "why are there two .exe files" — are answered without opening the
+README.
+
+### Numbered last, written now, and here is why
+
+It sits at the end because that is where the user suggested it, and a third
+renumbering would have cost more than it bought. It was **written now** anyway.
+
+Documentation left until last is documentation written from memory, and memory
+is where confident, wrong sentences come from. Everything in these pages was
+measured or exercised in the sessions that produced lots 1 to 5, with the
+evidence still in this plan. The remaining lots add to what is described — an
+icon, a distribution — they do not contradict it.
+
+### The audiences, kept apart on purpose
+
+Three documents, three readers, no overlap:
+
+| | Reader | Answers |
+| --- | --- | --- |
+| `docs/getting-started.md` | wants it working | what do I type, where do I put my commands, why is nothing happening |
+| `docs/how-it-works.md` | curious, not a programmer, knows what a process is | how does it know a game is running, why two executables, why the wait after quitting |
+| `README.md` | evaluating or contributing | the reference, the measurements, why every other approach was ruled out |
+
+The middle one earns its place: the design has three things a user will
+*notice* and misread as bugs — the unpredictable wait after quitting, the two
+executables, and a game that is detected but not named. Each has a real reason.
+Left unexplained, each looks like a defect.
+
+### The maintenance rule
+
+This lot is finished; the documentation is not, and never will be.
+
+**Any lot that changes what the user sees updates these pages as part of being
+done.** Not as a follow-up, not as a documentation pass at the end — in the same
+commit. Lot 6 adds an icon and a menu: that is `getting-started.md`. Lot 8 ships
+a release: that is both. Lot 9 changes shutdown behaviour: that is
+`how-it-works.md`.
+
+The alternative is documentation that describes a program that no longer
+exists, which is worse than none, because nobody distrusts it until it has
+already wasted their afternoon.
 
 ---
 
