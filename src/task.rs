@@ -133,11 +133,19 @@ fn definition(exe: &str, config: &str, user: &str, delay: Duration) -> String {
 /// prefix `canonicalize` adds -- Task Scheduler shows the command line to the
 /// user, and that prefix is noise in it.
 fn absolute(path: &Path) -> Result<std::path::PathBuf> {
-    if path.is_absolute() {
-        return Ok(path.to_path_buf());
-    }
-    let here = std::env::current_dir().context("cannot read the current directory")?;
-    Ok(here.join(path))
+    let joined = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        let here = std::env::current_dir().context("cannot read the current directory")?;
+        here.join(path)
+    };
+    // `join` concatenates, it does not normalise: a path typed with forward
+    // slashes keeps them, and the result is a command line reading
+    // `C:\Repositories\GameModeExecutor\.local/config.toml`. Windows accepts
+    // it, a person reading the task's properties should not have to.
+    // Re-collecting the components emits the platform separator throughout and
+    // drops any `.` along the way.
+    Ok(joined.components().collect())
 }
 
 /// Task Scheduler durations are ISO 8601. Seconds are enough here.
@@ -241,6 +249,24 @@ mod tests {
 
         let already = Path::new(r"C:\elsewhere\config.toml");
         assert_eq!(absolute(already).unwrap(), already);
+    }
+
+    /// The task's command line is shown to the user in Task Scheduler, so it
+    /// should not carry the separators of whatever shell registered it.
+    #[test]
+    fn separators_are_normalised() {
+        let mixed = absolute(Path::new("./.local/config.toml")).unwrap();
+        let shown = mixed.to_string_lossy();
+        assert!(!shown.contains('/'), "{shown}");
+        assert!(shown.ends_with(r"\.local\config.toml"), "{shown}");
+
+        let absolute_but_mixed = absolute(Path::new("C:/elsewhere/config.toml")).unwrap();
+        assert_eq!(
+            absolute_but_mixed,
+            Path::new(r"C:\elsewhere\config.toml"),
+            "{}",
+            absolute_but_mixed.display()
+        );
     }
 
     #[test]
