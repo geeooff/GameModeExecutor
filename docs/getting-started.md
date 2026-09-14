@@ -16,6 +16,32 @@ console window, the other has none.
 The `w` just means *windowless*, the same convention as `python.exe` and
 `pythonw.exe`.
 
+## Where to put the folder
+
+There is nothing to install: unzip it and keep it somewhere. Two things make
+the choice worth a moment's thought.
+
+**It has to stay put.** The logon task records the full path to the executable,
+so moving the folder afterwards means running `install-task` again.
+
+**It needs to be a folder you can write to**, because your `config.toml` sits
+next to the executable.
+
+The tidiest place, and the Windows convention for a program installed for one
+user, is:
+
+```
+%LOCALAPPDATA%\Programs\GameModeExecutor
+```
+
+Anywhere of your own works too — `C:\Tools\GameModeExecutor`, say. Two to
+avoid:
+
+| Not here | Why |
+| --- | --- |
+| `C:\Program Files` | Needs administrator rights to write, and then your own configuration sits in a folder you cannot edit. This program is built to never ask for those rights. |
+| A OneDrive or Dropbox folder | Synced folders move files, lock them mid-sync, and can turn them into online-only placeholders. For something that starts at logon, that is a bad bet. |
+
 ## Three steps
 
 ### 1. Write down what you want to run
@@ -88,7 +114,7 @@ Tells you what it sees right now: whether a game is running, which one, and
 whether Windows recognises it.
 
 The log keeps the history of every session. It lives in
-`%APPDATA%\GameModeExecutor\logs\gamemode-executor.log` and reads like this:
+`%LOCALAPPDATA%\GameModeExecutor\logs\gamemode-executor.log` and reads like this:
 
 ```
 2026-09-10 17:51:02.433  INFO  watcher   GameModeExecutor 0.1.0 starting

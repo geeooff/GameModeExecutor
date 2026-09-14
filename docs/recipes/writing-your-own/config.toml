@@ -15,7 +15,7 @@ stop_actions_on_exit = true
 # Windows released its signal, why a name was or was not refined.
 log_level = "info"
 
-# Where the log goes. Defaults to %APPDATA%\GameModeExecutor\logs.
+# Where the log goes. Defaults to %LOCALAPPDATA%\GameModeExecutor\logs.
 #log_dir = 'C:\Users\me\AppData\Roaming\GameModeExecutor\logs'
 
 [detection]

@@ -159,9 +159,18 @@ The console version got that for free, through the mechanism that also handles
 
 | | |
 | --- | --- |
-| Configuration | `%APPDATA%\GameModeExecutor\config.toml`, or `config.toml` next to the executable for a portable install |
-| Log | `%APPDATA%\GameModeExecutor\logs\gamemode-executor.log`, one file, local timestamps |
-| Scheduled task | `GameModeExecutor`, visible in Task Scheduler |
+| The program | wherever you put it. `%LOCALAPPDATA%\Programs\GameModeExecutor` is the Windows convention for a per-user install, and it stays writable, which `C:\Program Files` would not |
+| Configuration | `config.toml` next to the executable if there is one, otherwise `%APPDATA%\GameModeExecutor\config.toml` |
+| Log | `%LOCALAPPDATA%\GameModeExecutor\logs\gamemode-executor.log`, one file, local timestamps |
+| Scheduled tasks | a `GameModeExecutor` folder in Task Scheduler, holding `Watcher` and anything a recipe added |
+
+**Roaming for the configuration, Local for the log**, and the split is
+deliberate. Windows carries `%APPDATA%` between machines on a roaming profile
+and leaves `%LOCALAPPDATA%` behind. The configuration is worth carrying — it
+names no path of its own, because anything needing administrator rights is
+reached through a scheduled task, and the task holds the machine-specific part.
+A log is the opposite: it describes one machine's sessions, and copying it back
+and forth at every logon would achieve nothing.
 
 ## Going further
 

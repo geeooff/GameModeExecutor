@@ -568,8 +568,9 @@ Goal: a notification area icon with a small context menu: edit the
 configuration, open the log, quit. Hung off the window Lot 5 created.
 
 - [ ] Notification area icon, on the Lot 5 window
-- [ ] Context menu: edit configuration · open log · quit
-- [ ] Open both through the shell, so the user's own default program handles them
+- [ ] Context menu: edit configuration · open log · **documentation** · quit
+- [ ] Open all three through the shell, so the user's own default program handles them
+- [ ] The documentation entry opens the build's own commit on GitHub — see "Documentation without shipping it" in Lot 8
 - [ ] Re-add the icon when Explorer restarts
 - [ ] Follow the taskbar theme: `SystemUsesLightTheme`, re-read on `WM_SETTINGCHANGE` / `ImmersiveColorSet`
 - [ ] Quit shuts the watcher down cleanly, stop actions included
@@ -643,12 +644,142 @@ workflow on a `v*` tag that runs that same script and attaches its output, and
 version metadata compiled into the executables. The script was written first on
 purpose — a release you cannot make by hand is not one CI can make for you.
 
+### An installer, and the MSI question settled properly
+
+Wanted: an installer that puts everything in the right place, rather than a zip
+to unpack by hand. The right place is settled —
+`%LOCALAPPDATA%\Programs\GameModeExecutor`, per-user, writable, no elevation.
+
+**An earlier version of this section said MSI was the wrong format because
+per-user installs are awkward, discouraged, and prompt for elevation anyway.
+That was wrong on all three counts**, and it is corrected here rather than
+quietly deleted, because the mistake is the kind that would have been repeated.
+
+Microsoft documents the scenario under a name: **Single Package Authoring**, a
+dual-purpose Windows Installer 5.0 package. Its stated purpose is to "remove UAC
+credential prompts from per-user installations"; in the per-user context the
+installer "directs file and registry entries to per-user locations and does not
+display UAC prompts for credentials". `ALLUSERS=2` with `MSIINSTALLPERUSER=1`
+makes per-user the default.
+
+And the destination lines up exactly: in a per-user install, `ProgramFilesFolder`
+redirects to `%LocalAppData%\Programs` — the folder chosen here for an entirely
+separate reason, that being where per-user applications conventionally live.
+
+The documented constraints on such a package are ones this program already
+meets, mostly by accident: no elevated custom actions, no writes to global
+system folders, no GAC, no ODBC sources, **no services** (refused back in Lot 1
+for its own reasons), per-user configuration under `\Users\…\AppData`.
+
+It also dissolves a trap this section used to list. An elevated installer would
+register the logon task for the wrong account — but a per-user MSI never
+elevates, so a custom action runs as the real user and calling `install-task`
+from it is correct.
+
+#### Two candidates, decided when the lot is taken
+
+Narrowed on 2026-09-14 to **Inno Setup** or **a plain MSI authored with the
+Windows SDK**, on a preference for few dependencies.
+
+| | Inno Setup | MSI, Windows SDK only |
+| --- | --- | --- |
+| Third-party dependency | one, free, no strings | **none** |
+| Authoring | a short, readable script | IDT table files imported with `msidb`, File table filled by `Msifiler` |
+| Effort | low | real, and proportional to the number of files |
+| Validation of the package | none, you test it yourself | **`ICE105`** checks a dual-purpose package is actually valid |
+| Install context | the installer's own bookkeeping | Windows records per-user vs per-machine itself, and adapts repair and patching |
+| Uninstall | its own uninstaller | Windows Installer's, transactional |
+| Precedent | VS Code's per-user installer is this exact shape | `PUASample1.msi` ships with the SDK as a worked example |
+| `winget` | supported (`InstallerType: inno`) | native |
+
+**What decides it is the file count.** Hand-authoring MSI tables scales badly
+with the number of files, and well when there are few. This package has under
+ten — two executables, a configuration, a licence, a readme — so the cost of
+the SDK route stays bounded, which it would not for a large application.
+
+#### Documentation without shipping it
+
+**Decided: the installer carries no `docs/` tree.** It carries a link instead,
+and the link names the exact commit the binaries were built from:
+
+```
+https://github.com/Geeooff/GameModeExecutor/blob/<commit>/docs/getting-started.md
+```
+
+A branch link would rot — it would show whatever `main` says today, which may
+describe a version the user is not running. A commit link cannot: it is the
+documentation *for the thing they have*, permanently. That is worth more than a
+local copy, which goes stale the moment they update and cannot be fixed
+afterwards.
+
+**Not in `config.toml`, though.** That file belongs to the user: they edit it,
+they keep it across upgrades, and a build-time constant sitting in it would be
+wrong rather than merely old the first time they replace the executables
+without replacing the file. The commit belongs **compiled into the binary**,
+where it cannot desynchronise from the code it describes. Everything else reads
+it from there: `--version`, `status`, the tray menu entry in Lot 6, and the
+readme the release script generates.
+
+Three mechanics to get right when this is built:
+
+- **Stamp it at build time**, from `git rev-parse HEAD`, through a `build.rs`
+  emitting `cargo:rustc-env`. Nothing else stays in step by itself.
+- **Degrade rather than fail** when there is no git — a source tarball has
+  none. Fall back to the version tag, and say so.
+- **Refuse to release from a dirty working tree.** A binary built from
+  uncommitted changes would name a commit that does not contain what was built,
+  which is exactly the kind of quiet lie the rest of this checklist exists to
+  catch. `scripts/build.ps1 release` should stop.
+
+One caveat with a date on it: the link resolves only once the repository is
+public. Until then it is correct and unreachable, which is the right way round.
+
+Ruled out, and why, so they are not reconsidered from scratch:
+
+| | |
+| --- | --- |
+| **NSIS** | Covers the same ground as Inno Setup with a harsher syntax and no advantage here. Dropped by preference rather than on merit. |
+| **WiX** | The sane way to author an MSI, but it is a third party, and WiX v6+ (April 2025) carries an Open Source Maintenance Fee — free at zero revenue, a live question for anyone reusing this commercially. If the MSI route wins, it wins with the SDK. |
+| **MSIX** | Virtualises `%APPDATA%` inside a container — the very redirection that made this program's own logs invisible during development. It would fight the scheduled task and the configuration file. |
+
+`WinGet` is not in the running because it is not a format: it is a channel, and
+it can point at whichever of the two wins, or at the plain zip today.
+
+#### Dual-purpose is available in both, and probably not wanted
+
+Both candidates can offer a choice between per-user and per-machine from a
+single installer — it is not an MSI privilege, only an MSI *term*:
+
+| | MSI | Inno Setup |
+| --- | --- | --- |
+| Choosing the context | `ALLUSERS=2` with `MSIINSTALLPERUSER=1` | `PrivilegesRequiredOverridesAllowed=dialog commandline` |
+| From the command line | `ALLUSERS=…` | `/ALLUSERS`, `/CURRENTUSER` |
+| Paths follow the choice | `ProgramFilesFolder` redirects to `%LocalAppData%\Programs` | `{autopf}` becomes `{userpf}` |
+| Built in | the engine | since Inno Setup 6 |
+
+Inno Setup's documentation recommends always using the `{auto*}` constants "to
+avoid mistakes", which is the same instinct that produced `ICE105`.
+
+**But this program has no per-machine story.** The logon task is per-user, so
+is the configuration, so is the log. A per-machine install would put files in
+`Program Files`, still leave every user to run `install-task` for themselves,
+and charge an elevation prompt for the privilege. Unless a reason appears, the
+installer should be per-user only — in Inno Setup that is two lines,
+`PrivilegesRequired=lowest` and `DefaultDirName={userpf}\GameModeExecutor`, and
+the dual-purpose machinery above is simply not used.
+
+#### The trap that survives whichever is chosen
+
+- **The scheduled task records an absolute path.** An upgrade that relocates
+  the executable must re-run `install-task`, or the logon task silently points
+  at a file that no longer exists.
+
 
 Nothing ships anywhere yet: the repository is still local.
 
 - Create the public GitHub repository and push
 - Release workflow: on a `v*` tag, build and attach the executables
-- Version and description metadata in the executable
+- Version and description metadata in the executable, **the build's commit included**
 - README install section pointing at a release rather than at `cargo build`
 
 ---

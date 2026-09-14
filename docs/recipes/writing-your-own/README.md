@@ -107,7 +107,7 @@ usually long gone, and claiming otherwise would be a lie.
 stop_actions_on_exit = true   # run the stop commands if the watcher is stopped
                               # mid-game -- logoff and shutdown included
 log_level = "info"            # error | warn | info | debug | trace
-#log_dir = 'C:\somewhere\logs'  # defaults to %APPDATA%\GameModeExecutor\logs
+#log_dir = 'C:\somewhere\logs'  # defaults to %LOCALAPPDATA%\GameModeExecutor\logs
 
 [detection]
 poll_interval = "2s"     # how often to look for a game while none is running.

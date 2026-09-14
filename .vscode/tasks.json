@@ -90,7 +90,7 @@
         "-ExecutionPolicy",
         "Bypass",
         "-Command",
-        "Get-Content -Wait -Tail 30 \"$env:APPDATA\\GameModeExecutor\\logs\\gamemode-executor.log\""
+        "Get-Content -Wait -Tail 30 \"$env:LOCALAPPDATA\\GameModeExecutor\\logs\\gamemode-executor.log\""
       ],
       "isBackground": true,
       "problemMatcher": []

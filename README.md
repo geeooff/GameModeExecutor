@@ -262,7 +262,7 @@ anything.
 
 ## Reading the log
 
-The log lives in `%APPDATA%\GameModeExecutor\logs\gamemode-executor.log` unless
+The log lives in `%LOCALAPPDATA%\GameModeExecutor\logs\gamemode-executor.log` unless
 `log_dir` says otherwise, with local timestamps. Run the watcher in a terminal
 instead of hidden and the same lines appear there, coloured.
 

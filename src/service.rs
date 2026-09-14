@@ -36,7 +36,7 @@ pub fn serve(config: Config, level: &str, console: bool) -> Result<()> {
         .general
         .log_dir
         .clone()
-        .or_else(|| config::roaming_dir().map(|dir| dir.join("logs")));
+        .or_else(|| config::local_dir().map(|dir| dir.join("logs")));
     let _guards = logging::init(level, log_dir.as_deref(), console)?;
     let _instance = SingleInstance::acquire("GameModeExecutor")?;
 

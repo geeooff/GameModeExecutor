@@ -225,8 +225,24 @@ pub fn candidate_paths() -> Vec<PathBuf> {
     paths
 }
 
+/// `%APPDATA%\GameModeExecutor`: the roaming profile, for the configuration.
+///
+/// Roaming is right for it. Windows carries this folder between machines, and
+/// the configuration is worth carrying: it names no path of its own -- a
+/// program needing elevation is reached through a scheduled task, so the task
+/// holds the machine-specific part and the file does not.
 pub fn roaming_dir() -> Option<PathBuf> {
     std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join(APP_DIR_NAME))
+}
+
+/// `%LOCALAPPDATA%\GameModeExecutor`: the local profile, for the log.
+///
+/// A log describes one machine's sessions, so carrying it to another would be
+/// meaningless -- and on a roaming profile it would be copied back and forth at
+/// every logon for nothing. Local is where Windows puts what belongs to the
+/// machine rather than the person.
+pub fn local_dir() -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|local| PathBuf::from(local).join(APP_DIR_NAME))
 }
 
 /// First existing candidate, or the first candidate at all so error messages
@@ -244,6 +260,17 @@ pub fn default_path() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The two are easy to mix up, and mixing them up is invisible: the log
+    /// would simply be written somewhere it does not belong, and roam.
+    #[test]
+    fn the_configuration_roams_and_the_log_does_not() {
+        let roaming = roaming_dir().expect("APPDATA is set on Windows");
+        let local = local_dir().expect("LOCALAPPDATA is set on Windows");
+        assert_ne!(roaming, local);
+        assert!(roaming.ends_with(APP_DIR_NAME), "{}", roaming.display());
+        assert!(local.ends_with(APP_DIR_NAME), "{}", local.display());
+    }
 
     #[test]
     fn example_config_parses_and_validates() {

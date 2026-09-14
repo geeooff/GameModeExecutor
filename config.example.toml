@@ -41,7 +41,9 @@ stop_actions_on_exit = true
 # "Reading the log" in the README.
 log_level = "info"
 
-# Where the log file goes. Defaults to %APPDATA%\GameModeExecutor\logs.
+# Where the log file goes. Defaults to %LOCALAPPDATA%\GameModeExecutor\logs --
+# Local rather than Roaming, because a log describes one machine's sessions and
+# has no business following you to another.
 # Timestamps are local time.
 #log_dir = 'C:\Users\me\AppData\Roaming\GameModeExecutor\logs'
 
