@@ -636,6 +636,14 @@ Notes:
 
 ## Lot 8 — Distribution · proposed
 
+**Partly done already, on 2026-09-14**: `scripts/build.ps1` runs the whole
+checklist and produces the portable bundle in `dist/`, and `.vscode/tasks.json`
+drives it. What is left for this lot is the part that needs a repository: a
+workflow on a `v*` tag that runs that same script and attaches its output, and
+version metadata compiled into the executables. The script was written first on
+purpose — a release you cannot make by hand is not one CI can make for you.
+
+
 Nothing ships anywhere yet: the repository is still local.
 
 - Create the public GitHub repository and push

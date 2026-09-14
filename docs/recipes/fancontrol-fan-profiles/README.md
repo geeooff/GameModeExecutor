@@ -9,6 +9,7 @@ In this folder:
 | File | |
 | --- | --- |
 | [`config.toml`](config.toml) | the complete configuration, ready to copy |
+| [`install-tasks.ps1`](install-tasks.ps1) | registers both tasks for you, placeholders filled in |
 | [`FanControl-Game.xml`](FanControl-Game.xml) | Task Scheduler definition for the `Game` profile |
 | [`FanControl-Quiet.xml`](FanControl-Quiet.xml) | the same for `Quiet` |
 
@@ -77,7 +78,28 @@ Registering a task that runs with highest privileges **needs administrator
 rights, once**. Without them the registration is refused with `Access is
 denied`.
 
-### The quick way: import the templates
+### The quick way: let the script do it
+
+[`install-tasks.ps1`](install-tasks.ps1) fills the placeholders in and registers
+both tasks. From a PowerShell **opened as administrator**, in this folder:
+
+```powershell
+.\install-tasks.ps1
+```
+
+It finds FanControl by itself; if it cannot, name the folder:
+
+```powershell
+.\install-tasks.ps1 -FanControlDir "D:\Tools\FanControl"
+```
+
+Have more profiles than two? `-Profiles Game,Quiet,Pump` registers one task
+each, reusing the same template.
+
+It refuses to start unelevated rather than failing part-way, warns if a profile
+is missing, and prints the commands to test what it registered.
+
+### Or by hand: import the templates
 
 Open [`FanControl-Game.xml`](FanControl-Game.xml) and
 [`FanControl-Quiet.xml`](FanControl-Quiet.xml) in a text editor and replace two

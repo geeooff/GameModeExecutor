@@ -1,0 +1,99 @@
+{
+  // Every task goes through scripts/build.ps1 rather than calling cargo
+  // directly, so what runs here is exactly what runs from a terminal and from
+  // CI later. One checklist, one place to change it.
+  "version": "2.0.0",
+  "options": {
+    "cwd": "${workspaceFolder}"
+  },
+  "presentation": {
+    "reveal": "always",
+    "panel": "dedicated",
+    "clear": true
+  },
+  "tasks": [
+    {
+      "label": "Test",
+      "detail": "fmt, clippy, tests, shipped configs, documentation links",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts/build.ps1",
+        "test"
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "Build (release)",
+      "detail": "everything Test does, then a release build with the subsystems checked",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts/build.ps1",
+        "build"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "Release (zip)",
+      "detail": "everything Build does, then the portable bundle in dist\\",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts/build.ps1",
+        "release"
+      ],
+      "group": "build",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "Watcher: restart the logon task",
+      "detail": "stop it, wait for the process to actually go, start it again",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "Stop-ScheduledTask -TaskPath '\\GameModeExecutor\\' -TaskName Watcher; $d=(Get-Date).AddSeconds(20); while((Get-Date) -lt $d -and @(Get-Process gamemode-executorw -ErrorAction Ignore).Count){Start-Sleep -Milliseconds 250}; Start-ScheduledTask -TaskPath '\\GameModeExecutor\\' -TaskName Watcher; Start-Sleep 2; Get-Process gamemode-executorw -ErrorAction Ignore | Select-Object Id, StartTime"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Watcher: tail the log",
+      "detail": "follow the log file as a game session happens",
+      "type": "shell",
+      "command": "pwsh",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "Get-Content -Wait -Tail 30 \"$env:APPDATA\\GameModeExecutor\\logs\\gamemode-executor.log\""
+      ],
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}

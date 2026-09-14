@@ -159,6 +159,9 @@ Requires the Rust toolchain (stable, edition 2024).
 cargo build --release
 ```
 
+Or go through the checklist that is actually used, which does rather more than
+`cargo build` — see [Building and releasing](#building-and-releasing).
+
 Self-contained executables, no runtime dependencies:
 
 | Executable | About | What it is for |
@@ -357,6 +360,42 @@ scheduled task:
 - **No admin rights** anywhere: not for the watcher, not for the logon task, not
   for reading the registration.
 - **Easier to debug.** Run it in a console, watch the log, hit Ctrl-C.
+
+## Building and releasing
+
+```powershell
+.\scripts\build.ps1            # test
+.\scripts\build.ps1 build      # test, then a release build
+.\scripts\build.ps1 release    # test, build, and the portable zip in dist\
+```
+
+Each mode runs everything the one before it does. `test` is more than
+`cargo test`:
+
+| Step | Catches |
+| --- | --- |
+| `cargo fmt --check` | |
+| `cargo clippy --all-targets -- -D warnings` | |
+| `cargo test` | |
+| every shipped `config.toml` through `validate` | a typo in a file people copy over their own |
+| every documentation link resolved from its own file | a page that moved and a link that did not |
+
+`build` adds the release build, then reads the **subsystem out of each PE
+header**: a console program and a windowless one cannot be the same file, and
+getting that backwards is invisible until someone sees a black window at logon.
+
+`release` stages the bundle, zips it into `dist\`, and refuses to finish if the
+archive names this machine's account or if a task template has lost the
+placeholders that make it portable.
+
+This script exists because the checklist was being run by hand, and by hand it
+was skipped twice — once committing a failing test, once shipping a scheduled
+task with a relative path in it.
+
+**From VS Code:** `Ctrl+Shift+B` builds, and *Terminal → Run Task* offers the
+same three plus two for driving the installed watcher — restart it, or follow
+its log while you play. They all call this script, so what runs in the editor
+is what runs in a terminal.
 
 ## presence-probe
 
