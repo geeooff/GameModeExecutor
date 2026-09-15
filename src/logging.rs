@@ -74,6 +74,16 @@ impl FormatTime for LocalTimestamp {
     }
 }
 
+/// The local time as the log writes it, to the second. For anything that
+/// wants to be read next to the log and agree with it.
+pub fn local_now() -> String {
+    let now = unsafe { GetLocalTime() };
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond
+    )
+}
+
 const DIM: &str = "\x1b[2m";
 const RESET: &str = "\x1b[0m";
 

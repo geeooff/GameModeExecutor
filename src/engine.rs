@@ -14,13 +14,14 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-use crate::actions::{self, ActionContext};
+use crate::actions::{self, ActionContext, Outcome};
 use crate::config::Config;
 use crate::detect::known_games::KnownGames;
 use crate::detect::presence_writer::{self, WaitOutcome};
 use crate::detect::process::Snapshot;
 use crate::detect::{self, GameSignal, gpu};
-use crate::logging::target;
+use crate::logging::{self, target};
+use crate::marker::Marker;
 use crate::win::StopSignal;
 
 /// Told whenever the session changes: a game started, was named more precisely,
@@ -37,6 +38,10 @@ pub struct Engine {
     /// Resolved from the registry once at startup, never hard-coded.
     writer_exe: PathBuf,
     session: Option<SessionSink>,
+    /// Where "a session is open" is remembered across the process's death.
+    /// Without one the engine forgets everything when it exits, which is what
+    /// the tests want and what a logoff cannot afford.
+    marker: Option<Marker>,
 }
 
 impl Engine {
@@ -46,6 +51,7 @@ impl Engine {
             config,
             writer_exe,
             session: None,
+            marker: None,
         })
     }
 
@@ -56,10 +62,94 @@ impl Engine {
         self
     }
 
+    /// Remember an open session in `dir`, so that a session this process does
+    /// not live to close is closed by the next one.
+    #[must_use]
+    pub fn remembering_in(mut self, dir: &Path) -> Self {
+        self.marker = Some(Marker::in_dir(dir));
+        self
+    }
+
     fn report(&self, signal: Option<&GameSignal>) {
         if let Some(sink) = &self.session {
             sink(signal);
         }
+    }
+
+    /// Write the marker. Failing to is worth a warning and nothing more: the
+    /// session goes on, only its recovery after a logoff is lost.
+    fn remember(&self, signal: Option<&GameSignal>) {
+        let Some(marker) = &self.marker else {
+            return;
+        };
+        let game = signal.and_then(|signal| signal.process_name.as_deref());
+        if let Err(error) = marker.open(game, &logging::local_now()) {
+            tracing::warn!(
+                target: target::WATCHER,
+                path = %marker.path().display(),
+                error = %error,
+                "Cannot write the session marker, so a logoff during this game will \
+                 not be recovered at the next start"
+            );
+        }
+    }
+
+    /// Remove the marker: the session is closed, or the user has opted out of
+    /// closing it.
+    fn forget(&self) {
+        let Some(marker) = &self.marker else {
+            return;
+        };
+        if let Err(error) = marker.close() {
+            tracing::warn!(
+                target: target::WATCHER,
+                path = %marker.path().display(),
+                error = %error,
+                "Cannot remove the session marker, so the stop commands will run \
+                 again at the next start"
+            );
+        }
+    }
+
+    /// Close the session the last process never got to.
+    ///
+    /// Measured on 2026-09-16: a command started at logoff, even one
+    /// millisecond after Windows first asks, dies with STATUS_DLL_INIT_FAILED.
+    /// The session-end handshake is not where the stop commands can run, so
+    /// they run here, at the start that follows. A logoff, a shutdown, a crash
+    /// and a power cut are then one case.
+    fn recover(&self) {
+        let Some(marker) = &self.marker else {
+            return;
+        };
+        let Some(pending) = marker.pending() else {
+            return;
+        };
+        match &pending.game {
+            Some(game) => tracing::info!(
+                target: target::GAME,
+                since = pending.since.as_deref(),
+                "The last session ended with {game} still running and its stop commands \
+                 never ran, so they run now"
+            ),
+            None => tracing::info!(
+                target: target::GAME,
+                since = pending.since.as_deref(),
+                "The last session ended with a game still running and its stop commands \
+                 never ran, so they run now"
+            ),
+        }
+        let signal = pending.game.map(|name| GameSignal {
+            source: "recovered",
+            process_name: Some(name),
+            process_id: None,
+            process_path: None,
+        });
+        actions::run_all(
+            &self.config.on_game_stop,
+            &ActionContext::new("game_stop", signal.as_ref()),
+        );
+        self.forget();
     }
 
     pub fn writer_exe(&self) -> &Path {
@@ -81,6 +171,7 @@ impl Engine {
                  detection follows whatever is registered"
             );
         }
+        self.recover();
 
         while let Some(mut pid) = self.await_writer(stop) {
             let session_start = std::time::Instant::now();
@@ -109,6 +200,7 @@ impl Engine {
                             signal = Some(better);
                             // The name on screen was the launcher's until now.
                             self.report(signal.as_ref());
+                            self.remember(signal.as_ref());
                         }
                         continue;
                     }
@@ -138,11 +230,30 @@ impl Engine {
                         target: target::WATCHER,
                         "Stopping while a game is running, so the stop commands run now"
                     );
-                    self.fire_stop(signal.as_ref());
+                    // The marker outlives a stop that cannot be vouched for.
+                    // At logoff the commands are started and die unborn; the
+                    // next start is the only moment that is certain to have
+                    // a working process to give them.
+                    if self.fire_stop(signal.as_ref()).confirmed() {
+                        self.forget();
+                    } else {
+                        tracing::warn!(
+                            target: target::WATCHER,
+                            "The stop commands could not be confirmed, so they run again at \
+                             the next start"
+                        );
+                    }
+                } else {
+                    // Opted out of restoring on exit; that covers the next
+                    // start too, or the opt-out would be undone at logon.
+                    self.forget();
                 }
                 return Ok(());
             }
+            // A game that stopped on its own: the commands are best effort,
+            // as they always were, and the session is closed either way.
             self.fire_stop(signal.as_ref());
+            self.forget();
         }
         Ok(())
     }
@@ -351,6 +462,9 @@ impl Engine {
 
     fn fire_start(&self, signal: Option<&GameSignal>) {
         self.report(signal);
+        // Before the commands, so a crash between the two still leaves a
+        // session to close.
+        self.remember(signal);
         match signal {
             Some(signal) => tracing::info!(
                 target: target::GAME,
@@ -374,7 +488,7 @@ impl Engine {
         );
     }
 
-    pub fn fire_stop(&self, signal: Option<&GameSignal>) {
+    pub fn fire_stop(&self, signal: Option<&GameSignal>) -> Outcome {
         // Before the commands, not after: those can take fifteen seconds, and
         // an icon still showing a game that has ended for that long is the
         // thing anyone would notice.
@@ -396,6 +510,6 @@ impl Engine {
         actions::run_all(
             &self.config.on_game_stop,
             &ActionContext::new("game_stop", signal),
-        );
+        )
     }
 }

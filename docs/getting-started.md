@@ -222,6 +222,11 @@ Check the log. A command that fails to start is recorded with the reason, and it
 never prevents the others from running. The usual cause is a wrong path, or a
 program that needs administrator rights (see above).
 
+**I logged off during a game and the fans stayed loud.**
+They calm down at your next logon. Windows does not let the stop commands run
+once the session is ending, so the watcher runs them the moment it starts
+again — see [How it works](how-it-works.md#logging-off-mid-game).
+
 **The fans take ages to calm down after I quit.**
 That wait is Windows', not this program's. It releases its own "a game is
 running" signal when it decides to — sometimes in seconds, sometimes in minutes,

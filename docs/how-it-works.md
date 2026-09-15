@@ -132,17 +132,36 @@ laptop.
 
 ## The window you cannot see
 
-The windowless watcher does own one window — created, never shown. It exists for
-a single message.
+The windowless watcher does own one window — created, never shown. It is what
+the notification icon hangs off, and it is how the watcher hears the shell:
+theme changes, and the moment Windows starts ending your session.
 
-When you log off or shut down, Windows asks every top-level window whether it
-may end the session. That question is how this program learns it is about to be
-stopped, so it can run your "game stopped" commands before dying. Without the
-window it would simply be killed, and a gaming fan profile would survive into
-your next session.
+## Logging off mid-game
 
-The console version got that for free, through the mechanism that also handles
-`Ctrl+C`. The windowless one had to ask for it.
+When you log off or shut down with a game running, Windows asks every window
+whether it may end the session. The watcher says yes and starts your "game
+stopped" commands at once — and they die. That is measured, not guessed: a
+program started even one millisecond after that question fails to initialise,
+because the session it would live in is already being torn down, and nothing
+the watcher does can come earlier than the question.
+
+So the stop commands run at the **next logon** instead. While a game is
+running, a small file next to the log — `pending-stop-actions.txt` — says so.
+A game that stops normally removes it. A session that ends any other way —
+logoff, shutdown, a crash, a power cut — leaves it behind, and the watcher's
+first act at your next logon is to run the stop commands and remove it. The log
+reads:
+
+```
+The last session ended with Starfield.exe still running and its stop commands never ran, so they run now
+```
+
+The delay is the time between logging off and logging back on, plus a few
+seconds for the watcher to start. Across a shutdown, that is time the machine
+is off.
+
+`stop_actions_on_exit = false` opts out of both: quitting the watcher mid-game
+leaves your profile alone, and so does the next logon.
 
 ## What it does not do
 

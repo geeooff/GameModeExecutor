@@ -104,9 +104,16 @@ pub fn serve(
     // the tooltip and the menu stay in step with each other and with reality.
     let sink = tray::session_sink(window_id);
     let worker_stop = Arc::clone(&stop);
+    // The marker lives next to the log: the one folder the watcher has already
+    // proved it can write to, and where someone reading the log will find it.
+    let marker_dir = log_dir.clone();
     let worker = std::thread::spawn(move || {
         let outcome = engine::Engine::new(config)
             .map(|engine| engine.reporting_to(sink))
+            .map(|engine| match &marker_dir {
+                Some(dir) => engine.remembering_in(dir),
+                None => engine,
+            })
             .and_then(|mut engine| engine.run(&worker_stop));
         // Order matters: release WM_ENDSESSION first, then wake the loop.
         finished.signal();

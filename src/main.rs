@@ -136,7 +136,9 @@ fn run() -> Result<()> {
             let engine = engine::Engine::new(config)?;
             match event {
                 TriggerEvent::Start => engine.fire_start_manual(),
-                TriggerEvent::Stop => engine.fire_stop(None),
+                TriggerEvent::Stop => {
+                    engine.fire_stop(None);
+                }
             }
             Ok(())
         }

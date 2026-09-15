@@ -105,7 +105,8 @@ usually long gone, and claiming otherwise would be a lie.
 ```toml
 [general]
 stop_actions_on_exit = true   # run the stop commands if the watcher is stopped
-                              # mid-game -- logoff and shutdown included
+                              # mid-game; after a logoff or shutdown, at the
+                              # next logon instead
 log_level = "info"            # error | warn | info | debug | trace
 #log_dir = 'C:\somewhere\logs'  # defaults to %LOCALAPPDATA%\GameModeExecutor\logs
 

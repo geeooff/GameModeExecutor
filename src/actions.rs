@@ -48,11 +48,41 @@ impl ActionContext {
     }
 }
 
+/// What `run_all` can vouch for afterwards.
+///
+/// Only a command that was waited for has a verdict; a fire-and-forget one is
+/// the user saying they do not want one. So `confirmed` is the strongest thing
+/// that can honestly be said -- "at least one command was checked, and every
+/// checked command succeeded" -- and not "nothing went wrong". A command that
+/// could not be started counts as checked and failed whether or not it would
+/// have been waited for, since that verdict is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Outcome {
+    pub checked: usize,
+    pub failed: usize,
+}
+
+impl Outcome {
+    pub fn confirmed(&self) -> bool {
+        self.checked > 0 && self.failed == 0
+    }
+
+    fn record(&mut self, verdict: Option<bool>) {
+        if let Some(succeeded) = verdict {
+            self.checked += 1;
+            if !succeeded {
+                self.failed += 1;
+            }
+        }
+    }
+}
+
 /// Run an event's commands, in series or all at once.
 ///
 /// A command that fails to start is logged and never stops the others: an event
 /// is a set of independent side effects, not a pipeline.
-pub fn run_all(event: &Event, context: &ActionContext) {
+pub fn run_all(event: &Event, context: &ActionContext) -> Outcome {
+    let mut outcome = Outcome::default();
     let actions: Vec<&Action> = event
         .actions
         .iter()
@@ -65,7 +95,7 @@ pub fn run_all(event: &Event, context: &ActionContext) {
         .collect();
 
     if actions.is_empty() {
-        return;
+        return outcome;
     }
     tracing::debug!(
         target: target::COMMANDS,
@@ -77,7 +107,7 @@ pub fn run_all(event: &Event, context: &ActionContext) {
     match event.mode {
         Mode::Series => {
             for action in actions {
-                match start(action, context) {
+                let verdict = match start(action, context) {
                     Ok(child) => join(action, child),
                     Err(error) => {
                         tracing::error!(
@@ -85,9 +115,11 @@ pub fn run_all(event: &Event, context: &ActionContext) {
                             error = %format!("{error:#}"),
                             "Command `{}` could not be started; check its program path in the configuration",
                             action.label()
-                        )
+                        );
+                        Some(false)
                     }
-                }
+                };
+                outcome.record(verdict);
             }
         }
         Mode::Parallel => {
@@ -101,17 +133,19 @@ pub fn run_all(event: &Event, context: &ActionContext) {
                             error = %format!("{error:#}"),
                             "Command `{}` could not be started; check its program path in the configuration",
                             action.label()
-                        )
+                        );
+                        outcome.record(Some(false));
                     }
                 }
             }
             // Everything is running before anything is waited for. Waiting as
             // we started would have been series with extra steps.
             for (action, child) in started {
-                join(action, child);
+                outcome.record(join(action, child));
             }
         }
     }
+    outcome
 }
 
 fn start(action: &Action, context: &ActionContext) -> Result<Child> {
@@ -136,24 +170,40 @@ fn start(action: &Action, context: &ActionContext) -> Result<Child> {
         .with_context(|| format!("cannot start `{program}`"))
 }
 
-fn join(action: &Action, mut child: Child) {
+/// `None` when the command was not waited for; otherwise whether it succeeded.
+fn join(action: &Action, mut child: Child) -> Option<bool> {
     if !action.wait {
-        return;
+        return None;
     }
     let label = action.label();
     match wait_for(&mut child, action.timeout) {
-        Ok(Some(status)) => {
-            tracing::debug!(target: target::COMMANDS, status = %status, "`{label}` finished")
+        Ok(Some(status)) if status.success() => {
+            tracing::debug!(target: target::COMMANDS, status = %status, "`{label}` finished");
+            Some(true)
         }
-        Ok(None) => tracing::warn!(
-            target: target::COMMANDS,
-            "`{label}` is still running after its timeout and was left to finish on its own"
-        ),
-        Err(error) => tracing::error!(
-            target: target::COMMANDS,
-            error = %format!("{error:#}"),
-            "Lost track of `{label}` while waiting for it to finish"
-        ),
+        // A warning, because the user meets this as something that did not
+        // happen -- a fan profile that stayed on -- and the log is where they
+        // will look. Found the hard way: a logoff on 2026-09-16 left
+        // `0xc0000142` at debug level and the fans on gaming settings.
+        Ok(Some(status)) => {
+            tracing::warn!(target: target::COMMANDS, status = %status, "`{label}` failed");
+            Some(false)
+        }
+        Ok(None) => {
+            tracing::warn!(
+                target: target::COMMANDS,
+                "`{label}` is still running after its timeout and was left to finish on its own"
+            );
+            Some(false)
+        }
+        Err(error) => {
+            tracing::error!(
+                target: target::COMMANDS,
+                error = %format!("{error:#}"),
+                "Lost track of `{label}` while waiting for it to finish"
+            );
+            Some(false)
+        }
     }
 }
 
@@ -180,6 +230,41 @@ fn wait_for(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nothing_checked_confirms_nothing() {
+        // Every command fire-and-forget: there is no verdict to lean on, so
+        // a session-end stop cannot be called confirmed.
+        let mut outcome = Outcome::default();
+        outcome.record(None);
+        outcome.record(None);
+        assert!(!outcome.confirmed());
+    }
+
+    #[test]
+    fn one_failure_among_checked_commands_denies_confirmation() {
+        let mut outcome = Outcome::default();
+        outcome.record(Some(true));
+        outcome.record(Some(false));
+        assert_eq!(
+            outcome,
+            Outcome {
+                checked: 2,
+                failed: 1
+            }
+        );
+        assert!(!outcome.confirmed());
+    }
+
+    #[test]
+    fn checked_successes_confirm_regardless_of_unchecked_ones() {
+        // The shape of the FanControl recipe: the profile switch is waited
+        // for, the beep is not. The beep's fate does not count either way.
+        let mut outcome = Outcome::default();
+        outcome.record(Some(true));
+        outcome.record(None);
+        assert!(outcome.confirmed());
+    }
 
     #[test]
     fn placeholders_are_substituted() {

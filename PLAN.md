@@ -1111,22 +1111,31 @@ Nothing ships anywhere yet: the repository is still local.
 - Reload the configuration without restarting, which pairs with the Lot 6 menu
   entry that opens it for editing.
 - Behaviour across two games launched back to back.
-- **Restore at logon what logoff could not.** Measured 2026-09-16: a process
-  started even one millisecond after `WM_QUERYENDSESSION` dies with
-  `STATUS_DLL_INIT_FAILED`, so the stop commands cannot run at session end and
-  the fan profile survives into the next session -- the exact outcome Lot 5
-  claimed to prevent. The mechanism that does not depend on Windows' timing:
-  - `fire_start` writes a small marker file next to the log, naming the game
-    and the time; a normal `fire_stop` removes it after the commands ran.
-  - At session end the stop commands are still attempted, and the marker is
-    removed only if every awaited command exited 0. Otherwise it stays, with a
-    line saying the next start will retry.
-  - At start, a marker present means the last session never closed: say so at
-    `info`, run the stop commands, remove it. A logoff, a shutdown, a crash and
-    a power cut become one case.
-  - Normal game stops keep today's semantics -- commands are best effort,
-    failures are logged, the marker goes regardless -- so nothing re-runs
-    behind the user's back except after a session that provably did not close.
+- [x] **Restore at logon what logoff could not** -- done 2026-09-16, the same
+  night it was measured. A process started even one millisecond after
+  `WM_QUERYENDSESSION` dies with `STATUS_DLL_INIT_FAILED`, so the stop commands
+  cannot run at session end and the fan profile survives into the next session
+  -- the exact outcome Lot 5 claimed to prevent. The mechanism that does not
+  depend on Windows' timing, as built:
+  - `fire_start` writes `pending-stop-actions.txt` next to the log, naming the
+    game and the time; the refinement rewrites it with the better name; a game
+    that stops on its own removes it after the commands ran, best effort as
+    before.
+  - When the watcher is stopped mid-game the commands are still attempted, and
+    the marker is removed only when `run_all` can *confirm* them: at least one
+    command was waited for, and every waited-for command exited 0. Otherwise
+    it stays, with a warning saying the next start will retry. A fire-and-forget
+    command never confirms anything -- that is the user declining a verdict --
+    which is deliberately conservative: the failure mode this exists for is
+    exactly one where the process is created and dies unseen.
+  - `stop_actions_on_exit = false` removes the marker on exit instead, so the
+    opt-out is not undone at logon. A crash never reaches that branch, so crash
+    recovery does not depend on the setting.
+  - At start, before watching, a marker present means the last session never
+    closed: one `info` line naming the game, the stop commands, the marker
+    removed. Logoff, shutdown, crash and power cut are one case.
+  - A failed command is now a **warning**, not a debug line. The `0xc0000142`
+    that explained the whole evening sat at debug level.
 - **Stop timing the refinement and let the OS say when.** The single attempt at
   `identify_after` is a lottery with three ways to lose: the process being named
   is already dead and one candidate is left (fixed on 2026-09-15, but only
@@ -1270,6 +1279,8 @@ Recorded so they stop coming back:
 ---
 
 ## Journal
+
+**2026-09-16** — The fix for the logoff, built and deployed the same night. A marker file next to the log says "a session is open"; a session that ends any way other than the game stopping leaves it behind, and the next start runs the stop commands before it watches for anything. Two decisions worth writing down. The marker is removed after a mid-game stop only when the commands can be *confirmed* -- at least one waited for, none failed -- and a config made entirely of fire-and-forget commands therefore never confirms, so its stop commands run again at the next logon. That is the conservative side on purpose: the failure this exists for is a process that is created and dies unseen, which is precisely what a fire-and-forget command cannot report. And the opt-out `stop_actions_on_exit = false` removes the marker on exit rather than leaving it, or the user's choice would be undone at logon; a crash never reaches that code, so crash recovery stands regardless. The other change was overdue: a command that exits non-zero is a warning now. The `0xc0000142` that explained the evening had been sitting at debug level, one line among the others, and the fans were what raised the alarm.
 
 **2026-09-16** — The real logoff, finally, and it failed in the one way the instrumentation added an hour earlier could make legible. Starfield running, sign-out at 00:18:00; Windows asked at 00:18:01.220, the watcher answered and started stopping in the same millisecond, `schtasks` was started 1 ms later, and it died with `0xC0000142` — `STATUS_DLL_INIT_FAILED`, a process born after the session began ending. The handshake released in 62 ms and the profile stayed on *Game* until `trigger stop` by hand. What this settles is stronger than "the window does not work": `WM_QUERYENDSESSION` is the first notification any application gets, so **no design that starts a process at logoff can restore the profile**, and that includes the console build's `ctrlc` path that Lot 5 was built to preserve — a behaviour I had inferred from the handler's signature and never measured. Both the plan and the module doc said the console version "restored the fan profile"; corrected in place. The fix is the crash-recovery item Lot 9 already owed: a marker file written at game start, removed after a normal stop, kept when a session-end stop cannot be confirmed, and honoured at the next start. Logoff, shutdown, crash and power cut become one case. The same evening also gave the survivor rule its field test, on Starfield rather than BF6: `gamelaunchhelper.exe` won the first identify this time where the same title had named itself the day before, and twenty seconds later the rule handed the session to `Starfield.exe`. Which process wins that race is not stable per title; the rule is what makes losing it harmless.
 

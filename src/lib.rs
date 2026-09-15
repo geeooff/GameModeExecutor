@@ -14,6 +14,7 @@ pub mod detect;
 pub mod engine;
 pub mod exit;
 pub mod logging;
+pub mod marker;
 pub mod registry;
 pub mod service;
 pub mod task;
