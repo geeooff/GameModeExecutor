@@ -574,7 +574,8 @@ configuration, open the log, quit. Hung off the window Lot 5 created.
 - [ ] Re-add the icon when Explorer restarts
 - [ ] Follow the taskbar theme: `SystemUsesLightTheme`, re-read on `WM_SETTINGCHANGE` / `ImmersiveColorSet`
 - [ ] Quit shuts the watcher down cleanly, stop actions included
-- [ ] Icons from the Claude Design handoff: `.ico` files, eight sizes each, PNG frames, no C2PA payload — use those, not the standalone PNGs
+- [x] Icons in the repository: `.ico` and `.svg` only, eight frames each, C2PA-free — see `assets/icons/README.md`
+- [x] **The `active` icon compiled into every executable**, through the Windows SDK's `rc.exe` from `build.rs`. No crate: an icon must be a PE resource, and `rc.exe` is the Microsoft tool that makes one. Missing SDK is a warning, not a failed build. The same mechanism takes Lot 8's version metadata when that is wanted.
 
 Done when: the icon appears at logon in the right variant for the taskbar
 theme, both menu entries open the right file in the user's chosen editor and

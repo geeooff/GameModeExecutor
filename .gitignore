@@ -9,3 +9,6 @@
 
 # Machine-specific files: real paths, real account, not for a public repo
 /.local/
+
+# Claude Design staging files
+/.claude/design/

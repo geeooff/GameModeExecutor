@@ -45,6 +45,99 @@ fn main() {
     println!("cargo:rustc-env=GIT_DIRTY={dirty}");
     println!("cargo:rustc-env=GIT_DOC_REF={doc_ref}");
     println!("cargo:rustc-env=GIT_COMMIT_DISPLAY={display}");
+
+    embed_icon();
+}
+
+/// The icon Explorer, the task bar and Alt-Tab show for the executables.
+///
+/// Done with `rc.exe` from the Windows SDK and nothing else. An icon has to be
+/// a PE resource -- there is no way to set it from code -- and the SDK's
+/// resource compiler is the Microsoft tool for producing one. Anyone who can
+/// build this already has it: it ships with the Build Tools that provide the
+/// MSVC linker.
+///
+/// Like the commit stamp above, a miss is a warning rather than an error. An
+/// executable with no icon works perfectly; a build that refuses to run does
+/// not.
+fn embed_icon() {
+    let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets this");
+    // The "active" artwork, in its light-background variant: an executable icon
+    // cannot follow the theme, and the darker green keeps its definition on the
+    // white Explorer background Windows ships with.
+    let icon = std::path::Path::new(&manifest).join("assets/icons/gamemode-active-light.ico");
+    println!("cargo:rerun-if-changed={}", icon.display());
+    if !icon.exists() {
+        println!("cargo:warning=no icon at {}, building without one", icon.display());
+        return;
+    }
+
+    let Some(rc) = find_resource_compiler() else {
+        println!("cargo:warning=rc.exe not found, building without an icon");
+        return;
+    };
+
+    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("cargo sets this"));
+    let script = out.join("icon.rc");
+    let compiled = out.join("icon.res");
+
+    // Resource id 1: Windows shows the lowest-numbered icon group as the
+    // application icon, and 1 is the convention for it.
+    let contents = format!("1 ICON \"{}\"\n", icon.display().to_string().replace('\\', "\\\\"));
+    if std::fs::write(&script, contents).is_err() {
+        println!("cargo:warning=cannot write the resource script, building without an icon");
+        return;
+    }
+
+    let status = Command::new(&rc)
+        .args(["/nologo", "/fo"])
+        .arg(&compiled)
+        .arg(&script)
+        .status();
+    match status {
+        Ok(status) if status.success() => {
+            // Bins only: the library has no resources to carry.
+            println!("cargo:rustc-link-arg-bins={}", compiled.display());
+        }
+        _ => println!("cargo:warning=rc.exe failed, building without an icon"),
+    }
+}
+
+/// Finds the SDK's resource compiler: the developer prompt's own variable
+/// first, then the newest version under the installed Windows Kit.
+fn find_resource_compiler() -> Option<std::path::PathBuf> {
+    if let Some(dir) = std::env::var_os("WindowsSdkVerBinPath") {
+        for arch in ["x64", "x86"] {
+            let candidate = std::path::Path::new(&dir).join(arch).join("rc.exe");
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    let program_files =
+        std::env::var_os("ProgramFiles(x86)").or_else(|| std::env::var_os("ProgramFiles"))?;
+    let bin = std::path::Path::new(&program_files)
+        .join("Windows Kits")
+        .join("10")
+        .join("bin");
+
+    // Version directories sort lexicographically in the order we want -- they
+    // are zero-padded 10.0.NNNNN.0 -- so the last one is the newest.
+    let mut versions: Vec<_> = std::fs::read_dir(&bin)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect();
+    versions.sort();
+
+    versions.iter().rev().find_map(|version| {
+        ["x64", "x86"]
+            .iter()
+            .map(|arch| version.join(arch).join("rc.exe"))
+            .find(|candidate| candidate.exists())
+    })
 }
 
 /// Runs git and returns its trimmed output, or `None` for any reason at all --
