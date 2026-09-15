@@ -87,10 +87,14 @@ impl Engine {
             let mut signal = self.identify();
             self.fire_start(signal.as_ref());
 
-            // The satellites of a title -- launcher stubs, anti-cheat services
-            // -- match the known game list too and usually start first, so the
-            // name captured a moment ago is often the wrong one. Once, a little
-            // way into the session, ask which candidate is actually rendering.
+            // The satellites of a title -- launcher stubs, anti-cheat
+            // services -- can match the known game list too, and the one that
+            // matched first is not necessarily the one rendering: Battlefield 6
+            // came up as its EA anti-cheat. Measured, that is the minority case.
+            // Starfield and Skyrim each left a single candidate and this pass
+            // found nothing to arbitrate. So: once, a little way into the
+            // session, ask which candidate is actually rendering, and expect
+            // "no better answer" more often than not.
             let mut refine_due = !self.config.detection.identify_after.is_zero();
 
             let stopped = loop {

@@ -229,7 +229,8 @@ Any use of them needs a fallback.
 A game is not one process. It is an installer stub for dependencies, a splash
 screen, a third-party launcher, an anti-cheat service, and somewhere among them
 the executable a player would name. They share an install folder or a package
-family, so they all match, and the satellites usually start first.
+family, so they all match, and the one that matches first is not necessarily
+the game.
 
 Three sessions, three different ways of getting it wrong: Starfield was named
 after `gamelaunchhelper.exe`, Battlefield 6 after
@@ -737,9 +738,10 @@ an empty space.
 The point of doing the three at once is that they cannot disagree, and the code
 is arranged so they cannot. There is **one** `Session` value; the icon's state,
 the tooltip and the menu header are all *derived* from it when needed rather
-than stored alongside it. The tray keeps one piece of remembered state, `drawn`,
-and it is honest about what it is: what the current icon was last built from, so
-a reload can skip rebuilding an identical one.
+than stored alongside it. The tray keeps one piece of remembered state,
+`shown`, and it is honest about what it is: the state, the theme and the tooltip
+the shell is displaying right now, so a reload can tell at a glance whether
+there is anything to do.
 
 The engine does not know the tray exists. It takes an optional callback — a
 game started, was renamed, ended — and the caller decides what that means. The
@@ -803,6 +805,34 @@ different reason.
 It also settles the choice made in Lot 5: a **top-level window that is never
 shown does receive broadcasts**. A message-only window would have seen neither
 this nor `WM_QUERYENDSESSION`, and both would have failed silently.
+
+### A second session, Skyrim, the same evening
+
+```
+23:31:56.956  Game detected: SkyrimSE.exe   matched_by="exe path"
+23:31:57.009  icon refreshed  state=Active   tooltip=... playing SkyrimSE.exe
+23:32:17.100  Refinement has nothing to arbitrate, keeping the current name  candidates=1
+23:38:42.687  Windows released the presence writer; the identified game had already exited  session=405.7s
+23:38:44.696  Game no longer detected: SkyrimSE.exe
+23:38:44.696  icon refreshed  state=Idle     tooltip=... no game detected
+23:38:44.802  FanControl - Quiet profile finished
+```
+
+Starfield's reading holds on a different kind of title — a Steam install named
+through its executable path rather than a package family — and two numbers get
+tighter. On the stop edge the icon and the detection now share the **same
+millisecond**, with the quiet profile applied 106 ms later; on the start edge
+the icon trails by 53 ms, which is the message crossing threads.
+
+The 2.0 s between Windows releasing the writer and the session being declared
+over is the configured `stop_delay`, not latency — the grace that lets a writer
+blink without ending a session.
+
+What this did **not** exercise, for the third session running, is a name
+changing mid-session: neither title went through a launcher, so `candidates=1`
+every time. Which also contradicted a claim in `engine.rs`, that the name
+captured at the start is "often" a satellite's. One title in three has behaved
+that way. Corrected there.
 
 Notes:
 
@@ -1100,12 +1130,14 @@ Recorded so they stop coming back:
 | --- | --- |
 | FanControl switches profiles with `-c <profile>.json` | Settled. Unreachable directly because the binary requires elevation; bridged through a scheduled task, and the whole chain verified by reading the applied profile back from FanControl. |
 | The presence writer is activated for games only | Notepad was a clean negative control; not proof for every application |
-| Naming covers the titles actually played | Both named in the field: Farming Simulator 25 by executable path, Starfield by package family once the install-location assumption was removed. |
+| Naming covers the titles actually played | Named in the field on every title played so far: Farming Simulator 25 and Skyrim Special Edition by executable path, Starfield by package family once the install-location assumption was removed, Battlefield 6 by its anti-cheat's parent directory. |
 | The writer never blinks mid-session | Holds over two sessions including alt-tabs; `watch` polls at 100 ms, so a sub-100 ms dip could hide |
 
 ---
 
 ## Journal
+
+**2026-09-15** — Lot 7 closed, and the menu taught to follow the system theme. The menu was the last light-coloured thing left: a Win32 menu draws light unless the process opts in, and the opt-in is `SetPreferredAppMode`, uxtheme ordinal 135, undocumented and not exported by name. Taken with guards — a build-number floor, because on 1809 the same ordinal is a different function with a different signature, and a failure that leaves the program running with light menus rather than not running at all. The interesting part was not making it dark but keeping it right afterwards. `WM_SETTINGCHANGE` with `ImmersiveColorSet` arrives twice for one switch, about 150 ms apart, and the first one may still carry the old value; and a theme changed by something that does not broadcast at all — the scheduled light/dark switch the user named — produces no message whatsoever. Both are answered the same way: the theme is re-read when the menu is about to be shown, so the guarantee does not depend on receiving a message. The hole was proved rather than assumed, by writing the registry value directly with no broadcast: zero log lines, then the drift caught on the next right-click. A Skyrim session the same evening confirmed the icon, tooltip and menu moving together on a Steam title, and contradicted a claim in my own comment: `refine` said the name captured at the start is "often" a satellite's, where one title in three has behaved that way. Corrected in place.
 
 **2026-09-15** — Lot 6 done: the watcher has a notification area icon and a four-entry menu, hung off the window Lot 5 built for `WM_QUERYENDSESSION`, which is why that lot came first. The second icon export took the note from the first — the slash moved off idle, where it read as "switched off", onto a new error state nothing sets yet. Its claims were checked rather than trusted: eight PNG frames per `.ico` at 32-bit alpha, no C2PA payload in them though the standalone PNGs still carry 5.7 KB each, and the four luminance figures reproduce exactly. The interesting defect was invisible by construction. The first run logged `size=16` on a 150 % display, because the process was DPI-unaware and `GetSystemMetrics` answers for 96 dpi regardless — so Windows was stretching a 16 pixel icon to 24, which is not an error, just worse, and exactly what eight hand-tuned frames exist to avoid. Fixed with `SetProcessDpiAwarenessContext` and `GetSystemMetricsForDpi`; found only because the size was logged. Also learned that `LookupIconIdFromDirectoryEx` cannot read an `.ico` *file*: it expects `RT_GROUP_ICON` resource data, whose entries hold resource ids where a file's hold byte offsets. One header, two layouts, so the frame picker is written out by hand.
 
