@@ -132,6 +132,22 @@ function Invoke-Build {
     # A console program and a windowless one cannot be the same file, and
     # getting that wrong is invisible until someone sees a black window at
     # logon. Read it out of the PE header rather than trusting the setting.
+    # The binaries claim a commit, and a release is where that claim has to be
+    # true. A stale stamp is silent: the executable runs perfectly and points
+    # its documentation link at code the user does not have. One release shipped
+    # that way before this check existed, because build.rs was watching
+    # .git/HEAD, which does not change when you commit on a branch.
+    Step "The stamped commit is this commit"
+    $expected = & git rev-parse HEAD
+    $reported = (& (Join-Path $root 'target\release\gamemode-executor.exe') --version |
+                 Select-String '^commit:\s+(\S+)').Matches[0].Groups[1].Value
+    if ($reported -ne $expected) {
+        Write-Host "    built binary says $reported" -ForegroundColor Red
+        Write-Host "    HEAD is          $expected" -ForegroundColor Red
+        Fail "the stamp is stale -- `cargo clean` and build again"
+    }
+    Write-Host "    $reported"
+
     Step "Subsystems"
     $expected = @{ 'gamemode-executor.exe' = 3; 'gamemode-executorw.exe' = 2 }
     $label = @{ 2 = 'WINDOWS_GUI (no console)'; 3 = 'WINDOWS_CUI (console)' }

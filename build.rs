@@ -11,10 +11,9 @@
 use std::process::Command;
 
 fn main() {
-    // Re-run when HEAD moves -- committing changes no tracked file, so cargo
-    // would otherwise keep the previous stamp -- and when the sources change,
-    // so the dirty marker is not left behind by an edit.
-    println!("cargo:rerun-if-changed=.git/HEAD");
+    // Re-run when HEAD moves, and when the sources change so the dirty marker
+    // is not left behind by an edit.
+    watch_head();
     println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-changed=Cargo.toml");
 
@@ -144,6 +143,29 @@ fn find_resource_compiler() -> Option<std::path::PathBuf> {
             .map(|arch| version.join(arch).join("rc.exe"))
             .find(|candidate| candidate.exists())
     })
+}
+
+/// Ask cargo to re-run this script whenever the checked-out commit changes.
+///
+/// Watching `.git/HEAD` alone is the obvious version and it is wrong: on a
+/// branch that file holds `ref: refs/heads/<name>` and does not change when you
+/// commit -- the file it points at does. A release once shipped carrying the
+/// commit before it, and a `-dirty` marker from a tree that was clean by then,
+/// because of exactly this.
+///
+/// Both are watched: the ref for the normal case, `HEAD` itself for a detached
+/// checkout, where it holds the commit directly.
+fn watch_head() {
+    println!("cargo:rerun-if-changed=.git/HEAD");
+    let Ok(head) = std::fs::read_to_string(".git/HEAD") else {
+        return;
+    };
+    if let Some(reference) = head.trim().strip_prefix("ref: ") {
+        println!("cargo:rerun-if-changed=.git/{reference}");
+        // Once packed, the loose ref file stops existing and this is where the
+        // value lives instead.
+        println!("cargo:rerun-if-changed=.git/packed-refs");
+    }
 }
 
 /// Runs git and returns its trimmed output, or `None` for any reason at all --
