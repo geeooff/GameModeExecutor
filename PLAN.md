@@ -578,6 +578,29 @@ configuration, open the log, quit. Hung off the window Lot 5 created.
 - [x] Quit shuts the watcher down cleanly, stop actions included
 - [x] The icon is a convenience: failing to add one is a warning and the watcher carries on
 
+### The one undocumented call in the program
+
+A menu built with `TrackPopupMenuEx` renders light whatever the taskbar is set
+to, and **there is no documented way to change that.** The request came with a
+screenshot: our menu light, the Bluetooth icon's menu two slots along in the
+same tray dark — and that one is a plain Win32 menu, not a XAML surface as
+first claimed here. What such applications do, Explorer included, is call
+`SetPreferredAppMode` in `uxtheme.dll`: undocumented, exported by ordinal only,
+not exported by name at all on Windows 11. Microsoft has an open request for a
+supported replacement; it has not landed.
+
+This project has turned workarounds down before — MSIX, `AttachConsole`, WiX.
+The distinction that lets this one in is the failure mode. Those failed
+*silently and wrongly*: exit codes that stop reaching scripts, a log written
+somewhere nobody can read. This one fails visibly and harmlessly: the ordinal
+moves, the menu is light again, nothing else changes.
+
+Guarded at every step — the library may not load, the build may predate 1903
+(where the same ordinal is a different function taking a different argument),
+the export may be gone. Each of those means no call and a light menu. The build
+number comes from the registry rather than `GetVersionEx`, which lies about
+anything past Windows 8 without a compatibility manifest.
+
 ### The crash a right-click caused, and what it taught
 
 The first build put the icon up correctly and died the moment anyone

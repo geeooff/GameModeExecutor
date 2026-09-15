@@ -105,6 +105,119 @@ pub fn session_sink(window: isize) -> crate::engine::SessionSink {
     })
 }
 
+/// Dark context menus, through the only door Windows offers.
+///
+/// A menu built with `TrackPopupMenuEx` renders light whatever the taskbar is
+/// set to, and **there is no documented way to change that**. What Explorer
+/// does -- and wxWidgets, and every Win32 application with a dark menu,
+/// including the Bluetooth icon two slots along in the same tray -- is call
+/// `SetPreferredAppMode` in `uxtheme.dll`. It is undocumented, exported by
+/// ordinal only, and not exported by name at all on Windows 11.
+///
+/// This project has turned down workarounds before: MSIX for virtualising
+/// `%APPDATA%`, `AttachConsole` for losing exit codes. Those failed *silently*
+/// and wrongly. This one fails visibly and harmlessly: if the ordinal moves or
+/// the call disappears, the menu is light again and nothing else changes. That
+/// difference is the whole reason it is here and they are not.
+///
+/// Every step is guarded. An old Windows, a missing export, a library that will
+/// not load -- each simply means no call and a light menu.
+mod dark {
+    use std::sync::OnceLock;
+
+    use windows::Win32::Foundation::HMODULE;
+    use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+    use windows::core::{PCSTR, PCWSTR};
+
+    /// `SetPreferredAppMode` arrived in Windows 10 1903. On 1809 the same
+    /// ordinal is `AllowDarkModeForApp`, which takes a `BOOL` rather than an
+    /// enum -- calling one thinking it is the other is the kind of mistake a
+    /// version check is for.
+    const FIRST_BUILD_WITH_PREFERRED_APP_MODE: u32 = 18362;
+
+    /// `PreferredAppMode::AllowDark`: follow the system rather than force dark.
+    const ALLOW_DARK: i32 = 1;
+
+    const ORDINAL_SET_PREFERRED_APP_MODE: usize = 135;
+    const ORDINAL_FLUSH_MENU_THEMES: usize = 136;
+
+    type SetPreferredAppMode = unsafe extern "system" fn(i32) -> i32;
+    type FlushMenuThemes = unsafe extern "system" fn();
+
+    static FLUSH: OnceLock<Option<FlushMenuThemes>> = OnceLock::new();
+
+    /// Ask for dark menus once, at startup. Safe to call when it cannot work.
+    pub fn enable() {
+        let Some(library) = uxtheme() else {
+            return;
+        };
+        if build() < FIRST_BUILD_WITH_PREFERRED_APP_MODE {
+            tracing::debug!(
+                target: crate::logging::target::WATCHER,
+                build = build(),
+                "This Windows predates dark menus for Win32 applications"
+            );
+            return;
+        }
+
+        let Some(set) = resolve::<SetPreferredAppMode>(library, ORDINAL_SET_PREFERRED_APP_MODE)
+        else {
+            tracing::debug!(
+                target: crate::logging::target::WATCHER,
+                "uxtheme has no SetPreferredAppMode; the menu stays light"
+            );
+            return;
+        };
+        unsafe { set(ALLOW_DARK) };
+        flush();
+        tracing::debug!(
+            target: crate::logging::target::WATCHER,
+            "Menus follow the system theme"
+        );
+    }
+
+    /// Windows caches menu themes; after a theme change the cache is stale.
+    pub fn flush() {
+        let flush = FLUSH.get_or_init(|| {
+            uxtheme()
+                .and_then(|library| resolve::<FlushMenuThemes>(library, ORDINAL_FLUSH_MENU_THEMES))
+        });
+        if let Some(flush) = flush {
+            unsafe { flush() };
+        }
+    }
+
+    fn uxtheme() -> Option<HMODULE> {
+        static LIBRARY: OnceLock<Option<isize>> = OnceLock::new();
+        let handle = LIBRARY.get_or_init(|| {
+            let name: Vec<u16> = "uxtheme.dll\0".encode_utf16().collect();
+            unsafe { LoadLibraryW(PCWSTR(name.as_ptr())) }
+                .ok()
+                .map(|module| module.0 as isize)
+        });
+        handle.map(|handle| HMODULE(handle as *mut std::ffi::c_void))
+    }
+
+    /// `GetProcAddress` takes an ordinal as a pointer whose value *is* the
+    /// number, which is what `MAKEINTRESOURCE` means in C.
+    fn resolve<T>(library: HMODULE, ordinal: usize) -> Option<T> {
+        let address = unsafe { GetProcAddress(library, PCSTR(ordinal as *const u8)) }?;
+        // The signature is the caller's claim, checked by the ordinal and the
+        // build number above and by nothing else. That is the bargain.
+        Some(unsafe { std::mem::transmute_copy::<_, T>(&address) })
+    }
+
+    /// From the registry rather than `GetVersionEx`, which lies about anything
+    /// past Windows 8 unless the executable carries a compatibility manifest.
+    fn build() -> u32 {
+        crate::registry::Key::open_local_machine(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
+            .ok()
+            .and_then(|key| key.string_value("CurrentBuildNumber"))
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0)
+    }
+}
+
 /// What the icon should be showing, derived rather than stored.
 fn current_state() -> State {
     state_for(&session())
@@ -295,6 +408,9 @@ pub fn install(window: isize, targets: Targets, stop: Arc<StopSignal>) -> Result
     let name = wide("TaskbarCreated");
     let taskbar_created = unsafe { RegisterWindowMessageW(PCWSTR(name.as_ptr())) };
 
+    // Before the first menu is ever built.
+    dark::enable();
+
     let tray = Tray {
         window,
         icon,
@@ -449,6 +565,11 @@ fn reload() {
     let fresh = if wanted == drawn {
         None
     } else {
+        // Windows caches menu themes, so a menu opened after a theme change
+        // would keep the old one until something invalidates it.
+        if wanted.1 != drawn.1 {
+            dark::flush();
+        }
         load_icon(wanted.0, wanted.1, window).ok()
     };
 
