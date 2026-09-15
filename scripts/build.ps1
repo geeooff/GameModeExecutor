@@ -139,8 +139,11 @@ function Invoke-Build {
     # .git/HEAD, which does not change when you commit on a branch.
     Step "The stamped commit is this commit"
     $expected = & git rev-parse HEAD
-    $reported = (& (Join-Path $root 'target\release\gamemode-executor.exe') --version |
-                 Select-String '^commit:\s+(\S+)').Matches[0].Groups[1].Value
+    # The commit only. A `-dirty` suffix is honest and expected from a working
+    # tree, and `release` refuses one separately -- comparing the whole string
+    # would fail every ordinary `build`.
+    $reported = ((& (Join-Path $root 'target\release\gamemode-executor.exe') --version |
+                  Select-String '^commit:\s+(\S+)').Matches[0].Groups[1].Value) -replace '-dirty$', ''
     if ($reported -ne $expected) {
         Write-Host "    built binary says $reported" -ForegroundColor Red
         Write-Host "    HEAD is          $expected" -ForegroundColor Red

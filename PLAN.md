@@ -578,6 +578,34 @@ configuration, open the log, quit. Hung off the window Lot 5 created.
 - [x] Quit shuts the watcher down cleanly, stop actions included
 - [x] The icon is a convenience: failing to add one is a warning and the watcher carries on
 
+### The crash a right-click caused, and what it taught
+
+The first build put the icon up correctly and died the moment anyone
+right-clicked it. `TrackPopupMenuEx` is modal: it runs its own message loop
+while the menu is open, so the window procedure is re-entered and `dispatch` is
+called again — inside a `RefCell` borrow that was still held. A second
+`borrow_mut` panics, and `panic = "abort"` turns that into `0xC0000409` with no
+log line at all.
+
+Two things came out of it.
+
+**The module is now shaped by the rule.** Every message becomes a `Plan` under
+a short borrow, and the plan is carried out with nothing borrowed. The same
+applies to `ShellExecuteW`, which can show UI of its own. `TPM_RETURNCMD` with
+`TPM_NONOTIFY` removes the second re-entrant path, where the menu posts
+`WM_COMMAND` to the window while its loop is still running.
+
+**A crash now says so.** A panic hook logs `FATAL:` with the build and the
+location. `tracing` has five levels and `FATAL` is not one of them, so the word
+goes in the message rather than into a sixth level nobody's filter knows about.
+For it to survive, the log stopped being buffered on a background thread:
+under `panic = "abort"` nothing is dropped, so a buffered crash report is one
+that never arrives. At a handful of lines per session the buffering bought
+nothing anyway.
+
+Verified by posting the exact message the shell sends on a right-click to the
+running watcher, and watching it stay up.
+
 ### The bug that only a measurement would have caught
 
 The first run logged `Notification icon added theme=Dark size=16` on a display

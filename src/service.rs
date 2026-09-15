@@ -43,6 +43,9 @@ pub fn serve(
         .clone()
         .or_else(|| config::local_dir().map(|dir| dir.join("logs")));
     let _guards = logging::init(level, log_dir.as_deref(), console)?;
+    // Installed as early as the log exists, so a panic anywhere after this
+    // leaves a FATAL line behind rather than a process that simply vanished.
+    logging::install_panic_hook();
     let _instance = SingleInstance::acquire("GameModeExecutor")?;
 
     // Before any window exists, or the process stays DPI-unaware for its whole

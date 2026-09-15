@@ -6,8 +6,15 @@
 //! [`dispatch`].
 //!
 //! State lives in a thread local rather than a mutex: everything here runs on
-//! the one thread that owns the window, and saying so in the type is better
-//! than locking against contention that cannot happen.
+//! the one thread that owns the window.
+//!
+//! **Nothing holds that borrow across a Win32 call that can pump messages**,
+//! and the whole shape of this module comes from that rule. `TrackPopupMenuEx`
+//! runs its own message loop while the menu is open, so the window procedure is
+//! re-entered and `dispatch` is called again; a borrow held across it is a
+//! second `borrow_mut` and a panic. The first version did exactly that and a
+//! right-click killed the process. So every message is turned into a [`Plan`]
+//! under a short borrow, and the plan is carried out with no borrow at all.
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -17,7 +24,7 @@ use anyhow::{Context, Result};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::UI::HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi};
 use windows::Win32::UI::Shell::{
-    NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_SETVERSION,
+    NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION,
     NOTIFY_ICON_DATA_FLAGS, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
     ShellExecuteW,
 };
@@ -25,8 +32,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconFromResourceEx, CreatePopupMenu, DestroyIcon, DestroyMenu,
     GetSystemMetrics, HICON, IMAGE_FLAGS, LR_DEFAULTCOLOR, MF_SEPARATOR, MF_STRING, PostMessageW,
     RegisterWindowMessageW, SM_CXSMICON, SM_CYSMICON, SW_SHOWNORMAL, SetForegroundWindow,
-    TPM_RIGHTBUTTON, TrackPopupMenuEx, WM_APP, WM_COMMAND, WM_CONTEXTMENU, WM_DPICHANGED, WM_NULL,
-    WM_SETTINGCHANGE,
+    TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenuEx, WM_APP, WM_CONTEXTMENU,
+    WM_DPICHANGED, WM_NULL, WM_SETTINGCHANGE,
 };
 use windows::core::PCWSTR;
 
@@ -43,8 +50,8 @@ const ID_QUIT: usize = 4;
 /// One icon per state and taskbar theme, compiled in.
 ///
 /// Embedded rather than loaded from disk so a portable copy is one folder with
-/// nothing to lose. It costs about 190 KB across the six, measured, which is
-/// the price of never having to find a file at runtime.
+/// nothing to lose. It costs about 190 KB across the six, which is the price of
+/// never having to find a file at runtime.
 const ICONS: [(State, Theme, &[u8]); 6] = [
     (
         State::Idle,
@@ -140,13 +147,30 @@ thread_local! {
     static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
 }
 
+/// What `dispatch` does once it has let go of the borrow.
+///
+/// Every variant below this point is carried out with nothing borrowed, which
+/// is what makes re-entrancy harmless.
+enum Plan {
+    /// Not ours; let Windows have it.
+    Ignore,
+    /// Ours, nothing more to do.
+    Handled,
+    ShowMenu(HWND, POINT),
+    /// The theme or the scaling moved.
+    Reload,
+    /// Explorer restarted and took the icon with it.
+    ReAdd,
+}
+
 /// Add the icon. Call once, from the thread owning `window`.
 pub fn install(window: isize, targets: Targets, stop: Arc<StopSignal>) -> Result<()> {
     let window = HWND(window as *mut std::ffi::c_void);
     let theme = Theme::current();
     let icon =
         load_icon(State::Idle, theme, window).context("cannot build the notification icon")?;
-    let taskbar_created = unsafe { RegisterWindowMessageW(w("TaskbarCreated")) };
+    let name = wide("TaskbarCreated");
+    let taskbar_created = unsafe { RegisterWindowMessageW(PCWSTR(name.as_ptr())) };
 
     let tray = Tray {
         window,
@@ -157,8 +181,10 @@ pub fn install(window: isize, targets: Targets, stop: Arc<StopSignal>) -> Result
         stop,
         taskbar_created,
     };
-    tray.add()?;
+    let data = tray.data();
     TRAY.with(|cell| *cell.borrow_mut() = Some(tray));
+    add(&data)?;
+
     tracing::debug!(
         target: crate::logging::target::WATCHER,
         theme = ?theme,
@@ -171,160 +197,71 @@ pub fn install(window: isize, targets: Targets, stop: Arc<StopSignal>) -> Result
 /// Remove the icon. The shell keeps a ghost otherwise, until something hovers
 /// over it.
 pub fn uninstall() {
-    TRAY.with(|cell| {
-        if let Some(tray) = cell.borrow_mut().take() {
-            tray.remove();
-        }
-    });
+    let Some((data, icon)) = TRAY.with(|cell| {
+        cell.borrow_mut()
+            .take()
+            .map(|tray| (tray.data(), tray.icon))
+    }) else {
+        return;
+    };
+    unsafe {
+        let _ = Shell_NotifyIconW(NIM_DELETE, &data);
+        let _ = DestroyIcon(icon);
+    }
 }
 
 /// Messages `win`'s window procedure did not handle. Returns `Some` when this
 /// module dealt with one.
 pub fn dispatch(message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
-    TRAY.with(|cell| {
-        let mut borrowed = cell.borrow_mut();
-        let tray = borrowed.as_mut()?;
-        tray.handle(message, wparam, lparam)
-    })
+    // Short borrow: a decision, and nothing that can re-enter.
+    let plan = TRAY.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map_or(Plan::Ignore, |tray| tray.plan(message, wparam, lparam))
+    });
+
+    match plan {
+        Plan::Ignore => None,
+        Plan::Handled => Some(LRESULT(0)),
+        Plan::ShowMenu(window, at) => {
+            show_menu(window, at);
+            Some(LRESULT(0))
+        }
+        Plan::Reload => {
+            reload();
+            // Let Windows see these two as well: other things listen for them.
+            None
+        }
+        Plan::ReAdd => {
+            re_add();
+            Some(LRESULT(0))
+        }
+    }
 }
 
 impl Tray {
-    fn handle(&mut self, message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
+    /// Decide, touching nothing outside this struct.
+    fn plan(&self, message: u32, wparam: WPARAM, lparam: LPARAM) -> Plan {
         if message == self.taskbar_created {
-            // Explorer came back and took every icon with it when it went.
-            let _ = self.add();
-            tracing::debug!(
-                target: crate::logging::target::WATCHER,
-                "Explorer restarted, notification icon added again"
-            );
-            return Some(LRESULT(0));
+            return Plan::ReAdd;
         }
-
         match message {
             WM_TRAY => {
                 // With NOTIFYICON_VERSION_4 the event is in the low word of
                 // lParam and the cursor position is in wParam, which is why the
                 // version is set at all: the old packing had no room for both.
                 if (lparam.0 as u32) & 0xFFFF == WM_CONTEXTMENU {
-                    let x = (wparam.0 & 0xFFFF) as i16 as i32;
-                    let y = ((wparam.0 >> 16) & 0xFFFF) as i16 as i32;
-                    self.show_menu(POINT { x, y });
+                    let x = i32::from((wparam.0 & 0xFFFF) as i16);
+                    let y = i32::from(((wparam.0 >> 16) & 0xFFFF) as i16);
+                    Plan::ShowMenu(self.window, POINT { x, y })
+                } else {
+                    Plan::Handled
                 }
-                Some(LRESULT(0))
             }
-            WM_COMMAND => {
-                self.command(wparam.0 & 0xFFFF);
-                Some(LRESULT(0))
-            }
-            // The taskbar theme changed under us.
-            WM_SETTINGCHANGE => {
-                if setting_is(lparam, "ImmersiveColorSet") {
-                    self.refresh();
-                }
-                None
-            }
-            // A different monitor, or a scaling change: the icon Windows wants
-            // is a different size now, and the old one would be resampled.
-            WM_DPICHANGED => {
-                self.refresh();
-                None
-            }
-            _ => None,
+            WM_SETTINGCHANGE if setting_is(lparam, "ImmersiveColorSet") => Plan::Reload,
+            WM_DPICHANGED => Plan::Reload,
+            _ => Plan::Ignore,
         }
-    }
-
-    fn command(&mut self, id: usize) {
-        match id {
-            ID_CONFIG => self.open(&self.targets.config.clone()),
-            ID_LOG => self.open(&self.targets.log.clone()),
-            ID_DOCS => open_url(crate::build_info::DOCS_URL),
-            ID_QUIT => {
-                tracing::info!(
-                    target: crate::logging::target::WATCHER,
-                    "Quit chosen from the notification icon"
-                );
-                // Same path as Ctrl-C and as logging off: the engine unwinds,
-                // the stop commands run, the message loop ends on its own.
-                self.stop.signal();
-            }
-            _ => {}
-        }
-    }
-
-    /// Open a file the way the user's own settings say to.
-    fn open(&self, path: &std::path::Path) {
-        let wide = w_string(&path.to_string_lossy());
-        let result = unsafe {
-            ShellExecuteW(
-                Some(self.window),
-                w("open"),
-                PCWSTR(wide.as_ptr()),
-                PCWSTR::null(),
-                PCWSTR::null(),
-                SW_SHOWNORMAL,
-            )
-        };
-        // ShellExecuteW returns a fake HINSTANCE; anything at or below 32 is an
-        // error code. A `.toml` with no association is the likely one, so fall
-        // back rather than leaving the menu entry silently doing nothing.
-        if result.0 as usize <= 32 {
-            tracing::debug!(
-                target: crate::logging::target::WATCHER,
-                path = %path.display(),
-                "No association for this file, opening it in Notepad"
-            );
-            let arg = w_string(&format!("\"{}\"", path.display()));
-            unsafe {
-                let _ = ShellExecuteW(
-                    Some(self.window),
-                    w("open"),
-                    w("notepad.exe"),
-                    PCWSTR(arg.as_ptr()),
-                    PCWSTR::null(),
-                    SW_SHOWNORMAL,
-                );
-            }
-        }
-    }
-
-    fn show_menu(&self, at: POINT) {
-        let Ok(menu) = (unsafe { CreatePopupMenu() }) else {
-            return;
-        };
-        unsafe {
-            let _ = AppendMenuW(menu, MF_STRING, ID_CONFIG, w("Edit configuration"));
-            let _ = AppendMenuW(menu, MF_STRING, ID_LOG, w("Open log"));
-            let _ = AppendMenuW(menu, MF_STRING, ID_DOCS, w("Documentation"));
-            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-            let _ = AppendMenuW(menu, MF_STRING, ID_QUIT, w("Quit"));
-
-            // Documented requirement: without it the menu stays on screen when
-            // the user clicks elsewhere, because the owner window is not
-            // foreground and never learns it lost the click.
-            let _ = SetForegroundWindow(self.window);
-            let _ = TrackPopupMenuEx(menu, TPM_RIGHTBUTTON.0, at.x, at.y, self.window, None);
-            // The other half of the same workaround.
-            let _ = PostMessageW(Some(self.window), WM_NULL, WPARAM(0), LPARAM(0));
-            let _ = DestroyMenu(menu);
-        }
-    }
-
-    /// Re-read the theme and rebuild the icon at the size Windows wants now.
-    fn refresh(&mut self) {
-        let theme = Theme::current();
-        let Ok(icon) = load_icon(self.state, theme, self.window) else {
-            return;
-        };
-        let previous = std::mem::replace(&mut self.icon, icon);
-        self.theme = theme;
-        let _ = self.modify();
-        unsafe { _ = DestroyIcon(previous) };
-        tracing::debug!(
-            target: crate::logging::target::WATCHER,
-            theme = ?theme,
-            state = ?self.state,
-            "Notification icon reloaded"
-        );
     }
 
     fn data(&self) -> NOTIFYICONDATAW {
@@ -338,7 +275,7 @@ impl Tray {
             ..Default::default()
         };
         data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
-        let tip = w_string(self.tooltip());
+        let tip = wide(self.tooltip());
         let len = tip.len().min(data.szTip.len());
         data.szTip[..len].copy_from_slice(&tip[..len]);
         data
@@ -351,37 +288,192 @@ impl Tray {
             State::Error => "GameModeExecutor - something needs attention",
         }
     }
+}
 
-    fn add(&self) -> Result<()> {
-        let data = self.data();
-        unsafe {
-            Shell_NotifyIconW(NIM_ADD, &data)
-                .ok()
-                .context("Shell_NotifyIcon could not add the icon")?;
-            // Opt into the version 4 behaviour. Without this the callback
-            // arrives in the old packing and the coordinates are wrong.
-            let _ = Shell_NotifyIconW(NIM_SETVERSION, &data);
-        }
-        Ok(())
-    }
+// ---------------------------------------------------------------------------
+// Everything below runs with no borrow held.
+// ---------------------------------------------------------------------------
 
-    fn modify(&self) -> Result<()> {
-        let data = self.data();
-        unsafe {
-            Shell_NotifyIconW(windows::Win32::UI::Shell::NIM_MODIFY, &data)
-                .ok()
-                .context("Shell_NotifyIcon could not update the icon")?;
-        }
-        Ok(())
+fn add(data: &NOTIFYICONDATAW) -> Result<()> {
+    unsafe {
+        Shell_NotifyIconW(NIM_ADD, data)
+            .ok()
+            .context("Shell_NotifyIcon could not add the icon")?;
+        // Opt into the version 4 behaviour. Without this the callback arrives
+        // in the old packing and the coordinates are wrong.
+        let _ = Shell_NotifyIconW(NIM_SETVERSION, data);
     }
+    Ok(())
+}
 
-    fn remove(&self) {
-        let data = self.data();
-        unsafe {
-            let _ = Shell_NotifyIconW(NIM_DELETE, &data);
-            let _ = DestroyIcon(self.icon);
-        }
+fn re_add() {
+    let Some(data) = TRAY.with(|cell| cell.borrow().as_ref().map(Tray::data)) else {
+        return;
+    };
+    if add(&data).is_ok() {
+        tracing::debug!(
+            target: crate::logging::target::WATCHER,
+            "Explorer restarted, notification icon added again"
+        );
     }
+}
+
+/// Re-read the theme and rebuild the icon at the size Windows wants now.
+fn reload() {
+    let Some((window, state)) =
+        TRAY.with(|cell| cell.borrow().as_ref().map(|tray| (tray.window, tray.state)))
+    else {
+        return;
+    };
+
+    let theme = Theme::current();
+    let Ok(icon) = load_icon(state, theme, window) else {
+        return;
+    };
+
+    // Swap under a short borrow, then talk to the shell outside it.
+    let previous = TRAY.with(|cell| {
+        let mut borrowed = cell.borrow_mut();
+        let tray = borrowed.as_mut()?;
+        tray.theme = theme;
+        Some((std::mem::replace(&mut tray.icon, icon), tray.data()))
+    });
+    let Some((previous, data)) = previous else {
+        unsafe { _ = DestroyIcon(icon) };
+        return;
+    };
+
+    unsafe {
+        let _ = Shell_NotifyIconW(NIM_MODIFY, &data);
+        let _ = DestroyIcon(previous);
+    }
+    tracing::debug!(
+        target: crate::logging::target::WATCHER,
+        theme = ?theme,
+        state = ?state,
+        size = small_icon_size(window).0,
+        "Notification icon reloaded"
+    );
+}
+
+/// Show the context menu and act on what was chosen.
+///
+/// `TPM_RETURNCMD` with `TPM_NONOTIFY` is deliberate: the alternative posts
+/// `WM_COMMAND` to the window *while the menu's own message loop is still
+/// running*, which is a second re-entrant path into `dispatch`. Returning the
+/// id instead means the command is handled after the menu has closed, here,
+/// with nothing borrowed.
+fn show_menu(window: HWND, at: POINT) {
+    let Ok(menu) = (unsafe { CreatePopupMenu() }) else {
+        return;
+    };
+
+    // Kept alive until after TrackPopupMenuEx returns.
+    let config = wide("Edit configuration");
+    let log = wide("Open log");
+    let docs = wide("Documentation");
+    let quit = wide("Quit");
+
+    let chosen = unsafe {
+        let _ = AppendMenuW(menu, MF_STRING, ID_CONFIG, PCWSTR(config.as_ptr()));
+        let _ = AppendMenuW(menu, MF_STRING, ID_LOG, PCWSTR(log.as_ptr()));
+        let _ = AppendMenuW(menu, MF_STRING, ID_DOCS, PCWSTR(docs.as_ptr()));
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+        let _ = AppendMenuW(menu, MF_STRING, ID_QUIT, PCWSTR(quit.as_ptr()));
+
+        // Documented requirement: without it the menu stays on screen when the
+        // user clicks elsewhere, because the owner window is not foreground and
+        // never learns it lost the click.
+        let _ = SetForegroundWindow(window);
+        let chosen = TrackPopupMenuEx(
+            menu,
+            TPM_RIGHTBUTTON.0 | TPM_RETURNCMD.0 | TPM_NONOTIFY.0,
+            at.x,
+            at.y,
+            window,
+            None,
+        );
+        // The other half of the same workaround.
+        let _ = PostMessageW(Some(window), WM_NULL, WPARAM(0), LPARAM(0));
+        let _ = DestroyMenu(menu);
+        chosen.0 as usize
+    };
+
+    run_command(chosen);
+}
+
+fn run_command(id: usize) {
+    match id {
+        ID_CONFIG | ID_LOG => {
+            // Copy the path out, then let go: ShellExecuteW can show UI of its
+            // own, which pumps messages like anything else.
+            let path = TRAY.with(|cell| {
+                cell.borrow().as_ref().map(|tray| {
+                    if id == ID_CONFIG {
+                        tray.targets.config.clone()
+                    } else {
+                        tray.targets.log.clone()
+                    }
+                })
+            });
+            if let Some(path) = path {
+                open_path(&path);
+            }
+        }
+        ID_DOCS => {
+            open(crate::build_info::DOCS_URL, None);
+        }
+        ID_QUIT => {
+            let stop = TRAY.with(|cell| cell.borrow().as_ref().map(|tray| Arc::clone(&tray.stop)));
+            if let Some(stop) = stop {
+                tracing::info!(
+                    target: crate::logging::target::WATCHER,
+                    "Quit chosen from the notification icon"
+                );
+                // Same path as Ctrl-C and as logging off: the engine unwinds,
+                // the stop commands run, the message loop ends on its own.
+                stop.signal();
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Open a file the way the user's own settings say to, falling back to Notepad.
+fn open_path(path: &std::path::Path) {
+    let target = path.to_string_lossy().into_owned();
+    if open(&target, None) {
+        return;
+    }
+    // A `.toml` with no association is the likely miss, and a menu entry that
+    // silently does nothing is worse than one that opens a plain editor.
+    tracing::debug!(
+        target: crate::logging::target::WATCHER,
+        path = %path.display(),
+        "No association for this file, opening it in Notepad"
+    );
+    open("notepad.exe", Some(&format!("\"{target}\"")));
+}
+
+/// Returns false when the shell refused. `ShellExecuteW` hands back a fake
+/// `HINSTANCE` whose value is an error code at or below 32.
+fn open(target: &str, arguments: Option<&str>) -> bool {
+    let verb = wide("open");
+    let target = wide(target);
+    let arguments = arguments.map(wide);
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR(verb.as_ptr()),
+            PCWSTR(target.as_ptr()),
+            arguments
+                .as_ref()
+                .map_or(PCWSTR::null(), |a| PCWSTR(a.as_ptr())),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    result.0 as usize > 32
 }
 
 /// Build an `HICON` at the size the shell asks for, from the compiled-in file.
@@ -488,31 +580,10 @@ fn setting_is(lparam: LPARAM, name: &str) -> bool {
     String::from_utf16_lossy(&units) == name
 }
 
-fn open_url(url: &str) {
-    let wide = w_string(url);
-    unsafe {
-        let _ = ShellExecuteW(
-            None,
-            w("open"),
-            PCWSTR(wide.as_ptr()),
-            PCWSTR::null(),
-            PCWSTR::null(),
-            SW_SHOWNORMAL,
-        );
-    }
-}
-
-/// A null-terminated UTF-16 buffer, kept alive by the caller.
-fn w_string(value: &str) -> Vec<u16> {
+/// A null-terminated UTF-16 buffer. The caller keeps it alive for as long as
+/// the pointer is in use, which is why nothing here leaks one.
+fn wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-/// A literal for an API call, valid for the duration of that call.
-fn w(value: &str) -> PCWSTR {
-    // Leaked on purpose: these are a handful of fixed strings created once,
-    // and the alternative is a lifetime dance around every Win32 call.
-    let buffer: &'static [u16] = Box::leak(w_string(value).into_boxed_slice());
-    PCWSTR(buffer.as_ptr())
 }
 
 #[cfg(test)]
@@ -565,5 +636,16 @@ mod tests {
         assert!(frame_score(32, 24) < frame_score(20, 24));
         // And among bigger ones, the closest wins.
         assert!(frame_score(32, 24) < frame_score(256, 24));
+    }
+
+    /// The crash this module was rewritten for: a right-click re-enters the
+    /// window procedure, so `dispatch` must never be inside a borrow when it
+    /// happens. With no tray installed it should simply decline, twice over,
+    /// rather than panic.
+    #[test]
+    fn dispatch_survives_being_re_entered() {
+        let outer = dispatch(WM_TRAY, WPARAM(0), LPARAM(WM_CONTEXTMENU as isize));
+        let inner = dispatch(WM_TRAY, WPARAM(0), LPARAM(WM_CONTEXTMENU as isize));
+        assert!(outer.is_none() && inner.is_none());
     }
 }

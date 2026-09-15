@@ -19,7 +19,6 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level, Subscriber};
-use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::FormatTime;
 use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields};
@@ -188,8 +187,48 @@ impl Visit for Collected {
 /// the tray's "Open log" entry has to point at the same one.
 pub const LOG_FILE_NAME: &str = "gamemode-executor.log";
 
-/// Keeps the background writer of the file appender alive.
-pub struct Guards(#[allow(dead_code)] Vec<WorkerGuard>);
+/// Record a panic in the log before the process dies.
+///
+/// `tracing` has five levels and `FATAL` is not one of them. Rather than build
+/// a sixth, the word goes in the message: the level stays `error`, which is
+/// what every filter and every reader already understands, and the line still
+/// says plainly that this was the end rather than a command that failed.
+///
+/// This works under `panic = "abort"` -- which the release profile uses --
+/// because the hook runs before the process is killed. It relies on the log
+/// being written synchronously; see [`init`] for why it is.
+pub fn install_panic_hook() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = info
+            .location()
+            .map_or_else(|| "an unknown location".to_owned(), ToString::to_string);
+        tracing::error!(
+            target: target::WATCHER,
+            "FATAL: GameModeExecutor {} panicked at {location}: {}",
+            crate::build_info::VERSION,
+            payload(info)
+        );
+        // Still print it: a console build has someone watching, and the default
+        // hook says more than this line does.
+        previous(info);
+    }));
+}
+
+/// The panic message, which arrives as one of two types and nothing else.
+fn payload(info: &std::panic::PanicHookInfo<'_>) -> String {
+    if let Some(text) = info.payload().downcast_ref::<&str>() {
+        (*text).to_owned()
+    } else if let Some(text) = info.payload().downcast_ref::<String>() {
+        text.clone()
+    } else {
+        "no message".to_owned()
+    }
+}
+
+/// Kept for the lifetime of the program. Empty now that the file is written
+/// synchronously, and still returned so callers keep the shape they had.
+pub struct Guards;
 
 /// One directive per category, so the filter can never fall out of step with
 /// the vocabulary. Listing them by hand is how a renamed category becomes a
@@ -227,7 +266,6 @@ pub fn init(level: &str, log_dir: Option<&Path>, console: bool) -> Result<Guards
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(directives(level)));
 
-    let mut guards = Vec::new();
     let file_layer = match log_dir {
         Some(dir) => {
             std::fs::create_dir_all(dir)
@@ -235,16 +273,19 @@ pub fn init(level: &str, log_dir: Option<&Path>, console: bool) -> Result<Guards
             // One file, not a daily rotation. This log gains a handful of lines
             // per game session, and rotation only bought filenames dated in UTC
             // -- the very confusion the local timestamps above remove.
+            //
+            // Written synchronously, on purpose. Buffering it on a background
+            // thread would save nothing at this volume and costs the only lines
+            // that really matter: the release profile aborts on panic, so
+            // nothing is dropped and a buffered crash report is never flushed.
             let appender = tracing_appender::rolling::never(dir, LOG_FILE_NAME);
-            let (writer, guard) = tracing_appender::non_blocking(appender);
-            guards.push(guard);
             Some(
                 fmt::layer()
                     .event_format(Line {
                         verbose,
                         ansi: false,
                     })
-                    .with_writer(writer),
+                    .with_writer(appender),
             )
         }
         None => None,
@@ -266,7 +307,7 @@ pub fn init(level: &str, log_dir: Option<&Path>, console: bool) -> Result<Guards
         .with(file_layer)
         .init();
 
-    Ok(Guards(guards))
+    Ok(Guards)
 }
 
 #[cfg(test)]
@@ -362,6 +403,38 @@ mod tests {
         let long = render(false, || tracing::info!(target: target::COMMANDS, "x"));
         let column = |line: &str| line.rfind('x').unwrap();
         assert_eq!(column(&short), column(&long), "{short}{long}");
+    }
+
+    /// The line a crash leaves behind is the only thing anyone will have, so
+    /// it is worth knowing it is written and what it says.
+    ///
+    /// This runs under unwinding, which the test profile uses. That the hook
+    /// also runs under `panic = "abort"` -- the release profile, where nothing
+    /// is dropped and the log's background writer never flushes -- was checked
+    /// separately with a standalone binary built `-C panic=abort`, and is why
+    /// the hook writes to the file directly instead of going through `tracing`.
+    /// The line a crash leaves behind is the only thing anyone will have, so
+    /// it is worth knowing it is written and what it says.
+    ///
+    /// This runs under unwinding, which the test profile uses. That the hook
+    /// also runs under `panic = "abort"` -- the release profile -- was checked
+    /// separately with a standalone binary built `-C panic=abort`, and is why
+    /// the log is written synchronously rather than buffered on a thread that
+    /// never gets to flush.
+    #[test]
+    fn a_panic_is_recorded_before_the_process_dies() {
+        let written = render(false, || {
+            install_panic_hook();
+            let _ = std::panic::catch_unwind(|| panic!("a deliberate test panic"));
+            let _ = std::panic::take_hook();
+        });
+
+        assert!(written.contains("FATAL"), "{written}");
+        assert!(written.contains("a deliberate test panic"), "{written}");
+        // Which build died matters as much as that it died.
+        assert!(written.contains(crate::build_info::VERSION), "{written}");
+        // And it belongs in the same category as the rest of the watcher's life.
+        assert!(written.contains(target::WATCHER), "{written}");
     }
 
     #[test]
