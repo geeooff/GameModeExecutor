@@ -20,6 +20,28 @@ pub struct GameSignal {
     pub process_path: Option<String>,
 }
 
+/// What to make of the candidates when there is no contest to settle.
+///
+/// The GPU is only needed to choose *between* candidates. With one left there
+/// is nothing to measure -- but there can still be news: when the process the
+/// session is named after has gone, the survivor is simply the better name,
+/// and no measurement is needed to say so.
+///
+/// Deliberately silent while the named process is still running. A candidate
+/// that stopped matching without dying is ambiguous, and naming is a
+/// convenience, so the name already in use is the safe answer.
+pub fn lone_survivor(
+    candidates: Vec<GameSignal>,
+    current: Option<&GameSignal>,
+    named_is_alive: bool,
+) -> Option<GameSignal> {
+    let only = candidates.into_iter().next()?;
+    if named_is_alive || only.process_id == current.and_then(|signal| signal.process_id) {
+        return None;
+    }
+    Some(only)
+}
+
 /// Among processes the known game list matched, pick the one that is actually
 /// rendering.
 ///
@@ -82,6 +104,44 @@ mod tests {
             process_id: Some(pid),
             process_path: None,
         }
+    }
+
+    #[test]
+    fn a_dead_launcher_is_replaced_by_the_one_match_left() {
+        // Battlefield 6, measured 2026-09-15: the anti-cheat launcher matched
+        // the install folder and won the first identify because it started
+        // first, then exited into a service that does not match, leaving
+        // bf6.exe alone. Before this the tooltip kept the dead launcher's name
+        // for the whole session.
+        let launcher = signal(2356, "EAAntiCheat.GameServiceLauncher.exe");
+        let best = lone_survivor(vec![signal(37284, "bf6.exe")], Some(&launcher), false).unwrap();
+        assert_eq!(best.process_name.as_deref(), Some("bf6.exe"));
+    }
+
+    #[test]
+    fn a_living_name_is_kept_even_when_it_stopped_matching() {
+        // Ambiguous: alive, but no longer on the list. Naming is a
+        // convenience, so the safe answer is the name already in use.
+        let game = signal(11, "bf6.exe");
+        let others = vec![signal(10, "EAAntiCheat.GameServiceLauncher.exe")];
+        assert!(lone_survivor(others, Some(&game), true).is_none());
+    }
+
+    #[test]
+    fn the_surviving_candidate_is_not_re_announced() {
+        let game = signal(11, "bf6.exe");
+        assert!(lone_survivor(vec![signal(11, "bf6.exe")], Some(&game), false).is_none());
+    }
+
+    #[test]
+    fn a_session_that_was_never_named_takes_the_one_match() {
+        let best = lone_survivor(vec![signal(5, "SkyrimSE.exe")], None, false).unwrap();
+        assert_eq!(best.process_id, Some(5));
+    }
+
+    #[test]
+    fn no_candidate_at_all_says_nothing() {
+        assert!(lone_survivor(Vec::new(), None, false).is_none());
     }
 
     #[test]

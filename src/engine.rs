@@ -247,10 +247,11 @@ impl Engine {
 
     /// Ask the GPU which of the matched processes is really the game.
     ///
-    /// Returns `None` when there is nothing better to say, which covers a
-    /// single candidate, counters this account may not read, and a game still
-    /// on its loading screen. Naming is a convenience: no answer is a fine
-    /// answer.
+    /// Returns `None` when there is nothing better to say: counters this
+    /// account may not read, a game still on its loading screen, or a single
+    /// candidate that is already the name in use. A single candidate that is
+    /// *not* the name in use is news, and needs no GPU to establish.
+    /// Naming is a convenience: no answer is a fine answer.
     fn refine(&self, current: Option<&GameSignal>) -> Option<GameSignal> {
         let known = match KnownGames::load() {
             Ok(known) => known,
@@ -268,9 +269,29 @@ impl Engine {
         };
         let candidates = known.candidates(&snapshot);
         if candidates.len() < 2 {
+            // One match left is not the same as nothing to say. Battlefield 6
+            // does this every session: the EA anti-cheat *launcher* matches the
+            // install folder, wins the first identify because it starts first,
+            // then exits into a service that does not match -- leaving bf6.exe
+            // alone and the session named after a process that no longer
+            // exists. Measured 2026-09-15.
+            let named_is_alive = current
+                .and_then(|signal| signal.process_id)
+                .is_some_and(|pid| snapshot.by_pid(pid).is_some());
+            let count = candidates.len();
+            if let Some(survivor) = detect::lone_survivor(candidates, current, named_is_alive) {
+                tracing::info!(
+                    target: target::GAME,
+                    pid = survivor.process_id,
+                    matched_by = survivor.source,
+                    "Game identified more precisely: {} (the only match left)",
+                    survivor.name()
+                );
+                return Some(survivor);
+            }
             tracing::debug!(
                 target: target::GAME,
-                candidates = candidates.len(),
+                candidates = count,
                 "Refinement has nothing to arbitrate, keeping the current name"
             );
             return None;

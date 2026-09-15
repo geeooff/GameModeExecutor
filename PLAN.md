@@ -834,6 +834,44 @@ every time. Which also contradicted a claim in `engine.rs`, that the name
 captured at the start is "often" a satellite's. One title in three has behaved
 that way. Corrected there.
 
+### The rename, finally seen, Battlefield 6 on 2026-09-16
+
+Four sessions had gone by without one: Starfield, Skyrim and a first BF6 all
+kept the name they started with. The second BF6 session of the night is the
+first time the tooltip changed under a running game.
+
+```
+00:06:51.505  Game detected: EAAntiCheat.GameServiceLauncher.exe   the wrong name, as expected
+00:07:01.660  status: 2 candidates, 0.0 % and 0.0 %
+00:07:12.850  Game identified more precisely: bf6.exe (75% of the rendering)
+00:07:12.850  icon refreshed  tooltip=... playing bf6.exe
+00:08:24.848  Windows released the presence writer; the identified game had already exited  pid=6844
+00:08:26.857  Game no longer detected: bf6.exe
+00:08:26.858  icon refreshed  state=Idle
+00:08:26.963  FanControl - Quiet profile finished
+```
+
+Three things it settles.
+
+**The rename reaches the screen.** The icon's tooltip went from the anti-cheat
+launcher to `bf6.exe` in the same millisecond as the decision, which is the
+whole point of the engine reporting a rename rather than only a start and a
+stop.
+
+**The stop edge names the game.** An hour earlier the same title ended with
+`Game no longer detected: EAAntiCheat.GameServiceLauncher.exe`. `fire_stop`
+uses the refined signal, so fixing the name mid-session fixes the last line
+too.
+
+**`log_writer_exit` became meaningful.** It reported on pid 6844 -- the game --
+where the previous session reported on a launcher that had died minutes before
+and called it "the identified game had already exited". True, and useless. The
+line is only worth its place when the name it refers to is the right one.
+
+What this did **not** exercise is the fix committed the same night: there were
+two candidates throughout, so the single-candidate return was never reached.
+That path still rests on its tests.
+
 Notes:
 
 - Needs Lot 3 for the name and Lot 6 for the icon, so it comes last of the
@@ -1013,6 +1051,26 @@ Nothing ships anywhere yet: the repository is still local.
 - Reload the configuration without restarting, which pairs with the Lot 6 menu
   entry that opens it for editing.
 - Behaviour across two games launched back to back.
+- **Stop timing the refinement and let the OS say when.** The single attempt at
+  `identify_after` is a lottery with three ways to lose: the process being named
+  is already dead and one candidate is left (fixed on 2026-09-15, but only
+  because the survivor rule no longer bails out), the game is still loading so
+  nothing renders, or the counters cannot be read. Each bail-out spends the one
+  attempt. Two Battlefield 6 sessions an hour apart lost it and won it: the
+  second read 0.0 % for every candidate at T+10 s and 75 % at T+20 s, so the
+  attempt landed about ten seconds inside the window that makes it work. That is
+  a margin, not a calibration. Two changes worth weighing, in order of appetite:
+  - **Only count an attempt that reached a verdict.** "Nothing is rendering
+    yet" and "no candidates" would re-arm the timer instead of ending it, with
+    a cap so a session that never settles cannot retry forever. Small, and it
+    closes the loading-screen hole.
+  - **Wait on the named process instead.** The engine already parks on the
+    presence writer's handle; parking on the *named* process's handle too, and
+    re-identifying when it exits, needs no timer and no polling at all. The
+    event that mattered in the BF6 session -- the launcher exiting -- would
+    have woken it exactly then. This is the same OS-native shape the rest of
+    detection uses, and it makes `identify_after` a fallback rather than the
+    mechanism.
 
 ---
 
@@ -1136,6 +1194,10 @@ Recorded so they stop coming back:
 ---
 
 ## Journal
+
+**2026-09-16** — The in-session rename, unobserved across four sessions, finally happened: a Battlefield 6 launch named itself `EAAntiCheat.GameServiceLauncher.exe`, and twenty-one seconds later the GPU handed the session to `bf6.exe` at 75 % of the rendering, with the tooltip following in the same millisecond. The stop edge then said `Game no longer detected: bf6.exe` where the session an hour earlier had said the anti-cheat's name — so the rename repairs the last line of a session as well as the middle. Worth being honest about the margin rather than calling this a validation of `identify_after = 20s`. Ten seconds before the attempt, `status` read 0.0 % for *both* candidates; ten seconds later, 75 %. The single timed attempt landed just inside the window that makes it work, and a slower load would have spent it on "nothing is rendering yet" and kept the launcher's name for the session. It also corrected a claim I had made an hour earlier, that the GPU counter was unreliable on this title: the 0.0 % readings were simply true, the game was not rendering yet. The counter is fine; the timer is the gamble. Also of note: `log_writer_exit` reported on the game's own pid this time, where the earlier session reported that a launcher dead for minutes "had already exited" — a line that is only worth its place when the name behind it is right.
+
+**2026-09-15** — A Battlefield 6 session, launched to exercise the in-session rename, found a defect instead — the first time the refinement has been watched doing its actual job. The shape is specific and now has a test: the EA anti-cheat *launcher* matches the install folder, starts before the game and so wins the first `identify`, then exits into a service that does not match, leaving `bf6.exe` as the only candidate. `refine` bailed out on `candidates.len() < 2` as "nothing to arbitrate" and kept the name of a process that no longer existed, so the tooltip, the menu header and the stop line all spent the session naming an anti-cheat launcher. One match left is not the same as nothing to say: when the process being named has *gone*, the survivor is strictly better information and no GPU measurement is needed to establish it. Guarded on the named process being dead — a candidate that stops matching while still running is ambiguous, and the safe answer there is the name already in use. The same bug had a second face worth noting: `log_writer_exit` reported "the identified game had already exited" about the launcher's pid, which was true and useless. What the session did *not* fix is the design underneath. The refinement gets one attempt, and it can spend it on "nothing is rendering yet" just as easily; `status` read 13.3 % for `bf6.exe` early in the session and 0.0 % later, so the GPU gate is not the reliable half either. Recorded in Lot 9, with waiting on the named process's handle as the shape that would have caught this exactly when it happened. Also confirmed, by screenshot: the context menu is dark.
 
 **2026-09-15** — Lot 7 closed, and the menu taught to follow the system theme. The menu was the last light-coloured thing left: a Win32 menu draws light unless the process opts in, and the opt-in is `SetPreferredAppMode`, uxtheme ordinal 135, undocumented and not exported by name. Taken with guards — a build-number floor, because on 1809 the same ordinal is a different function with a different signature, and a failure that leaves the program running with light menus rather than not running at all. The interesting part was not making it dark but keeping it right afterwards. `WM_SETTINGCHANGE` with `ImmersiveColorSet` arrives twice for one switch, about 150 ms apart, and the first one may still carry the old value; and a theme changed by something that does not broadcast at all — the scheduled light/dark switch the user named — produces no message whatsoever. Both are answered the same way: the theme is re-read when the menu is about to be shown, so the guarantee does not depend on receiving a message. The hole was proved rather than assumed, by writing the registry value directly with no broadcast: zero log lines, then the drift caught on the next right-click. A Skyrim session the same evening confirmed the icon, tooltip and menu moving together on a Steam title, and contradicted a claim in my own comment: `refine` said the name captured at the start is "often" a satellite's, where one title in three has behaved that way. Corrected in place.
 
