@@ -151,6 +151,18 @@ fn cmd_run(config: Config, config_path: &std::path::Path, level: &str) -> Result
     service::serve(config, config_path, level, true)
 }
 
+fn print_pending(pending: &marker::Pending, marker: &marker::Marker) {
+    println!(
+        "  game               : {}",
+        pending.game.as_deref().unwrap_or("not named")
+    );
+    println!(
+        "  since              : {}",
+        pending.since.as_deref().unwrap_or("unknown")
+    );
+    println!("  file               : {}", marker.path().display());
+}
+
 fn cmd_status(_config: &Config) -> Result<()> {
     // First, because when someone is diagnosing a machine that is not theirs,
     // knowing which build they are looking at comes before anything it reports.
@@ -161,6 +173,7 @@ fn cmd_status(_config: &Config) -> Result<()> {
     let snapshot = Snapshot::take()?;
 
     // The detector itself.
+    let mut game_running = false;
     match presence_writer::registered_exe() {
         Ok(exe) => {
             println!("Presence writer      : {}", exe.display());
@@ -173,33 +186,41 @@ fn cmd_status(_config: &Config) -> Result<()> {
                 }
             );
             match presence_writer::running_pid(&exe) {
-                Some(pid) => println!("  running            : YES (pid {pid}) - a game is running"),
+                Some(pid) => {
+                    game_running = true;
+                    println!("  running            : YES (pid {pid}) - a game is running");
+                }
                 None => println!("  running            : no - no game running"),
             }
         }
         Err(error) => println!("Presence writer      : unavailable ({error:#})"),
     }
 
-    // Whether the watcher owes the stop commands from a session that never
-    // closed, and where that is remembered -- so nobody has to know the path.
+    // The marker means one of two things, and the writer tells them apart: a
+    // session open right now, which is the watcher doing its job, or one that
+    // never closed, which the watcher settles at its next start. Read with a
+    // game on, the first wording used to claim the second, and was wrong.
     match marker::Marker::in_local_dir() {
-        Some(marker) => match marker.pending() {
-            Some(pending) => {
-                println!(
-                    "Session marker       : PRESENT - the last session never closed; the stop \
-                     commands run when the watcher next starts"
-                );
-                println!(
-                    "  game               : {}",
-                    pending.game.as_deref().unwrap_or("not named")
-                );
-                println!(
-                    "  since              : {}",
-                    pending.since.as_deref().unwrap_or("unknown")
-                );
-                println!("  file               : {}", marker.path().display());
+        Some(marker) => match (marker.pending(), game_running) {
+            (Some(pending), true) => {
+                println!("Session marker       : present - a game session is open, as expected");
+                print_pending(&pending, &marker);
             }
-            None => println!("Session marker       : none ({})", marker.path().display()),
+            (Some(pending), false) => {
+                println!(
+                    "Session marker       : PRESENT with no game running - the last session \
+                     never closed; the stop commands run when the watcher next starts"
+                );
+                print_pending(&pending, &marker);
+            }
+            (None, true) => println!(
+                "Session marker       : NONE while a game is running - the watcher has not \
+                 recorded this session; is it running? ({})",
+                marker.path().display()
+            ),
+            (None, false) => {
+                println!("Session marker       : none ({})", marker.path().display())
+            }
         },
         None => println!("Session marker       : unavailable, no local profile"),
     }

@@ -1135,6 +1135,13 @@ Nothing ships anywhere yet: the repository is still local.
     removed. Logoff, shutdown, crash and power cut are one case.
   - A failed command is now a **warning**, not a debug line. The `0xc0000142`
     that explained the whole evening sat at debug level.
+  - Verified in the field the same night, from the user's own terminal so the
+    container's view was not in the way: `status` showed the marker present
+    with `Starfield.exe since 01:14:07` during the game and `none` after a
+    normal stop; the recovery path was verified separately with a marker
+    planted from outside the container. Reading it during the game also caught
+    `status` calling an open session "never closed" -- fixed, with the writer
+    telling the two apart.
 - **Configuration faults shown in the tray, and live reload** -- designed
   2026-09-16 on the user's proposal; replaces both the reload item and the
   silent-failure item. See the section below.
