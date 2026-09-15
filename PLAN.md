@@ -471,11 +471,12 @@ happens when the user logs off during a game.
 - [x] `install-task` stores an absolute configuration path — found by shipping a relative one
 - [x] `--hidden` still accepted, ignored, so a task installed before this lot keeps starting; `hide_console` deleted
 - [x] Verified: the task starts it with no window (`MainWindowHandle` 0); `status`, `validate` and the exit codes 0/2/3/4 are unchanged from a terminal; the session-end sequence drives a clean shutdown
-- [ ] Still unverified: a real logoff **while a game is running**, which is the one case the window exists for
+- [x] A real logoff **while a game is running** — tested 2026-09-16, and **the profile was not restored**. The handshake worked; the stop command could not start. See below.
 
 Done when: the logon task starts the watcher with nothing on screen, every CLI
 command behaves exactly as before from a terminal, and a logoff during a game
-restores the profile — which it does today.
+restores the profile. The first two hold. The third does not, and cannot by
+this mechanism; Lot 9 takes it up.
 
 ### What the build looks like now
 
@@ -488,6 +489,49 @@ Both are a few lines over the same library, and `src/service.rs` holds the one
 implementation of "run the watcher" that they share. Verified by reading the
 subsystem field out of each PE header rather than by trusting the build
 settings.
+
+### The real logoff, 2026-09-16
+
+Starfield running, the user signed out at 00:18:00 by the clock. The
+instrumentation added an hour earlier is the only reason this reads as anything
+but a log that stops:
+
+```
+00:18:01.220  Windows asked to end the session, so the watcher starts stopping now
+00:18:01.220  Stopping while a game is running, so the stop commands run now
+00:18:01.221  Game no longer detected: Starfield.exe
+00:18:01.221  Starting a command  schtasks.exe /Run /TN GameModeExecutor\FanControl Quiet
+00:18:01.330  `FanControl - Quiet profile` finished  status=exit code: 0xc0000142
+00:18:01.336  The stop commands finished, the session may end  waited=61.8ms
+00:18:38.275  GameModeExecutor 0.1.0 (6d7a9846) starting            <- next logon
+```
+
+Every step this program is responsible for happened, and happened fast: asked
+at `.220`, answered and stopping in the same millisecond, first command started
+1 ms later, the whole handshake released in 62 ms. And the fan profile stayed
+on *Game*, no beep, until `trigger stop` was run by hand at 00:21.
+
+`0xC0000142` is `STATUS_DLL_INIT_FAILED`: the child process was created but a
+DLL's initialisation failed -- user32 cannot connect to a window station that
+is being torn down, and a console child additionally needs a conhost that
+cannot start either. The process that was already running kept running for as
+long as it liked. The process that was *born* during logoff was stillborn.
+
+The timing is the point. `WM_QUERYENDSESSION` is the **first** thing any
+application hears about a session ending, and the command was started one
+millisecond after it. There is no earlier moment to be had. **No design that
+starts a process at logoff can restore the profile**, on this Windows build at
+least, and that includes the console build's `ctrlc` path this window was built
+to preserve. Windows' own timeline agrees: Winlogon's 7002 at 00:18:07, logon
+at 00:18:22, watcher back at 00:18:38.
+
+The beep's fate is unknown by construction -- it is fire-and-forget (`wait`
+defaults to false), which is also why "finished" arrived 6 ms after starting it.
+
+What does work is the part of Lot 9 that was going to be about crashes anyway:
+remember that a session is open, and at the next start run the stop commands
+if the last one never closed. Logoff, shutdown, a crash and a power cut are
+then the same case, and none of them depends on Windows' patience.
 
 ### Verifying the session-end path without logging off
 
@@ -504,12 +548,20 @@ the same trap costs an hour during the icon lot.
 
 ### Why the window and the threading inversion are here and not with the icon
 
-Because they preserve something the console version already does. `ctrlc`'s
-Windows handler ignores the event type it is given (`os_handler(_: u32)`), so
-today a logoff or shutdown reaches the watcher as a stop signal and, with
-`stop_actions_on_exit`, the profile is restored. A Windows-subsystem process
-with no window receives none of that. It is simply terminated, mid-game profile
-and all.
+Because they preserve something the console version was believed to do.
+`ctrlc`'s Windows handler ignores the event type it is given
+(`os_handler(_: u32)`), so a logoff or shutdown reaches the watcher as a stop
+signal and, with `stop_actions_on_exit`, the stop commands are *started*. A
+Windows-subsystem process with no window receives none of that. It is simply
+terminated, mid-game profile and all.
+
+*Corrected 2026-09-16.* The console build's behaviour was inferred from the
+handler's semantics and never measured. The real logoff below shows that
+starting the stop commands is not the same as running them: Windows refuses to
+initialise a new process once the session is ending, so the console build would
+very probably have failed the same way. The window is still worth having -- it
+is what the icon, the theme broadcasts and the handshake hang off -- but the
+reason given here for it was hollow.
 
 The fix is a hidden top-level window whose procedure answers
 `WM_QUERYENDSESSION` — which needs a thread pumping messages, which is the
@@ -868,9 +920,17 @@ where the previous session reported on a launcher that had died minutes before
 and called it "the identified game had already exited". True, and useless. The
 line is only worth its place when the name it refers to is the right one.
 
-What this did **not** exercise is the fix committed the same night: there were
-two candidates throughout, so the single-candidate return was never reached.
-That path still rests on its tests.
+The fix committed the same night was not exercised here -- two candidates
+throughout -- but it was two sessions later, on **Starfield** of all titles:
+
+```
+00:16:51.841  Game detected: gamelaunchhelper.exe   matched_by="package family"
+00:17:11.964  Game identified more precisely: Starfield.exe (the only match left)
+```
+
+The same title had named itself directly at 16:15 the day before. Which
+process wins the first `identify` is a race, and the survivor rule is what
+makes losing it harmless.
 
 Notes:
 
@@ -1051,6 +1111,22 @@ Nothing ships anywhere yet: the repository is still local.
 - Reload the configuration without restarting, which pairs with the Lot 6 menu
   entry that opens it for editing.
 - Behaviour across two games launched back to back.
+- **Restore at logon what logoff could not.** Measured 2026-09-16: a process
+  started even one millisecond after `WM_QUERYENDSESSION` dies with
+  `STATUS_DLL_INIT_FAILED`, so the stop commands cannot run at session end and
+  the fan profile survives into the next session -- the exact outcome Lot 5
+  claimed to prevent. The mechanism that does not depend on Windows' timing:
+  - `fire_start` writes a small marker file next to the log, naming the game
+    and the time; a normal `fire_stop` removes it after the commands ran.
+  - At session end the stop commands are still attempted, and the marker is
+    removed only if every awaited command exited 0. Otherwise it stays, with a
+    line saying the next start will retry.
+  - At start, a marker present means the last session never closed: say so at
+    `info`, run the stop commands, remove it. A logoff, a shutdown, a crash and
+    a power cut become one case.
+  - Normal game stops keep today's semantics -- commands are best effort,
+    failures are logged, the marker goes regardless -- so nothing re-runs
+    behind the user's back except after a session that provably did not close.
 - **Stop timing the refinement and let the OS say when.** The single attempt at
   `identify_after` is a lottery with three ways to lose: the process being named
   is already dead and one candidate is left (fixed on 2026-09-15, but only
@@ -1194,6 +1270,8 @@ Recorded so they stop coming back:
 ---
 
 ## Journal
+
+**2026-09-16** — The real logoff, finally, and it failed in the one way the instrumentation added an hour earlier could make legible. Starfield running, sign-out at 00:18:00; Windows asked at 00:18:01.220, the watcher answered and started stopping in the same millisecond, `schtasks` was started 1 ms later, and it died with `0xC0000142` — `STATUS_DLL_INIT_FAILED`, a process born after the session began ending. The handshake released in 62 ms and the profile stayed on *Game* until `trigger stop` by hand. What this settles is stronger than "the window does not work": `WM_QUERYENDSESSION` is the first notification any application gets, so **no design that starts a process at logoff can restore the profile**, and that includes the console build's `ctrlc` path that Lot 5 was built to preserve — a behaviour I had inferred from the handler's signature and never measured. Both the plan and the module doc said the console version "restored the fan profile"; corrected in place. The fix is the crash-recovery item Lot 9 already owed: a marker file written at game start, removed after a normal stop, kept when a session-end stop cannot be confirmed, and honoured at the next start. Logoff, shutdown, crash and power cut become one case. The same evening also gave the survivor rule its field test, on Starfield rather than BF6: `gamelaunchhelper.exe` won the first identify this time where the same title had named itself the day before, and twenty seconds later the rule handed the session to `Starfield.exe`. Which process wins that race is not stable per title; the rule is what makes losing it harmless.
 
 **2026-09-16** — The in-session rename, unobserved across four sessions, finally happened: a Battlefield 6 launch named itself `EAAntiCheat.GameServiceLauncher.exe`, and twenty-one seconds later the GPU handed the session to `bf6.exe` at 75 % of the rendering, with the tooltip following in the same millisecond. The stop edge then said `Game no longer detected: bf6.exe` where the session an hour earlier had said the anti-cheat's name — so the rename repairs the last line of a session as well as the middle. Worth being honest about the margin rather than calling this a validation of `identify_after = 20s`. Ten seconds before the attempt, `status` read 0.0 % for *both* candidates; ten seconds later, 75 %. The single timed attempt landed just inside the window that makes it work, and a slower load would have spent it on "nothing is rendering yet" and kept the launcher's name for the session. It also corrected a claim I had made an hour earlier, that the GPU counter was unreliable on this title: the 0.0 % readings were simply true, the game was not rendering yet. The counter is fine; the timer is the gamble. Also of note: `log_writer_exit` reported on the game's own pid this time, where the earlier session reported that a launcher dead for minutes "had already exited" — a line that is only worth its place when the name behind it is right.
 

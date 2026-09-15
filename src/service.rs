@@ -1,13 +1,18 @@
 //! Running the watcher, for both binaries.
 //!
 //! The engine runs on a worker thread and the main thread pumps messages for a
-//! window that is never shown. That inversion is not for the sake of a future
-//! tray icon: it is what keeps the program behaving as it did as a console
-//! program. `ctrlc`'s Windows handler fires on every control event, logoff and
-//! shutdown included, so the console build restored the fan profile when the
-//! user logged out mid-game. A Windows-subsystem process with no window gets
-//! none of that and is simply terminated. The window earns its place by
-//! answering `WM_QUERYENDSESSION`.
+//! window that is never shown. The window is what the notification icon, the
+//! theme broadcasts and the session-end handshake hang off; a Windows-subsystem
+//! process without one hears nothing from the shell and is simply terminated.
+//!
+//! It was built to preserve what the console build was believed to do at
+//! logoff -- `ctrlc`'s handler fires on every control event, so the stop
+//! commands were *started* -- and a real logoff on 2026-09-16 showed that
+//! starting them is not running them: a process created even one millisecond
+//! after `WM_QUERYENDSESSION` dies with `STATUS_DLL_INIT_FAILED`. The handshake
+//! still runs the stop commands, because it is right for a `Quit` and costs
+//! nothing, but restoring the profile after a session end is Lot 9's marker
+//! file, not this.
 
 use std::sync::Arc;
 use std::time::Duration;
