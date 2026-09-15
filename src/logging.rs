@@ -184,6 +184,10 @@ impl Visit for Collected {
     }
 }
 
+/// The one file the log is written to. Named here rather than inline because
+/// the tray's "Open log" entry has to point at the same one.
+pub const LOG_FILE_NAME: &str = "gamemode-executor.log";
+
 /// Keeps the background writer of the file appender alive.
 pub struct Guards(#[allow(dead_code)] Vec<WorkerGuard>);
 
@@ -231,7 +235,7 @@ pub fn init(level: &str, log_dir: Option<&Path>, console: bool) -> Result<Guards
             // One file, not a daily rotation. This log gains a handful of lines
             // per game session, and rotation only bought filenames dated in UTC
             // -- the very confusion the local timestamps above remove.
-            let appender = tracing_appender::rolling::never(dir, "gamemode-executor.log");
+            let appender = tracing_appender::rolling::never(dir, LOG_FILE_NAME);
             let (writer, guard) = tracing_appender::non_blocking(appender);
             guards.push(guard);
             Some(

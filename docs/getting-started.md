@@ -104,6 +104,31 @@ administrator rights, no password, no window.
 Want a complete worked example rather than a blank page? [Recipes](recipes/) has
 one per job, each with a `config.toml` you can copy straight over.
 
+## The notification area icon
+
+Once it is running you get a small controller in the notification area, beside
+the clock. It is the only thing this program ever puts on screen.
+
+| | |
+| --- | --- |
+| **grey controller** | running, no game. What you will see almost all the time. |
+| **green controller** | a game is detected |
+
+Windows hides new icons by default: if you cannot see it, click the **`^`**
+arrow next to the clock, and drag it onto the taskbar to keep it there.
+
+**Right-click it** for a short menu:
+
+| | |
+| --- | --- |
+| **Edit configuration** | opens your `config.toml` in whatever you use for text files — Notepad if `.toml` is not associated with anything |
+| **Open log** | opens the log the same way |
+| **Documentation** | opens this page for **the exact build you are running**, not for whatever the project looks like today |
+| **Quit** | stops the watcher, running the stop commands on the way out so you are not left on a gaming profile |
+
+Quitting only stops it until the next time you log on. To stop it for good, see
+[Turning it off](#turning-it-off).
+
 ## Checking that it is alive
 
 ```bash

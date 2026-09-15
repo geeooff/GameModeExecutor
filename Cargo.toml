@@ -36,6 +36,10 @@ windows = { version = "0.62", features = [
     "Win32_Graphics_Gdi",
     "Win32_System_Console",
     "Win32_System_LibraryLoader",
+    # Without this the process is DPI-unaware, GetSystemMetrics answers with the
+    # 96 dpi value, and the notification icon is built at 16 px then stretched
+    # to whatever the taskbar actually wants.
+    "Win32_UI_HiDpi",
     "Win32_UI_Shell",
     "Win32_System_Com",
     "Win32_UI_WindowsAndMessaging",

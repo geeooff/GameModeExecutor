@@ -17,4 +17,5 @@ pub mod logging;
 pub mod registry;
 pub mod service;
 pub mod task;
+pub mod tray;
 pub mod win;

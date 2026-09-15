@@ -114,6 +114,29 @@ impl Key {
             (!value.is_empty()).then_some(value)
         }
     }
+
+    /// A `REG_DWORD` value, or `None` when it is absent or the wrong size.
+    ///
+    /// Windows keeps several of its own switches this way -- the taskbar theme
+    /// among them -- so reading one is not the same job as reading a string.
+    pub fn dword_value(&self, name: &str) -> Option<u32> {
+        let name = wide(name);
+        let mut value = 0u32;
+        let mut size = std::mem::size_of::<u32>() as u32;
+        unsafe {
+            RegQueryValueExW(
+                self.0,
+                PCWSTR(name.as_ptr()),
+                None,
+                None,
+                Some(std::ptr::from_mut(&mut value).cast()),
+                Some(&mut size),
+            )
+            .ok()
+            .ok()?;
+        }
+        (size as usize == std::mem::size_of::<u32>()).then_some(value)
+    }
 }
 
 impl Drop for Key {

@@ -13,6 +13,9 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{
     CreateEventW, CreateMutexW, INFINITE, SetEvent, WaitForSingleObject,
 };
+use windows::Win32::UI::HiDpi::{
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, MSG,
     PostMessageW, PostQuitMessage, RegisterClassExW, TranslateMessage, WINDOW_EX_STYLE, WM_APP,
@@ -113,7 +116,13 @@ unsafe extern "system" fn window_proc(
             unsafe { PostQuitMessage(0) };
             LRESULT(0)
         }
-        _ => unsafe { DefWindowProcW(window, message, wparam, lparam) },
+        // Anything else may belong to the notification icon, which hangs off
+        // this window. It returns None for what it does not want, and that
+        // falls through to Windows as usual.
+        _ => match crate::tray::dispatch(message, wparam, lparam) {
+            Some(result) => result,
+            None => unsafe { DefWindowProcW(window, message, wparam, lparam) },
+        },
     }
 }
 
@@ -193,6 +202,22 @@ impl SessionWindow {
 impl Drop for SessionWindow {
     fn drop(&mut self) {
         unsafe { _ = DestroyWindow(self.window) };
+    }
+}
+
+/// Tell Windows this process understands scaling, before any window exists.
+///
+/// Without it the process is DPI-unaware: `GetSystemMetrics` answers with the
+/// 96 dpi values whatever the display is set to, so a notification icon is
+/// built at 16 pixels and then stretched by the shell to the 24 a 150 % display
+/// wants. The icon files carry a hand-tuned 24, and this is what lets Windows
+/// be asked for it.
+///
+/// Failure is ignored on purpose: it means an older Windows, where the process
+/// is DPI-unaware and the icon is merely soft.
+pub fn declare_dpi_awareness() {
+    unsafe {
+        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
 }
 

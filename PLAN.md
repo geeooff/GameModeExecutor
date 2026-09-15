@@ -562,18 +562,37 @@ belongs with the rest of the shutdown work in Lot 9.
 
 ---
 
-## Lot 6 — Notification area icon · committed · `[ ]`
+## Lot 6 — Notification area icon · committed · `[x]` done
 
 Goal: a notification area icon with a small context menu: edit the
 configuration, open the log, quit. Hung off the window Lot 5 created.
 
-- [ ] Notification area icon, on the Lot 5 window
-- [ ] Context menu: edit configuration · open log · **documentation** · quit
-- [ ] Open all three through the shell, so the user's own default program handles them
-- [ ] The documentation entry opens the build's own commit on GitHub — see "Documentation without shipping it" in Lot 8
-- [ ] Re-add the icon when Explorer restarts
-- [ ] Follow the taskbar theme: `SystemUsesLightTheme`, re-read on `WM_SETTINGCHANGE` / `ImmersiveColorSet`
-- [ ] Quit shuts the watcher down cleanly, stop actions included
+- [x] Notification area icon, on the Lot 5 window
+- [x] Context menu: edit configuration · open log · **documentation** · quit
+- [x] Open all three through the shell, with a Notepad fallback when nothing claims `.toml`
+- [x] The documentation entry opens the build's own commit on GitHub
+- [x] Re-add the icon when Explorer restarts
+- [x] Follow the taskbar theme: `SystemUsesLightTheme`, re-read on `WM_SETTINGCHANGE` / `ImmersiveColorSet`
+- [x] Reload on `WM_DPICHANGED` too, which the design notes asked for and the plan had missed
+- [x] **Declare per-monitor DPI awareness** — see below, this was a real defect
+- [x] Quit shuts the watcher down cleanly, stop actions included
+- [x] The icon is a convenience: failing to add one is a warning and the watcher carries on
+
+### The bug that only a measurement would have caught
+
+The first run logged `Notification icon added theme=Dark size=16` on a display
+set to 150 %, where the shell wants 24. The process was DPI-unaware, so
+`GetSystemMetrics` answered with the 96 dpi value whatever the display said,
+and Windows then stretched a 16 pixel icon to 24 — precisely the soft result
+the design notes said to avoid by shipping eight hand-tuned frames.
+
+Two halves to the fix: `SetProcessDpiAwarenessContext` with
+`PER_MONITOR_AWARE_V2` before any window exists, and `GetSystemMetricsForDpi`
+with the window's own dpi instead of the unqualified call. It now logs
+`size=24` and Windows gets the frame that was drawn for it.
+
+Nothing about this is visible without looking: a stretched icon is not an
+error, it is just worse. It was found because the size is logged at all.
 - [x] Icons in the repository: `.ico` and `.svg` only, eight frames each, C2PA-free — see `assets/icons/README.md`
 - [x] **The `active` icon compiled into every executable**, through the Windows SDK's `rc.exe` from `build.rs`. No crate: an icon must be a PE resource, and `rc.exe` is the Microsoft tool that makes one. Missing SDK is a warning, not a failed build. The same mechanism takes Lot 8's version metadata when that is wanted.
 
@@ -928,6 +947,8 @@ Recorded so they stop coming back:
 ---
 
 ## Journal
+
+**2026-09-15** — Lot 6 done: the watcher has a notification area icon and a four-entry menu, hung off the window Lot 5 built for `WM_QUERYENDSESSION`, which is why that lot came first. The second icon export took the note from the first — the slash moved off idle, where it read as "switched off", onto a new error state nothing sets yet. Its claims were checked rather than trusted: eight PNG frames per `.ico` at 32-bit alpha, no C2PA payload in them though the standalone PNGs still carry 5.7 KB each, and the four luminance figures reproduce exactly. The interesting defect was invisible by construction. The first run logged `size=16` on a 150 % display, because the process was DPI-unaware and `GetSystemMetrics` answers for 96 dpi regardless — so Windows was stretching a 16 pixel icon to 24, which is not an error, just worse, and exactly what eight hand-tuned frames exist to avoid. Fixed with `SetProcessDpiAwarenessContext` and `GetSystemMetricsForDpi`; found only because the size was logged. Also learned that `LookupIconIdFromDirectoryEx` cannot read an `.ico` *file*: it expects `RT_GROUP_ICON` resource data, whose entries hold resource ids where a file's hold byte offsets. One header, two layouts, so the frame picker is written out by hand.
 
 **2026-09-14** — The development machine now runs the program the way an installed copy would: binaries in `%LOCALAPPDATA%\Programs\GameModeExecutor`, the logon task pointing there, the repository no longer involved at runtime — which also ends the routine of stopping the watcher before every `cargo build`, since it no longer holds the file being rebuilt. Getting there caught a claim of mine that was wrong. Asked to confirm the session could still read and write the destination, I wrote a file and read it back from the same shell, saw it round-trip, and said there was no redirection. That test cannot detect what it was looking for: the Claude desktop app is an MSIX package, so both ends of it happen inside the same container. The real test writes from the shell and reads from a scheduled task, which runs outside. Measured that way, `%APPDATA%\GameModeExecutor` and `%LOCALAPPDATA%\GameModeExecutor` are container-only while `%LOCALAPPDATA%\Programs\GameModeExecutor` is shared. The symptom that exposed it: the task exiting 4 with no log line at all while `validate` passed from the shell — two different files, the real one a configuration from 2026-09-09 still using the old `[[on_game_start]]` syntax. So this machine keeps its configuration and log in the shared tree, with the measurement written into the file itself, and the stale roaming copy was renamed out of the way from outside the container so nothing can pick it up later.
 

@@ -70,5 +70,5 @@ fn run() -> Result<()> {
     let level = cli
         .log_level
         .unwrap_or_else(|| config.general.log_level.clone());
-    service::serve(config, &level, false)
+    service::serve(config, &path, &level, false)
 }

@@ -140,13 +140,13 @@ fn run() -> Result<()> {
             }
             Ok(())
         }
-        _ => cmd_run(config, &level),
+        _ => cmd_run(config, &path, &level),
     }
 }
 
-fn cmd_run(config: Config, level: &str) -> Result<()> {
+fn cmd_run(config: Config, config_path: &std::path::Path, level: &str) -> Result<()> {
     // This binary is a console program, so it always has one to log to.
-    service::serve(config, level, true)
+    service::serve(config, config_path, level, true)
 }
 
 fn cmd_status(_config: &Config) -> Result<()> {

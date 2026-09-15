@@ -16,7 +16,7 @@ use anyhow::{Context, Result};
 
 use crate::config::{self, Config};
 use crate::win::{SessionWindow, SingleInstance, StopSignal};
-use crate::{engine, logging, win};
+use crate::{engine, logging, tray, win};
 
 /// Ceiling on how long `WM_ENDSESSION` holds the shutdown while the stop
 /// actions run. `schtasks` returns in about 100 ms, so this is only here so a
@@ -29,7 +29,12 @@ const SESSION_END_GRACE: Duration = Duration::from_secs(20);
 /// `console` says whether this process has a console: it gates both the log's
 /// console layer and the Ctrl-C handler, neither of which means anything
 /// without one.
-pub fn serve(config: Config, level: &str, console: bool) -> Result<()> {
+pub fn serve(
+    config: Config,
+    config_path: &std::path::Path,
+    level: &str,
+    console: bool,
+) -> Result<()> {
     // The watcher always keeps a log file. A windowless instance has nowhere
     // else to write, and a console one is usually left running unattended.
     let log_dir = config
@@ -39,6 +44,10 @@ pub fn serve(config: Config, level: &str, console: bool) -> Result<()> {
         .or_else(|| config::local_dir().map(|dir| dir.join("logs")));
     let _guards = logging::init(level, log_dir.as_deref(), console)?;
     let _instance = SingleInstance::acquire("GameModeExecutor")?;
+
+    // Before any window exists, or the process stays DPI-unaware for its whole
+    // life and the notification icon is built at the wrong size.
+    win::declare_dpi_awareness();
 
     let stop = Arc::new(StopSignal::new()?);
     // Signalled by the worker once the engine has returned, which is after the
@@ -53,6 +62,24 @@ pub fn serve(config: Config, level: &str, console: bool) -> Result<()> {
         let handler_stop = Arc::clone(&stop);
         ctrlc::set_handler(move || handler_stop.signal())
             .context("cannot install the Ctrl-C handler")?;
+    }
+
+    // The icon is a convenience, not the program. A shell that will not give us
+    // one -- an unusual session, an Explorer that is not running -- is a reason
+    // to say so and carry on watching, not to refuse to start.
+    let targets = tray::Targets {
+        config: config_path.to_path_buf(),
+        log: log_dir
+            .clone()
+            .unwrap_or_default()
+            .join(logging::LOG_FILE_NAME),
+    };
+    if let Err(error) = tray::install(window_id, targets, Arc::clone(&stop)) {
+        tracing::warn!(
+            target: logging::target::WATCHER,
+            error = %format!("{error:#}"),
+            "No notification icon; the watcher runs without one"
+        );
     }
 
     // The commit rides along as a field, so it is there at debug level when
@@ -75,6 +102,10 @@ pub fn serve(config: Config, level: &str, console: bool) -> Result<()> {
     });
 
     win::run_message_loop();
+
+    // Before anything else: the shell keeps a ghost icon until something hovers
+    // over it otherwise, which looks like the program is still there.
+    tray::uninstall();
 
     // The loop returns once the worker posted its message, or once the window
     // was destroyed. Signalling again is harmless and covers the second case.
