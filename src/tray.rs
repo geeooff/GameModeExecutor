@@ -367,10 +367,11 @@ pub struct Targets {
 struct Tray {
     window: HWND,
     icon: HICON,
-    /// What the current `icon` was built for, so a reload can tell whether
-    /// anything actually needs rebuilding. The *truth* is [`SESSION`] and the
-    /// taskbar theme; this is only what was last drawn from them.
-    drawn: (State, Theme),
+    /// Exactly what the shell is showing right now: the icon's state and theme,
+    /// and the tooltip text. The *truth* is [`SESSION`] and the taskbar theme;
+    /// this is what was last drawn from them, so a refresh can tell whether
+    /// there is anything to do and stay quiet when there is not.
+    shown: (State, Theme, String),
     targets: Targets,
     stop: Arc<StopSignal>,
     /// Broadcast by the shell when Explorer restarts. Every icon is lost then,
@@ -414,7 +415,7 @@ pub fn install(window: isize, targets: Targets, stop: Arc<StopSignal>) -> Result
     let tray = Tray {
         window,
         icon,
-        drawn: (State::Idle, theme),
+        shown: (State::Idle, theme, tooltip()),
         targets,
         stop,
         taskbar_created,
@@ -552,35 +553,39 @@ fn re_add() {
 
 /// Re-read the theme and rebuild the icon at the size Windows wants now.
 fn reload() {
-    let Some((window, drawn)) =
-        TRAY.with(|cell| cell.borrow().as_ref().map(|tray| (tray.window, tray.drawn)))
-    else {
+    let Some((window, shown)) = TRAY.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map(|tray| (tray.window, tray.shown.clone()))
+    }) else {
         return;
     };
 
-    // The tooltip is rebuilt every time, the icon only when it would differ:
-    // the name can change while the state does not, which is exactly what the
-    // refinement does twenty seconds into a session.
-    let wanted = (current_state(), Theme::current());
-    let fresh = if wanted == drawn {
-        None
-    } else {
-        // Windows caches menu themes, so a menu opened after a theme change
+    // Read the truth afresh. The theme is read here rather than trusted from
+    // the message that woke us, because we are not always woken: a tool that
+    // switches the theme on a schedule may write the registry without
+    // broadcasting, and this is also called when a menu is about to open.
+    let wanted = (current_state(), Theme::current(), tooltip());
+    if wanted == shown {
+        return;
+    }
+
+    let rebuild = wanted.0 != shown.0 || wanted.1 != shown.1;
+    if wanted.1 != shown.1 {
+        // Windows caches menu themes, so a menu built after a theme change
         // would keep the old one until something invalidates it.
-        if wanted.1 != drawn.1 {
-            dark::flush();
-        }
-        load_icon(wanted.0, wanted.1, window).ok()
-    };
+        dark::flush();
+    }
+    let fresh = rebuild
+        .then(|| load_icon(wanted.0, wanted.1, window).ok())
+        .flatten();
 
     // Swap under a short borrow, then talk to the shell outside it.
     let swapped = TRAY.with(|cell| {
         let mut borrowed = cell.borrow_mut();
         let tray = borrowed.as_mut()?;
-        let previous = fresh.map(|icon| {
-            tray.drawn = wanted;
-            std::mem::replace(&mut tray.icon, icon)
-        });
+        let previous = fresh.map(|icon| std::mem::replace(&mut tray.icon, icon));
+        tray.shown = wanted.clone();
         Some((previous, tray.data()))
     });
     let Some((previous, data)) = swapped else {
@@ -600,7 +605,7 @@ fn reload() {
         target: crate::logging::target::WATCHER,
         state = ?wanted.0,
         theme = ?wanted.1,
-        tooltip = %tooltip(),
+        tooltip = %wanted.2,
         "Notification icon refreshed"
     );
 }
@@ -613,6 +618,15 @@ fn reload() {
 /// id instead means the command is handled after the menu has closed, here,
 /// with nothing borrowed.
 fn show_menu(window: HWND, at: POINT) {
+    // The last chance to be right, and the one that does not depend on having
+    // been told. A theme can move without `WM_SETTINGCHANGE` reaching us -- a
+    // scheduler that writes the registry and broadcasts nothing, a message lost
+    // while something else held the loop -- and the menu about to be built
+    // would carry the old one. Re-reading here costs a registry read per
+    // right-click and removes the whole class of problem. It is a no-op when
+    // nothing moved.
+    reload();
+
     let Ok(menu) = (unsafe { CreatePopupMenu() }) else {
         return;
     };

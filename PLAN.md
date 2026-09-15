@@ -601,6 +601,30 @@ the export may be gone. Each of those means no call and a light menu. The build
 number comes from the registry rather than `GetVersionEx`, which lies about
 anything past Windows 8 without a compatibility manifest.
 
+#### Themes that move after startup
+
+Setting the mode once is not enough, and the hole is not where it looks. The
+theme is re-read and the menu theme cache flushed **when the menu is about to
+be built**, not only when `WM_SETTINGCHANGE` arrives — because that message is
+not guaranteed. A tool that switches light and dark on a schedule may write the
+registry and broadcast nothing.
+
+Demonstrated rather than argued, on 2026-09-15:
+
+| | |
+| --- | --- |
+| registry written directly, no broadcast | **0 log lines** — the watcher hears nothing |
+| menu then opened | `icon refreshed theme=Light` — the drift is caught |
+| menu opened again, nothing changed | **0 log lines** — no redraw, no noise |
+
+The cost is one registry read per right-click. What it removes is a whole class
+of problem: correctness no longer depends on having been told.
+
+The silence in the third row is the other half. The tray remembers exactly what
+the shell is showing — state, theme and tooltip text — so a refresh that would
+change nothing does nothing at all, which is what makes it safe to call on
+every menu open.
+
 ### The crash a right-click caused, and what it taught
 
 The first build put the icon up correctly and died the moment anyone
