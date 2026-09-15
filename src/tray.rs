@@ -281,10 +281,15 @@ impl Tray {
         data
     }
 
+    /// Deliberately vague about whether a game is running.
+    ///
+    /// Nothing moves `state` yet -- Lot 7 does that -- so it is `Idle` even
+    /// while a game plays. A tooltip saying "no game detected" was therefore
+    /// simply wrong half the time, which is worse than saying less. It says
+    /// what is true in every state: the watcher is up and watching.
     fn tooltip(&self) -> &'static str {
         match self.state {
-            State::Idle => "GameModeExecutor - watching, no game detected",
-            State::Active => "GameModeExecutor - a game is running",
+            State::Idle | State::Active => "GameModeExecutor - watching for games",
             State::Error => "GameModeExecutor - something needs attention",
         }
     }
