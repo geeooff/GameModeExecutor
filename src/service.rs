@@ -95,9 +95,14 @@ pub fn serve(
         crate::build_info::VERSION
     );
 
+    // The engine reports session changes to the tray, which is how the icon,
+    // the tooltip and the menu stay in step with each other and with reality.
+    let sink = tray::session_sink(window_id);
     let worker_stop = Arc::clone(&stop);
     let worker = std::thread::spawn(move || {
-        let outcome = engine::Engine::new(config).and_then(|mut engine| engine.run(&worker_stop));
+        let outcome = engine::Engine::new(config)
+            .map(|engine| engine.reporting_to(sink))
+            .and_then(|mut engine| engine.run(&worker_stop));
         // Order matters: release WM_ENDSESSION first, then wake the loop.
         finished.signal();
         win::wake_message_loop(window_id);

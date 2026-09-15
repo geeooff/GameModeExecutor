@@ -23,16 +23,43 @@ use crate::detect::{self, GameSignal, gpu};
 use crate::logging::target;
 use crate::win::StopSignal;
 
+/// Told whenever the session changes: a game started, was named more precisely,
+/// or ended. `None` means no game.
+///
+/// A callback rather than the engine knowing about the tray. The engine is the
+/// part worth keeping testable, and it has no business knowing that anything is
+/// drawn anywhere; the caller decides what a change means. Without one the
+/// engine behaves exactly as before, which is what every test relies on.
+pub type SessionSink = std::sync::Arc<dyn Fn(Option<&GameSignal>) + Send + Sync>;
+
 pub struct Engine {
     config: Config,
     /// Resolved from the registry once at startup, never hard-coded.
     writer_exe: PathBuf,
+    session: Option<SessionSink>,
 }
 
 impl Engine {
     pub fn new(config: Config) -> Result<Self> {
         let writer_exe = presence_writer::registered_exe()?;
-        Ok(Self { config, writer_exe })
+        Ok(Self {
+            config,
+            writer_exe,
+            session: None,
+        })
+    }
+
+    /// Report session changes to `sink` as well as to the log.
+    #[must_use]
+    pub fn reporting_to(mut self, sink: SessionSink) -> Self {
+        self.session = Some(sink);
+        self
+    }
+
+    fn report(&self, signal: Option<&GameSignal>) {
+        if let Some(sink) = &self.session {
+            sink(signal);
+        }
     }
 
     pub fn writer_exe(&self) -> &Path {
@@ -76,6 +103,8 @@ impl Engine {
                         refine_due = false;
                         if let Some(better) = self.refine(signal.as_ref()) {
                             signal = Some(better);
+                            // The name on screen was the launcher's until now.
+                            self.report(signal.as_ref());
                         }
                         continue;
                     }
@@ -296,6 +325,7 @@ impl Engine {
     }
 
     fn fire_start(&self, signal: Option<&GameSignal>) {
+        self.report(signal);
         match signal {
             Some(signal) => tracing::info!(
                 target: target::GAME,
@@ -320,6 +350,10 @@ impl Engine {
     }
 
     pub fn fire_stop(&self, signal: Option<&GameSignal>) {
+        // Before the commands, not after: those can take fifteen seconds, and
+        // an icon still showing a game that has ended for that long is the
+        // thing anyone would notice.
+        self.report(None);
         // Deliberately no process id here. The name was captured when the
         // session started; by now that process is usually long gone, and a
         // satellite of the real game as often as not. Reporting the id would

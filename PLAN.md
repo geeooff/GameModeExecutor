@@ -661,17 +661,101 @@ Notes:
 
 ---
 
-## Lot 7 — Tray experience · committed · `[ ]`
+## Lot 7 — Tray experience · committed · `[x]` done
 
 Goal: the icon says at a glance whether a game is detected, and which one.
 
-- [ ] Two icons: idle, and game detected
-- [ ] Switch icon on detection, both ways
-- [ ] Non-clickable menu entry showing the active game
-- [ ] Sensible text for that entry when the game could not be named
+**Three surfaces, one truth.** The icon, the tooltip and the menu all answer
+the same question, so they are one piece of work and not three. Any of them
+left behind is worse than none of them: an icon that has gone green under a
+tooltip still saying "no game detected" is a program contradicting itself.
 
-Done when: the icon changes within a poll of a game starting and stopping, and
-the menu shows the game name, or says clearly that it is unknown.
+- [x] The engine tells the tray when a game starts, is renamed by the
+      refinement, and stops
+- [x] **Icon** switches between idle and active, both ways
+- [x] **Tooltip** names the running game, or says one is running when it has no
+      name, or says none is
+- [x] **Menu** gains a disabled first entry saying the same thing
+- [x] One wording for "running but not named", shared by all three
+- [x] The tooltip's 127 character limit respected, with an ellipsis rather than
+      Windows' silent cut
+- [x] **Verified against a real game**, Starfield, 2026-09-15
+
+Done when: starting and stopping a game moves all three together, and a title
+Windows tracks but does not name reads sensibly everywhere rather than showing
+an empty space.
+
+### How they are kept from drifting
+
+The point of doing the three at once is that they cannot disagree, and the code
+is arranged so they cannot. There is **one** `Session` value; the icon's state,
+the tooltip and the menu header are all *derived* from it when needed rather
+than stored alongside it. The tray keeps one piece of remembered state, `drawn`,
+and it is honest about what it is: what the current icon was last built from, so
+a reload can skip rebuilding an identical one.
+
+The engine does not know the tray exists. It takes an optional callback — a
+game started, was renamed, ended — and the caller decides what that means. The
+engine is the part worth keeping testable.
+
+`fire_stop` reports **before** running the stop commands rather than after:
+those can take fifteen seconds, and an icon still showing a game that ended
+that long ago is precisely what someone would notice.
+
+### The session that closed it
+
+`presence-probe activate` was the hope for testing this without a game:
+activating the runtime class ought to make Windows start a presence writer. It
+does not — the activation resolves in-process and no writer appears. So the
+last mile waited for someone to play something, and a Starfield session on
+2026-09-15 supplied it:
+
+```
+16:15:54.699  Game detected: Starfield.exe   matched_by="package family"
+16:15:54.699  icon refreshed  state=Active   tooltip=... playing Starfield.exe
+16:16:14.831  Refinement has nothing to arbitrate, keeping the current name  candidates=1
+16:16:27.385  Windows released the presence writer; the game had already exited
+16:16:29.394  Game no longer detected: Starfield.exe
+16:16:29.395  icon refreshed  state=Idle     tooltip=... no game detected
+16:16:29.500  FanControl - Quiet profile finished
+```
+
+Three things worth keeping from it.
+
+The icon and the detection share a millisecond in both directions, so nothing
+lags.
+
+**The stop ordering is visible.** The icon went grey at `.395` and the FanControl
+command finished at `.500`. Reporting before the commands rather than after
+bought 105 ms here and would buy up to fifteen seconds whenever `schtasks` is
+slow — which is the case anyone would notice.
+
+And the refinement declined and *said so*, `candidates=1`, because Starfield
+names itself through its package family and there was nothing to arbitrate.
+That line exists because of Lot 4, where a silent refinement was
+indistinguishable from one that never ran.
+
+### Switching the taskbar theme, also on 2026-09-15
+
+```
+dark to light   16:18:07.008  theme=Dark     16:18:07.164  theme=Light
+light to dark   16:18:29.936  theme=Dark     16:18:30.179  theme=Dark
+```
+
+**Windows broadcasts `ImmersiveColorSet` twice** for one switch, about 150 ms
+apart. Whether the *first* one already carries the new value is not reliable:
+going to light it did not, and the first reload read the old theme; coming back
+both reads agreed. So the count can be relied on, the timing cannot.
+
+Nothing broke either way, because `reload` compares what is wanted against what
+is currently drawn and only rebuilds the icon when they differ — the spare
+broadcast costs one tooltip. That comparison was written to avoid redrawing an
+identical icon on every refinement, and it earns its place here for an entirely
+different reason.
+
+It also settles the choice made in Lot 5: a **top-level window that is never
+shown does receive broadcasts**. A message-only window would have seen neither
+this nor `WM_QUERYENDSESSION`, and both would have failed silently.
 
 Notes:
 
@@ -1048,3 +1132,4 @@ instead works and costs nothing. Measured its activation (40 ms) and exit (under
 20 ms after release), then validated it over two real game sessions. Added
 packaged-title naming after Starfield turned out to carry no executable path at
 all. Removed the process allow-list and the interim full-screen detector.
+

@@ -30,10 +30,10 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconFromResourceEx, CreatePopupMenu, DestroyIcon, DestroyMenu,
-    GetSystemMetrics, HICON, IMAGE_FLAGS, LR_DEFAULTCOLOR, MF_SEPARATOR, MF_STRING, PostMessageW,
-    RegisterWindowMessageW, SM_CXSMICON, SM_CYSMICON, SW_SHOWNORMAL, SetForegroundWindow,
-    TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenuEx, WM_APP, WM_CONTEXTMENU,
-    WM_DPICHANGED, WM_NULL, WM_SETTINGCHANGE,
+    GetSystemMetrics, HICON, IMAGE_FLAGS, LR_DEFAULTCOLOR, MF_DISABLED, MF_GRAYED, MF_SEPARATOR,
+    MF_STRING, PostMessageW, RegisterWindowMessageW, SM_CXSMICON, SM_CYSMICON, SW_SHOWNORMAL,
+    SetForegroundWindow, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenuEx, WM_APP,
+    WM_CONTEXTMENU, WM_DPICHANGED, WM_NULL, WM_SETTINGCHANGE,
 };
 use windows::core::PCWSTR;
 
@@ -41,6 +41,127 @@ use crate::win::StopSignal;
 
 /// Our callback message. `WM_APP + 1` is the watcher-finished message in `win`.
 const WM_TRAY: u32 = WM_APP + 2;
+
+/// Posted by the watcher thread when the session changed.
+const WM_SESSION: u32 = WM_APP + 3;
+
+/// One wording for a game Windows flags but does not name, shared by the
+/// tooltip and the menu and agreeing with what the log already says. Three
+/// surfaces disagreeing about the same fact is worse than any of them being
+/// terse.
+const UNNAMED: &str = "A game is running, but Windows does not name it";
+
+/// What the watcher is doing. The single source the icon, the tooltip and the
+/// menu all read, so they cannot drift apart.
+///
+/// Shared across threads, unlike everything else in this module: the engine
+/// runs on the worker and writes here, the window thread reads. A `Mutex` and a
+/// posted message rather than sending the name through `PostMessage`, which has
+/// nowhere to put a string that is not a raw pointer and a promise.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Session {
+    Idle,
+    /// `None` when Windows tracks the title but describes nothing.
+    Playing(Option<String>),
+}
+
+static SESSION: std::sync::Mutex<Session> = std::sync::Mutex::new(Session::Idle);
+
+fn session() -> Session {
+    SESSION
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+}
+
+/// Hand this to the engine so it reports session changes here.
+///
+/// Returns early when nothing actually changed, which matters because the
+/// engine reports on every refinement and most of those keep the same name.
+pub fn session_sink(window: isize) -> crate::engine::SessionSink {
+    Arc::new(move |signal: Option<&crate::detect::GameSignal>| {
+        let next = match signal {
+            None => Session::Idle,
+            Some(signal) => Session::Playing(signal.process_name.clone()),
+        };
+        {
+            let mut held = SESSION
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if *held == next {
+                return;
+            }
+            *held = next;
+        }
+        // Wake the thread that owns the window; it reads the value itself.
+        unsafe {
+            let _ = PostMessageW(
+                Some(HWND(window as *mut std::ffi::c_void)),
+                WM_SESSION,
+                WPARAM(0),
+                LPARAM(0),
+            );
+        }
+    })
+}
+
+/// What the icon should be showing, derived rather than stored.
+fn current_state() -> State {
+    state_for(&session())
+}
+
+fn state_for(session: &Session) -> State {
+    match session {
+        Session::Idle => State::Idle,
+        Session::Playing(_) => State::Active,
+    }
+}
+
+/// Windows truncates `szTip` at 128 units including the terminator, and a
+/// game's name is not always short.
+fn tooltip() -> String {
+    truncate(&tooltip_for(&session()), 127)
+}
+
+fn tooltip_for(session: &Session) -> String {
+    match session {
+        Session::Idle => "GameModeExecutor - no game detected".to_owned(),
+        Session::Playing(Some(name)) => format!("GameModeExecutor - playing {name}"),
+        Session::Playing(None) => format!("GameModeExecutor - {UNNAMED}"),
+    }
+}
+
+/// The disabled first line of the menu: the same fact, room for more words.
+fn menu_header() -> String {
+    menu_header_for(&session())
+}
+
+fn menu_header_for(session: &Session) -> String {
+    match session {
+        Session::Idle => "No game detected".to_owned(),
+        Session::Playing(Some(name)) => format!("Playing {name}"),
+        Session::Playing(None) => UNNAMED.to_owned(),
+    }
+}
+
+/// Cut to `limit` UTF-16 units without splitting a character.
+fn truncate(text: &str, limit: usize) -> String {
+    if text.encode_utf16().count() <= limit {
+        return text.to_owned();
+    }
+    let mut out = String::new();
+    let mut units = 0;
+    for character in text.chars() {
+        let width = character.len_utf16();
+        if units + width > limit - 1 {
+            break;
+        }
+        out.push(character);
+        units += width;
+    }
+    out.push('\u{2026}');
+    out
+}
 
 const ID_CONFIG: usize = 1;
 const ID_LOG: usize = 2;
@@ -133,8 +254,10 @@ pub struct Targets {
 struct Tray {
     window: HWND,
     icon: HICON,
-    state: State,
-    theme: Theme,
+    /// What the current `icon` was built for, so a reload can tell whether
+    /// anything actually needs rebuilding. The *truth* is [`SESSION`] and the
+    /// taskbar theme; this is only what was last drawn from them.
+    drawn: (State, Theme),
     targets: Targets,
     stop: Arc<StopSignal>,
     /// Broadcast by the shell when Explorer restarts. Every icon is lost then,
@@ -175,8 +298,7 @@ pub fn install(window: isize, targets: Targets, stop: Arc<StopSignal>) -> Result
     let tray = Tray {
         window,
         icon,
-        state: State::Idle,
-        theme,
+        drawn: (State::Idle, theme),
         targets,
         stop,
         taskbar_created,
@@ -260,6 +382,8 @@ impl Tray {
             }
             WM_SETTINGCHANGE if setting_is(lparam, "ImmersiveColorSet") => Plan::Reload,
             WM_DPICHANGED => Plan::Reload,
+            // The engine says a game started, was renamed, or ended.
+            WM_SESSION => Plan::Reload,
             _ => Plan::Ignore,
         }
     }
@@ -275,23 +399,10 @@ impl Tray {
             ..Default::default()
         };
         data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
-        let tip = wide(self.tooltip());
+        let tip = wide(&tooltip());
         let len = tip.len().min(data.szTip.len());
         data.szTip[..len].copy_from_slice(&tip[..len]);
         data
-    }
-
-    /// Deliberately vague about whether a game is running.
-    ///
-    /// Nothing moves `state` yet -- Lot 7 does that -- so it is `Idle` even
-    /// while a game plays. A tooltip saying "no game detected" was therefore
-    /// simply wrong half the time, which is worse than saying less. It says
-    /// what is true in every state: the watcher is up and watching.
-    fn tooltip(&self) -> &'static str {
-        match self.state {
-            State::Idle | State::Active => "GameModeExecutor - watching for games",
-            State::Error => "GameModeExecutor - something needs attention",
-        }
     }
 }
 
@@ -325,39 +436,51 @@ fn re_add() {
 
 /// Re-read the theme and rebuild the icon at the size Windows wants now.
 fn reload() {
-    let Some((window, state)) =
-        TRAY.with(|cell| cell.borrow().as_ref().map(|tray| (tray.window, tray.state)))
+    let Some((window, drawn)) =
+        TRAY.with(|cell| cell.borrow().as_ref().map(|tray| (tray.window, tray.drawn)))
     else {
         return;
     };
 
-    let theme = Theme::current();
-    let Ok(icon) = load_icon(state, theme, window) else {
-        return;
+    // The tooltip is rebuilt every time, the icon only when it would differ:
+    // the name can change while the state does not, which is exactly what the
+    // refinement does twenty seconds into a session.
+    let wanted = (current_state(), Theme::current());
+    let fresh = if wanted == drawn {
+        None
+    } else {
+        load_icon(wanted.0, wanted.1, window).ok()
     };
 
     // Swap under a short borrow, then talk to the shell outside it.
-    let previous = TRAY.with(|cell| {
+    let swapped = TRAY.with(|cell| {
         let mut borrowed = cell.borrow_mut();
         let tray = borrowed.as_mut()?;
-        tray.theme = theme;
-        Some((std::mem::replace(&mut tray.icon, icon), tray.data()))
+        let previous = fresh.map(|icon| {
+            tray.drawn = wanted;
+            std::mem::replace(&mut tray.icon, icon)
+        });
+        Some((previous, tray.data()))
     });
-    let Some((previous, data)) = previous else {
-        unsafe { _ = DestroyIcon(icon) };
+    let Some((previous, data)) = swapped else {
+        if let Some(icon) = fresh {
+            unsafe { _ = DestroyIcon(icon) };
+        }
         return;
     };
 
     unsafe {
         let _ = Shell_NotifyIconW(NIM_MODIFY, &data);
-        let _ = DestroyIcon(previous);
+        if let Some(previous) = previous {
+            let _ = DestroyIcon(previous);
+        }
     }
     tracing::debug!(
         target: crate::logging::target::WATCHER,
-        theme = ?theme,
-        state = ?state,
-        size = small_icon_size(window).0,
-        "Notification icon reloaded"
+        state = ?wanted.0,
+        theme = ?wanted.1,
+        tooltip = %tooltip(),
+        "Notification icon refreshed"
     );
 }
 
@@ -374,12 +497,22 @@ fn show_menu(window: HWND, at: POINT) {
     };
 
     // Kept alive until after TrackPopupMenuEx returns.
+    let header = wide(&menu_header());
     let config = wide("Edit configuration");
     let log = wide("Open log");
     let docs = wide("Documentation");
     let quit = wide("Quit");
 
     let chosen = unsafe {
+        // Disabled on purpose: it is the answer to "what is running", not
+        // something to click. Id 0 so a stray selection means nothing.
+        let _ = AppendMenuW(
+            menu,
+            MF_STRING | MF_DISABLED | MF_GRAYED,
+            0,
+            PCWSTR(header.as_ptr()),
+        );
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING, ID_CONFIG, PCWSTR(config.as_ptr()));
         let _ = AppendMenuW(menu, MF_STRING, ID_LOG, PCWSTR(log.as_ptr()));
         let _ = AppendMenuW(menu, MF_STRING, ID_DOCS, PCWSTR(docs.as_ptr()));
@@ -641,6 +774,80 @@ mod tests {
         assert!(frame_score(32, 24) < frame_score(20, 24));
         // And among bigger ones, the closest wins.
         assert!(frame_score(32, 24) < frame_score(256, 24));
+    }
+
+    /// The icon, the tooltip and the menu answer one question, so they are
+    /// checked against one another rather than one at a time.
+    #[test]
+    fn the_three_surfaces_agree() {
+        let playing = Session::Playing(Some("bf6.exe".to_owned()));
+        assert_eq!(state_for(&playing), State::Active);
+        assert!(tooltip_for(&playing).contains("bf6.exe"));
+        assert!(menu_header_for(&playing).contains("bf6.exe"));
+
+        let idle = Session::Idle;
+        assert_eq!(state_for(&idle), State::Idle);
+        assert!(tooltip_for(&idle).contains("no game"));
+        assert!(menu_header_for(&idle).contains("No game"));
+    }
+
+    /// A title Windows tracks but does not describe. All three have to say
+    /// something, and the same something -- an empty space would read as a bug.
+    #[test]
+    fn an_unnamed_game_still_reads_sensibly() {
+        let unnamed = Session::Playing(None);
+        assert_eq!(state_for(&unnamed), State::Active);
+        assert_eq!(menu_header_for(&unnamed), UNNAMED);
+        assert!(tooltip_for(&unnamed).contains(UNNAMED));
+    }
+
+    /// `szTip` holds 128 units including the terminator, and a game's name is
+    /// not always short. Windows truncates silently, so we do it visibly.
+    #[test]
+    fn a_very_long_name_is_cut_to_fit() {
+        let long = Session::Playing(Some("x".repeat(400)));
+        let text = truncate(&tooltip_for(&long), 127);
+        assert!(text.encode_utf16().count() <= 127, "{}", text.len());
+        assert!(text.ends_with('\u{2026}'), "{text}");
+    }
+
+    /// Cutting must not split a character in half.
+    #[test]
+    fn truncation_keeps_characters_whole() {
+        let text = truncate(&"é".repeat(50), 10);
+        assert!(text.encode_utf16().count() <= 10);
+        assert!(text.chars().all(|c| c == 'é' || c == '\u{2026}'), "{text}");
+    }
+
+    /// The engine reports on every refinement, and most of those land on the
+    /// same name. Without the early return the shell would be asked to redraw
+    /// an identical icon each time.
+    ///
+    /// Window `0` is deliberate: `PostMessageW` fails harmlessly on it, which
+    /// is what lets the plumbing be tested without a window.
+    #[test]
+    fn the_sink_carries_changes_and_swallows_repeats() {
+        let sink = session_sink(0);
+        let signal = crate::detect::GameSignal {
+            source: "test",
+            process_name: Some("bf6.exe".to_owned()),
+            process_id: Some(14552),
+            process_path: None,
+        };
+
+        sink(Some(&signal));
+        assert_eq!(session(), Session::Playing(Some("bf6.exe".to_owned())));
+        assert_eq!(current_state(), State::Active);
+        assert!(tooltip().contains("bf6.exe"));
+
+        // The same thing again changes nothing.
+        sink(Some(&signal));
+        assert_eq!(session(), Session::Playing(Some("bf6.exe".to_owned())));
+
+        sink(None);
+        assert_eq!(session(), Session::Idle);
+        assert_eq!(current_state(), State::Idle);
+        assert!(tooltip().contains("no game"));
     }
 
     /// The crash this module was rewritten for: a right-click re-enters the

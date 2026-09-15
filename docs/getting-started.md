@@ -114,6 +114,13 @@ the clock. It is the only thing this program ever puts on screen.
 | **grey controller** | running, no game. What you will see almost all the time. |
 | **green controller** | a game is detected |
 
+Hover it and the tooltip names the game. Right-click and the first line of the
+menu says the same — it is greyed out because it is an answer, not a button.
+
+A game Windows tracks but does not describe shows as *"A game is running, but
+Windows does not name it"*. That is not a failure: detection never depended on
+the name. See [How it works](how-it-works.md#naming-the-game).
+
 Windows hides new icons by default: if you cannot see it, click the **`^`**
 arrow next to the clock, and drag it onto the taskbar to keep it there.
 
