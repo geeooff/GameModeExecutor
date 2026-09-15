@@ -99,6 +99,14 @@ unsafe extern "system" fn window_proc(
         // rather than only what is left of it at WM_ENDSESSION.
         WM_QUERYENDSESSION => {
             if let Some(state) = SESSION.get() {
+                // Logged because the alternative is a log that simply stops.
+                // This path runs once, unattended, on a machine nobody is
+                // watching, and "Windows never asked" has to be tellable from
+                // "we never answered".
+                tracing::debug!(
+                    target: crate::logging::target::WATCHER,
+                    "Windows asked to end the session, so the watcher starts stopping now"
+                );
                 state.stop.signal();
             }
             LRESULT(1)
@@ -108,7 +116,24 @@ unsafe extern "system" fn window_proc(
         // This is the whole reason the window exists.
         WM_ENDSESSION => {
             if let Some(state) = SESSION.get().filter(|_| wparam.0 != 0) {
-                let _ = state.finished.wait_timeout(state.grace);
+                let held = std::time::Instant::now();
+                if state.finished.wait_timeout(state.grace) {
+                    tracing::debug!(
+                        target: crate::logging::target::WATCHER,
+                        waited = ?held.elapsed(),
+                        "The stop commands finished, the session may end"
+                    );
+                } else {
+                    // The one case where a configured command does not get to
+                    // run. Worth a warning rather than silence: the user meets
+                    // it as a fan profile that stayed on gaming settings, and
+                    // the next log they read should say why.
+                    tracing::warn!(
+                        target: crate::logging::target::WATCHER,
+                        grace = ?state.grace,
+                        "The stop commands did not finish before the session ended"
+                    );
+                }
             }
             LRESULT(0)
         }
