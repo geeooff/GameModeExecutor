@@ -62,11 +62,11 @@ impl Engine {
         self
     }
 
-    /// Remember an open session in `dir`, so that a session this process does
-    /// not live to close is closed by the next one.
+    /// Remember an open session in `marker`, so that a session this process
+    /// does not live to close is closed by the next one.
     #[must_use]
-    pub fn remembering_in(mut self, dir: &Path) -> Self {
-        self.marker = Some(Marker::in_dir(dir));
+    pub fn remembering(mut self, marker: Marker) -> Self {
+        self.marker = Some(marker);
         self
     }
 

@@ -10,7 +10,7 @@ use game_mode_executor::config::{self, Config};
 use game_mode_executor::detect::known_games::KnownGames;
 use game_mode_executor::detect::presence_writer;
 use game_mode_executor::detect::process::Snapshot;
-use game_mode_executor::{build_info, detect, engine, exit, logging, service, task};
+use game_mode_executor::{build_info, detect, engine, exit, logging, marker, service, task};
 
 /// Default config file shipped with the program, also used by `init`.
 const EXAMPLE_CONFIG: &str = include_str!("../config.example.toml");
@@ -178,6 +178,30 @@ fn cmd_status(_config: &Config) -> Result<()> {
             }
         }
         Err(error) => println!("Presence writer      : unavailable ({error:#})"),
+    }
+
+    // Whether the watcher owes the stop commands from a session that never
+    // closed, and where that is remembered -- so nobody has to know the path.
+    match marker::Marker::in_local_dir() {
+        Some(marker) => match marker.pending() {
+            Some(pending) => {
+                println!(
+                    "Session marker       : PRESENT - the last session never closed; the stop \
+                     commands run when the watcher next starts"
+                );
+                println!(
+                    "  game               : {}",
+                    pending.game.as_deref().unwrap_or("not named")
+                );
+                println!(
+                    "  since              : {}",
+                    pending.since.as_deref().unwrap_or("unknown")
+                );
+                println!("  file               : {}", marker.path().display());
+            }
+            None => println!("Session marker       : none ({})", marker.path().display()),
+        },
+        None => println!("Session marker       : unavailable, no local profile"),
     }
 
     // Naming only, never detection.

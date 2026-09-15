@@ -235,12 +235,14 @@ pub fn roaming_dir() -> Option<PathBuf> {
     std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join(APP_DIR_NAME))
 }
 
-/// `%LOCALAPPDATA%\GameModeExecutor`: the local profile, for the log.
+/// `%LOCALAPPDATA%\GameModeExecutor`: the local profile, for the log and the
+/// session marker.
 ///
 /// A log describes one machine's sessions, so carrying it to another would be
 /// meaningless -- and on a roaming profile it would be copied back and forth at
-/// every logon for nothing. Local is where Windows puts what belongs to the
-/// machine rather than the person.
+/// every logon for nothing. The marker is worse than meaningless elsewhere: it
+/// would run the stop commands on a machine that never started them. Local is
+/// where Windows puts what belongs to the machine rather than the person.
 pub fn local_dir() -> Option<PathBuf> {
     std::env::var_os("LOCALAPPDATA").map(|local| PathBuf::from(local).join(APP_DIR_NAME))
 }

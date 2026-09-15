@@ -11,13 +11,23 @@
 //! handshake works, and the command it starts is stillborn. So the stop
 //! commands cannot run at session end, and the only moment that does not
 //! depend on Windows' timing is the next start.
+//!
+//! It lives at the root of `%LOCALAPPDATA%\GameModeExecutor`, not in `logs\`.
+//! A logs folder is disposable by nature and gets emptied without a second
+//! thought, which would take a pending recovery with it; state does not belong
+//! among files anyone is entitled to throw away. Not next to the configuration
+//! either: that may sit in `%APPDATA%`, which roams, and a marker following the
+//! profile to another machine would run the stop commands there. Local,
+//! per-user, non-roaming is exactly what the marker is about.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Named so that someone finding it in the folder needs no documentation.
-pub const FILE_NAME: &str = "pending-stop-actions.txt";
+/// No extension on purpose. `.txt` says "a note for a person" and is the first
+/// thing a tidy-up deletes; a bare name says "the program's business". The
+/// comment lines inside are for whoever opens it anyway.
+pub const FILE_NAME: &str = "pending-stop-actions";
 
 pub struct Marker {
     path: PathBuf,
@@ -38,6 +48,12 @@ impl Marker {
         }
     }
 
+    /// The marker where it belongs on this machine, or `None` when Windows
+    /// offers no local profile -- in which case there is no log either.
+    pub fn in_local_dir() -> Option<Self> {
+        crate::config::local_dir().map(|dir| Self::in_dir(&dir))
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -53,6 +69,11 @@ impl Marker {
             text.push_str(&format!("game = {game}\n"));
         }
         text.push_str(&format!("since = {since}\n"));
+        // The folder may not exist yet: the log can be configured elsewhere,
+        // and then nothing else has had a reason to create it.
+        if let Some(dir) = self.path.parent() {
+            fs::create_dir_all(dir)?;
+        }
         fs::write(&self.path, text)
     }
 
@@ -102,6 +123,15 @@ mod tests {
         ));
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn opening_creates_the_folder_when_nothing_else_has() {
+        // The log may be configured elsewhere, so the local folder can be
+        // absent at the first game.
+        let marker = Marker::in_dir(&scratch().join("not-yet-there"));
+        marker.open(Some("game.exe"), "t0").unwrap();
+        assert!(marker.pending().is_some());
     }
 
     #[test]

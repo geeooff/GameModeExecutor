@@ -424,7 +424,7 @@ above.
 - `stop_actions_on_exit` runs the stop actions when the watcher is stopped
   mid-game. At logoff and shutdown they cannot run in time — Windows refuses to
   start a program once the session is ending — so they run at the next logon
-  instead, from a marker file the watcher leaves next to its log.
+  instead, from a marker file the watcher keeps in `%LOCALAPPDATA%\GameModeExecutor`.
 - Only one instance runs per session; a second one exits immediately.
 
 ## License

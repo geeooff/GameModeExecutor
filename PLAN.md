@@ -1108,8 +1108,6 @@ Nothing ships anywhere yet: the repository is still local.
   turned out to be a behaviour to preserve rather than one to add. What is left
   for here is the polish: `ShutdownBlockReasonCreate`, so Windows' shutdown
   screen says "Restoring the fan profile…" instead of naming the process.
-- Reload the configuration without restarting, which pairs with the Lot 6 menu
-  entry that opens it for editing.
 - Behaviour across two games launched back to back.
 - [x] **Restore at logon what logoff could not** -- done 2026-09-16, the same
   night it was measured. A process started even one millisecond after
@@ -1117,10 +1115,11 @@ Nothing ships anywhere yet: the repository is still local.
   cannot run at session end and the fan profile survives into the next session
   -- the exact outcome Lot 5 claimed to prevent. The mechanism that does not
   depend on Windows' timing, as built:
-  - `fire_start` writes `pending-stop-actions.txt` next to the log, naming the
-    game and the time; the refinement rewrites it with the better name; a game
-    that stops on its own removes it after the commands ran, best effort as
-    before.
+  - `fire_start` writes `pending-stop-actions` -- no extension -- at the root
+    of `%LOCALAPPDATA%\GameModeExecutor`, naming the game and the time; the
+    refinement rewrites it with the better name; a game that stops on its own
+    removes it after the commands ran, best effort as before. First written
+    next to the log; moved the same night, see the journal.
   - When the watcher is stopped mid-game the commands are still attempted, and
     the marker is removed only when `run_all` can *confirm* them: at least one
     command was waited for, and every waited-for command exited 0. Otherwise
@@ -1136,6 +1135,9 @@ Nothing ships anywhere yet: the repository is still local.
     removed. Logoff, shutdown, crash and power cut are one case.
   - A failed command is now a **warning**, not a debug line. The `0xc0000142`
     that explained the whole evening sat at debug level.
+- **Configuration faults shown in the tray, and live reload** -- designed
+  2026-09-16 on the user's proposal; replaces both the reload item and the
+  silent-failure item. See the section below.
 - **Stop timing the refinement and let the OS say when.** The single attempt at
   `identify_after` is a lottery with three ways to lose: the process being named
   is already dead and one candidate is left (fixed on 2026-09-15, but only
@@ -1156,6 +1158,73 @@ Nothing ships anywhere yet: the repository is still local.
     have woken it exactly then. This is the same OS-native shape the rest of
     detection uses, and it makes `identify_after` a fallback rather than the
     mechanism.
+
+### Configuration faults, shown where the program already lives
+
+**The problem.** A configuration the windowless watcher cannot read fails with
+no trace. `Config::load` runs before `serve` initialises the log, so the
+`tracing::error!` in `main` -- whose comment promises "the log file has the
+detail" -- fires with no subscriber. A typo, an old format or an empty file at
+logon means exit code 4, no log line, no window, and a fan profile that never
+changes again with nothing to say why. That is what hurt on 2026-09-09 when the
+format changed, and a version key would not have helped; visibility would.
+
+**Not a `MessageBox`.** The first draft said so; the user's answer was that a
+program built to be discreet does not put a dialog on the screen at logon. It
+has a place on screen already: the icon. And it has an error state nobody has
+used -- `State::Error`, artwork in both themes, reserved in Lot 6 so the slash
+would not be borrowed for anything else.
+
+**The behaviour, as proposed by the user and pushed one step further:**
+
+- **Start regardless.** The watcher starts even when the file is unreadable:
+  log at the default location, window, icon in the error state, tooltip
+  `GameModeExecutor - configuration error`, and the disabled first menu entry
+  saying what is wrong in one line -- `line 3: unknown field 'log_levl'`, the
+  validation message as is for `no actions configured`. *Edit configuration*
+  keeps working, because it is the fix. Nothing is watched until a valid
+  configuration exists, and a pending session marker is honoured the moment
+  one does.
+- **Watch the file.** `FindFirstChangeNotificationW` on the configuration's
+  folder, last-write and name changes, on a small thread that waits on that
+  handle and the stop event and posts `WM_CONFIG` to the window. Debounced --
+  editors write in several steps and a read mid-write sees half a file -- so
+  the reparse waits ~250 ms after the last notification. This is also the
+  reload the plan already owed: save the file, and the change applies.
+- **Valid again:** the new configuration is applied, the icon returns to
+  idle or active, `info`: `Configuration reloaded`. **Invalid:** the program
+  is disabled outright -- the user's decision, see below -- with the display
+  in the error state and `warn` carrying the full message.
+- **What applies live:** the commands, `[detection]`, `stop_actions_on_exit`.
+  `log_dir` waits for the next start, said so at `warn` when it differs.
+  `log_level` can follow live through a `tracing_subscriber::reload` layer if
+  that stays a few lines, and is worth it for "set debug, watch, set back".
+
+**Mechanics.** `serve` loads the configuration itself and takes the path
+rather than a `Config`; the engine reads an `Arc<RwLock<Config>>` at each use
+rather than owning one, so a swap needs no wake-up. The tray gains a fault
+overlay on top of the session -- the two are different axes -- and finally sets
+`State::Error`; `reload()` compares as today. Pure tests for the one-line
+simplification of a `toml` error and for the display derivation; the folder
+watch is Win32 and verified by hand, as the icon was.
+
+**Decided 2026-09-16: disable outright, never fall back to the old
+configuration.** I had recommended keeping the last valid one in force so a
+typo mid-game would not end the session; the user chose the stricter and
+simpler rule, and it holds together better than it first looks, for two
+reasons. "Disabled" means *frozen*: nothing runs, not the old commands and
+not their stop half, so a game in progress keeps its profile and the session
+marker stays where it is. When the file is valid again, the marker mechanism
+finishes the job by itself -- game gone in the meantime, recovery runs the
+stop commands; game still running, the engine detects it afresh. One detail
+to get right there: look for the writer *before* recovering, or a game still
+on would get Quiet then Game a few milliseconds apart. And the strict rule is
+what Lot 12 earns: once editing goes through a staged copy, the only way to
+put an invalid file on disk is to edit it by hand outside the program, and
+then a frozen program with a red icon is the honest answer.
+
+Written so Lot 12 is small: the watcher takes a path and an "apply" action,
+because the next lot points the same machinery at a different file.
 
 ---
 
@@ -1253,6 +1322,49 @@ already wasted their afternoon.
 
 ---
 
+## Lot 12 — Editing without breaking the file · proposed
+
+Proposed by the user on 2026-09-16, on the `visudo` / `git commit` /
+`systemctl edit` pattern: *Edit configuration* opens the editor on a **copy**,
+and the real file only ever receives content that validated. Lot 9's strict
+disable is what makes this worth having, and this is what makes Lot 9's strict
+disable comfortable: through the program's own path, an invalid file on disk
+cannot happen.
+
+**The signal is the file, not the editor.** The first idea -- promote when the
+editor process exits -- is not reliable on Windows and cannot be made so.
+`ShellExecuteEx` does return a process handle, but most editors are
+single-instance: `code file.toml` hands the file to the running window and
+returns at once, and Windows 11's Notepad does the same since it became a
+packaged, tabbed app -- the `notepad.exe` launched is a stub that exits
+immediately. Git's answer is `--wait` flags the user configures in
+`core.editor`; "open with the associated application" has no such convention.
+So instead:
+
+- Copy the configuration to `%LOCALAPPDATA%\GameModeExecutor\config.editing.toml`
+  -- local, because the real file may sit in `%APPDATA%` and roam, and a
+  half-edited copy travelling to another machine would be absurd -- and open
+  *that*.
+- Watch it with Lot 9's watcher. Every save is a candidate: valid, and it is
+  promoted onto the real file (write `.new`, rename over -- atomic); invalid,
+  and the tray shows the fault exactly as Lot 9 does, while the real file stays
+  untouched and valid. Closing the editor without a valid save is "cancel".
+  Nothing needs to know when editing ends.
+- No prompt. The `MessageBox` was declined in Lot 9 for the same reason: the
+  tray *is* the prompt. The icon says what is being written is invalid, the
+  menu says where, the user fixes or closes.
+
+**Consequences worth having.** The lot is a few dozen lines if Lot 9's watcher
+takes the path and the apply action as parameters. Lot 10's window becomes a
+second client of the same stage-validate-promote path rather than a third way
+of writing the file. And a stale `config.editing.toml` found at start is just
+tidied away, or offered -- either is fine.
+
+**Known wrinkle.** The editor's title bar shows `config.editing.toml`, not
+`config.toml`. `visudo` shows `sudoers.tmp`; it surprises once.
+
+---
+
 ## Non-goals
 
 Recorded so they stop coming back:
@@ -1264,6 +1376,15 @@ Recorded so they stop coming back:
 - No allow-list of game executables, and no heuristics that guess at what a game
   is. Detection stays Windows' verdict.
 - No telemetry, no network access.
+- **No version key in `config.toml` or the session marker** -- decided
+  2026-09-16, on the user's question. The marker's contract is its presence;
+  its contents are informational and parsed leniently, so no future format can
+  lose anything. For the configuration, `deny_unknown_fields` on every table
+  already refuses a file from a newer program *and names the key*, and serde
+  defaults absorb a file from an older one; the one case a number would catch,
+  a breaking rename, is a major version bump once public and a migration
+  written *then*, against a real old format rather than a guessed one. Until
+  there is something to migrate, the program's version is the format's version.
 
 ---
 
@@ -1279,6 +1400,8 @@ Recorded so they stop coming back:
 ---
 
 ## Journal
+
+**2026-09-16** — The marker moved, on a question from the user: is `logs\` really the place, and should it be a `.txt`? No on both counts, and the first is a design fault I had rationalised. I put it next to the log because that was "the one folder the watcher had proved it could write to" -- which is no argument at all, since the log lives there by default for the same reason anything would: it is under the local profile. What matters is that a logs folder is *disposable*. People empty it, and should be able to, and a pending recovery must not go with it. State belongs at the root of `%LOCALAPPDATA%\GameModeExecutor`, and specifically not beside the configuration, which may sit in `%APPDATA%` and roam: a marker that followed the profile to another machine would run the stop commands there. The `.txt` was the same mistake in miniature -- it says "a note for a person", which is what a tidy-up deletes first; a bare name says "the program's business". Considered the registry too, which is the most Windows-native home for a value this small, and declined it for the footprint: it would split the program across two places and leave residue that deleting the folder does not remove. `status` now reports the marker and its path, so nobody needs to know where it is to know whether it is there.
 
 **2026-09-16** — The fix for the logoff, built and deployed the same night. A marker file next to the log says "a session is open"; a session that ends any way other than the game stopping leaves it behind, and the next start runs the stop commands before it watches for anything. Two decisions worth writing down. The marker is removed after a mid-game stop only when the commands can be *confirmed* -- at least one waited for, none failed -- and a config made entirely of fire-and-forget commands therefore never confirms, so its stop commands run again at the next logon. That is the conservative side on purpose: the failure this exists for is a process that is created and dies unseen, which is precisely what a fire-and-forget command cannot report. And the opt-out `stop_actions_on_exit = false` removes the marker on exit rather than leaving it, or the user's choice would be undone at logon; a crash never reaches that code, so crash recovery stands regardless. The other change was overdue: a command that exits non-zero is a warning now. The `0xc0000142` that explained the evening had been sitting at debug level, one line among the others, and the fans were what raised the alarm.
 

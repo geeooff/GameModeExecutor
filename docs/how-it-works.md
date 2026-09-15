@@ -146,8 +146,9 @@ because the session it would live in is already being torn down, and nothing
 the watcher does can come earlier than the question.
 
 So the stop commands run at the **next logon** instead. While a game is
-running, a small file next to the log — `pending-stop-actions.txt` — says so.
-A game that stops normally removes it. A session that ends any other way —
+running, a small file in `%LOCALAPPDATA%\GameModeExecutor` —
+`pending-stop-actions`, no extension — says so. A game that stops normally
+removes it. A session that ends any other way —
 logoff, shutdown, a crash, a power cut — leaves it behind, and the watcher's
 first act at your next logon is to run the stop commands and remove it. The log
 reads:
@@ -162,6 +163,8 @@ is off.
 
 `stop_actions_on_exit = false` opts out of both: quitting the watcher mid-game
 leaves your profile alone, and so does the next logon.
+
+`gamemode-executor status` shows whether that file is there, and where.
 
 ## What it does not do
 

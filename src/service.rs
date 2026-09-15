@@ -104,14 +104,14 @@ pub fn serve(
     // the tooltip and the menu stay in step with each other and with reality.
     let sink = tray::session_sink(window_id);
     let worker_stop = Arc::clone(&stop);
-    // The marker lives next to the log: the one folder the watcher has already
-    // proved it can write to, and where someone reading the log will find it.
-    let marker_dir = log_dir.clone();
+    // State, so it lives with the local profile and not with the log, which
+    // the user may have sent elsewhere and is entitled to empty.
+    let marker = crate::marker::Marker::in_local_dir();
     let worker = std::thread::spawn(move || {
         let outcome = engine::Engine::new(config)
             .map(|engine| engine.reporting_to(sink))
-            .map(|engine| match &marker_dir {
-                Some(dir) => engine.remembering_in(dir),
+            .map(|engine| match marker {
+                Some(marker) => engine.remembering(marker),
                 None => engine,
             })
             .and_then(|mut engine| engine.run(&worker_stop));
