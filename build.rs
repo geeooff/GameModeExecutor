@@ -68,7 +68,10 @@ fn embed_icon() {
     let icon = std::path::Path::new(&manifest).join("assets/icons/gamemode-active-light.ico");
     println!("cargo:rerun-if-changed={}", icon.display());
     if !icon.exists() {
-        println!("cargo:warning=no icon at {}, building without one", icon.display());
+        println!(
+            "cargo:warning=no icon at {}, building without one",
+            icon.display()
+        );
         return;
     }
 
@@ -83,7 +86,10 @@ fn embed_icon() {
 
     // Resource id 1: Windows shows the lowest-numbered icon group as the
     // application icon, and 1 is the convention for it.
-    let contents = format!("1 ICON \"{}\"\n", icon.display().to_string().replace('\\', "\\\\"));
+    let contents = format!(
+        "1 ICON \"{}\"\n",
+        icon.display().to_string().replace('\\', "\\\\")
+    );
     if std::fs::write(&script, contents).is_err() {
         println!("cargo:warning=cannot write the resource script, building without an icon");
         return;
