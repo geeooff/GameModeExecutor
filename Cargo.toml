@@ -56,6 +56,15 @@ windows = { version = "0.62", features = [
 # The safe registry wrapper from the same project.
 windows-registry = "0.6"
 
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+# Abort rather than unwind: the panic hook logs FATAL synchronously and the
+# process ends. Nothing in this program can recover from a panic usefully.
+panic = "abort"
+strip = true
+
 [lints.clippy]
 # Every unsafe block says why it is sound. FFI into Win32 is most of this
 # program, and "it compiles" is not an argument there.

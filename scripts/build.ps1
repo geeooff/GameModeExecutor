@@ -176,6 +176,20 @@ function Invoke-Build {
         }
         Write-Host ("    {0,-24} {1}" -f $name, $label[$subsystem])
     }
+
+    # The release profile -- opt-level z, LTO, strip, panic = abort -- keeps
+    # each binary near 1.1 MB. Losing it is silent: everything still builds and
+    # runs, only twice as large and unwinding on panic, which the FATAL hook was
+    # not designed for. It happened once, from an editing slip in Cargo.toml.
+    Step "Binaries are release-profile sized"
+    $ceiling = 1.75MB
+    foreach ($name in $expected.Keys | Sort-Object) {
+        $size = (Get-Item (Join-Path $root "target\release\$name")).Length
+        if ($size -gt $ceiling) {
+            Fail "$name is $([math]::Round($size / 1MB, 2)) MB; check [profile.release] in Cargo.toml"
+        }
+        Write-Host ("    {0,-24} {1,6:N0} KB" -f $name, ($size / 1KB))
+    }
 }
 
 function Invoke-Release {
