@@ -1063,6 +1063,88 @@ Ruled out, and why, so they are not reconsidered from scratch:
 `WinGet` is not in the running because it is not a format: it is a channel, and
 it can point at whichever of the two wins, or at the plain zip today.
 
+#### Updating, and what it does to the format choice
+
+Asked by the user on 2026-09-16, before the lot is taken: if a release is
+detected on GitHub and a menu entry applies it, what becomes of an MSI's
+install state once a home-made updater has replaced its files with newer
+ones?
+
+**What Windows Installer actually does.** Nothing at the time: it watches no
+files. It keeps a registration -- components, key paths, the product version
+-- and a cached copy of the package, and consults the disk at four moments:
+
+| Moment | With a newer file put there by an updater |
+| --- | --- |
+| Self-repair (resiliency) | Fires only through an *advertised* entry point -- shortcut, COM class, extension -- and checks that the key-path file **exists**, not its version. A newer file: nothing. A key-path file the updater *removed*: repaired from the cache, so the old version comes back. This package can have no advertised entry point at all; the watcher starts from the logon task. |
+| Explicit repair (`msiexec /f`, the ARP button) | Default mode `omus`: reinstall if missing **or older**. A newer *versioned* file is left alone. Which requires a `VERSIONINFO` resource in the executables -- Cargo adds none, and for unversioned files MSI falls back to hash and date rules that are exactly the swamp to avoid. `rc.exe` is already in the build for the icon; same mechanism. |
+| Uninstall | Removes each component's file at its path whatever its version -- it takes the updater's file with it, correctly. A file the updater *added* that the package never knew is orphaned. |
+| The next MSI (major upgrade) | With `RemoveExistingProducts` sequenced **early**, after `InstallInitialize`, the old product is removed and every new file copied; the disk's prior state is irrelevant. Sequenced late, the newer-on-disk rule skips the copy and the old product's removal then deletes the file -- the classic "file vanished after upgrade". One sequencing row, well known. |
+
+And one permanent effect: Add/Remove Programs shows the MSI's `ProductVersion`,
+not the executable's. A file-swapping updater makes the panel lie -- the
+documented symptom of Chrome's enterprise MSI, whose files Omaha replaces.
+
+**Verdict.** MSI does not prevent a home-made updater. But an updater that
+swaps files under *any* installer is the wrong shape: under MSI a lying panel,
+a stale cache and orphans; under Inno a stale uninstall log and the same
+orphans. The right shape, for either format, is that **the installer is the
+updater**: the home-made part detects, downloads, verifies, runs the new
+installer silently, and restarts. One owner of the installation.
+
+- Per-user MSI: `msiexec /i new.msi /passive` -- no UAC, which is what Single
+  Package Authoring buys.
+- Inno: `setup.exe /SILENT /SUPPRESSMSGBOXES` -- VS Code's model exactly, whose
+  user installer is Inno and whose update is "download the new setup, run it".
+
+The **portable** bundle is the opposite case: nothing else owns the files, so
+there the updater swaps them itself. It has to know which case it is in --
+`MsiEnumRelatedProducts` on the package's UpgradeCode, a Microsoft API in the
+`windows` crate -- and offer the same menu entry with two apply paths.
+
+**Two things this settles for the updater lot, whenever it comes.**
+
+- *The running executable.* The watcher holds its own `.exe`; MSI's Restart
+  Manager would show a files-in-use dialog even under `/passive`. So: refuse
+  to update while a game is on, then launch the installer *and quit*, with
+  something to relaunch the watcher afterwards -- `msiexec … & schtasks /Run
+  Watcher` in a detached `cmd` does it, no custom action.
+- *The "no network" non-goal.* The README promises the program never connects
+  to anything. An automatic release check breaks that. The compatible shape is
+  a **Check for updates…** entry that connects only when clicked, or an
+  explicit opt-in in the configuration -- never a silent poll. Over **WinHTTP**,
+  a Microsoft library using the system certificate store, rather than a TLS
+  stack of our own. The download verified against a SHA-256 published with the
+  release, which guards against corruption and not against a compromised
+  account -- the Sigstore discussion applies.
+
+**Asking GitHub is allowed, and provided for.** Two ways, both intended for
+this. The REST API, `GET /repos/{owner}/{repo}/releases/latest`: JSON with the
+tag, the notes and the assets; 60 requests an hour per IP unauthenticated,
+a `User-Agent` header mandatory (403 without), `X-GitHub-Api-Version`
+recommended, and a 304 on a conditional request does not count. Or no API at
+all: `github.com/{owner}/{repo}/releases/latest` answers 302 with the tag in
+`Location`, and `…/releases/latest/download/{asset}` serves the latest asset
+-- documented, stable, ordinary web requests outside the API limit. "Latest"
+means the newest release that is neither draft nor pre-release in both. The
+asset download needs no authentication either on a public repository: a 302
+to `objects.githubusercontent.com`, so the client must follow a redirect that
+changes host -- WinHTTP does for HTTPS to HTTPS and refuses towards HTTP,
+which is the right default. A token would only ever matter for a private
+repository, and embedding one in a public executable would be a fault. For
+this program the second suffices: a `HEAD`, a `Location`, a tag compared with
+`build_info::VERSION`, and nothing to parse. The API earns its place only if
+the notes are to be shown before applying -- an interface decision for the
+updater lot, not a constraint.
+
+**Does it decide Inno against MSI?** No, and better to say so than force it.
+Both need the same updater. It adds two cheap requirements to MSI -- the
+`VERSIONINFO` resource, wanted anyway for Explorer's Details tab, and the early
+`RemoveExistingProducts` -- and none to Inno. It puts a thumb on Inno's side
+for the simplicity of the silent run and for `CloseApplications` handling the
+file in use, and the VS Code precedent is word for word what was described.
+The choice stays with the lot.
+
 #### Dual-purpose is available in both, and probably not wanted
 
 Both candidates can offer a choice between per-user and per-machine from a
@@ -1407,6 +1489,8 @@ Recorded so they stop coming back:
 ---
 
 ## Journal
+
+**2026-09-16** — The FanControl recipe's tasks are named after roles now, on the user's proposal: `FanControl Idle` and `FanControl Game`, fixed, so `config.toml` is the same for everyone; which of the user's FanControl *configurations* each applies -- FanControl's own word, corrected by the user when I had written "profile" -- is an argument of the task, asked for by the script from the list of what is saved, or given with `-IdleConfiguration` / `-GameConfiguration`. Two templates named by role with a third placeholder, `__CONFIGURATION__`, and the release check knows it. The script also lists tasks in the folder it does not manage, with the command to remove them, since the previous version of this recipe named the tasks `FanControl Quiet` and both machines running it will have one. Found and fixed on the way: the root README still showed the pre-Lot-2 `[[on_game_start]]` syntax in the elevation section, which `init` would never have produced but a reader would have copied.
 
 **2026-09-16** — The marker moved, on a question from the user: is `logs\` really the place, and should it be a `.txt`? No on both counts, and the first is a design fault I had rationalised. I put it next to the log because that was "the one folder the watcher had proved it could write to" -- which is no argument at all, since the log lives there by default for the same reason anything would: it is under the local profile. What matters is that a logs folder is *disposable*. People empty it, and should be able to, and a pending recovery must not go with it. State belongs at the root of `%LOCALAPPDATA%\GameModeExecutor`, and specifically not beside the configuration, which may sit in `%APPDATA%` and roam: a marker that followed the profile to another machine would run the stop commands there. The `.txt` was the same mistake in miniature -- it says "a note for a person", which is what a tidy-up deletes first; a bare name says "the program's business". Considered the registry too, which is the most Windows-native home for a value this small, and declined it for the footprint: it would split the program across two places and leave residue that deleting the folder does not remove. `status` now reports the marker and its path, so nobody needs to know where it is to know whether it is there.
 

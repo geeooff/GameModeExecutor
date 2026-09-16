@@ -220,7 +220,7 @@ Each event has a mode and a list of commands:
 mode = "series"        # or "parallel"
 
 [[on_game_start.actions]]
-name = "FanControl - Game profile"
+name = "FanControl - Game"
 program = "schtasks.exe"
 args = ["/Run", "/TN", 'GameModeExecutor\FanControl Game']
 wait = true
@@ -316,7 +316,7 @@ highest privileges*. Triggering a task needs no elevation and raises no UAC
 prompt, so the action becomes:
 
 ```toml
-[[on_game_start]]
+[[on_game_start.actions]]
 program = "schtasks.exe"
 args = ["/Run", "/TN", 'GameModeExecutor\FanControl Game']
 ```
@@ -335,10 +335,14 @@ Task Scheduler rather than loose at its root — the watcher's own task included
 
 Registering it with no trigger means it only ever runs when something asks it to.
 
-Ready-made task definitions, and a note on why each setting is what it is, live
-with the recipe that uses them:
-[Fan profiles with FanControl](docs/recipes/fancontrol-fan-profiles/). Several
-of those settings are not obvious and get this wrong in ways that fail silently.
+Ready-made task definitions, a script that registers them, and a note on why
+each setting is what it is, live with the recipe that uses them:
+[Fan profiles with FanControl](docs/recipes/fancontrol-fan-profiles/). The
+tasks are named after the two roles the watcher knows, `FanControl Idle` and
+`FanControl Game`; which of your FanControl configurations each applies is an
+argument of the task, so the configuration file never has to know what you
+called them. Several of
+the settings are not obvious and get this wrong in ways that fail silently.
 
 **Why not simply run the watcher elevated?** Because the configuration file lives
 in `%APPDATA%` and names arbitrary programs to execute. An elevated watcher would

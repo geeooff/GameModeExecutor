@@ -1,17 +1,29 @@
 # Fan profiles with FanControl
 
-**The goal.** FanControl sits on its `Quiet` profile normally, and switches to
-`Game` the moment Windows sees a game start — then back to `Quiet` when you
-stop.
+**The goal.** FanControl sits on your everyday fan curves normally, and
+switches to your gaming ones the moment Windows sees a game start — then back
+when you stop.
+
+FanControl calls a saved set of fan curves a **configuration** — that is the
+word its menus use and the name of the folder they land in — and so does this
+guide. To keep the two apart, *this program's* `config.toml` is always called
+the configuration **file**.
+
+**Two roles, your names.** The watcher only knows two situations, *Idle* (no
+game) and *Game*, and it triggers a scheduled task named after each:
+`FanControl Idle` and `FanControl Game`. Which of *your* FanControl
+configurations each task applies is decided when you register the tasks, and
+lives there. Call them `Quiet` and `Game`, `Silent` and `Loud`, whatever you
+like — the configuration file never has to know.
 
 In this folder:
 
 | File | |
 | --- | --- |
-| [`config.toml`](config.toml) | the complete configuration, ready to copy |
-| [`install-tasks.ps1`](install-tasks.ps1) | registers both tasks for you, placeholders filled in |
-| [`FanControl-Game.xml`](FanControl-Game.xml) | Task Scheduler definition for the `Game` profile |
-| [`FanControl-Quiet.xml`](FanControl-Quiet.xml) | the same for `Quiet` |
+| [`config.toml`](config.toml) | the complete configuration, ready to copy — the same for everyone |
+| [`install-tasks.ps1`](install-tasks.ps1) | registers both tasks for you, asking which configuration plays which role |
+| [`FanControl-Idle.xml`](FanControl-Idle.xml) | Task Scheduler definition for the *Idle* role |
+| [`FanControl-Game.xml`](FanControl-Game.xml) | the same for *Game* |
 
 This one takes a detour, and it is worth understanding why before you start.
 
@@ -23,7 +35,7 @@ rights, on purpose, and Windows will not let a program without them start one
 that needs them: the attempt fails with error `740`,
 `ERROR_ELEVATION_REQUIRED`.
 
-The way round is a **scheduled task** for each profile, registered once with
+The way round is a **scheduled task** for each role, registered once with
 *run with highest privileges*. Asking Task Scheduler to run a task needs no
 rights at all and shows no prompt. So the watcher triggers tasks, and the tasks
 run FanControl.
@@ -32,10 +44,9 @@ You do this once. After that it is invisible.
 
 ## 1. Check FanControl's side
 
-You need two profiles saved in FanControl, named exactly:
-
-- `Quiet.json`
-- `Game.json`
+You need two configurations saved in FanControl: one for everyday use and one
+for games. Their names are yours — this guide uses `Quiet` and `Game` as its
+example, and you will be asked for the real ones.
 
 Create them in FanControl's interface if you have not already — set the curves
 you want, then **Save configuration as…**. They land in the `Configurations`
@@ -72,16 +83,18 @@ Keep that folder path. Everything below calls it **the FanControl folder**.
 
 ## 3. Create the two tasks
 
-Each task runs FanControl with `-c` and a profile name. That flag does exactly
-what is needed here: it applies the profile, and if FanControl is *already*
-running it switches the live configuration instead of starting a second copy.
-With FanControl installed as a service, the same command hands the profile to
-the service and exits at once.
+Each task runs FanControl with `-c` and a configuration name. That flag does
+exactly what is needed here: it applies the configuration, and if FanControl is
+*already* running it switches the live one instead of starting a second copy.
+With FanControl installed as a service, the same command hands the
+configuration to the service and exits at once.
 
-```
-FanControl.exe -c Game.json
-FanControl.exe -c Quiet.json
-```
+| Task | Runs | Applied |
+| --- | --- | --- |
+| `FanControl Game` | `FanControl.exe -c Game.json` | when a game starts |
+| `FanControl Idle` | `FanControl.exe -c Quiet.json` | when it stops |
+
+— with `Game.json` and `Quiet.json` standing for *your* configuration names.
 
 Registering a task that runs with highest privileges **needs administrator
 rights, once**. Without them the registration is refused with `Access is
@@ -96,28 +109,44 @@ both tasks. From a PowerShell **opened as administrator**, in this folder:
 .\install-tasks.ps1
 ```
 
-It finds FanControl by itself; if it cannot, name the folder:
+It finds FanControl by itself, lists the configurations you have saved, and
+asks which one plays each role:
+
+```
+FanControl     : C:\Program Files (x86)\FanControl
+Configurations : Benchmark, Game, Quiet
+
+Configuration for Idle -- applied when no game is running
+  name: Quiet
+
+Configuration for Game -- applied while a game is running
+  name [Game]:
+```
+
+A configuration named after the role is offered as the default. To skip the
+questions, or if it cannot find FanControl, say so:
 
 ```powershell
+.\install-tasks.ps1 -IdleConfiguration Quiet -GameConfiguration Game
 .\install-tasks.ps1 -FanControlDir "D:\Tools\FanControl"
 ```
 
-Have more profiles than two? `-Profiles Game,Quiet,Pump` registers one task
-each, reusing the same template.
-
-It refuses to start unelevated rather than failing part-way, warns if a profile
-is missing, and prints the commands to test what it registered.
+It refuses to start unelevated rather than failing part-way, warns if a
+configuration you named is not saved yet, and prints the commands to test what
+it registered. Run it again any time you rename a configuration: the tasks are
+simply re-registered.
 
 ### Or by hand: import the templates
 
-Open [`FanControl-Game.xml`](FanControl-Game.xml) and
-[`FanControl-Quiet.xml`](FanControl-Quiet.xml) in a text editor and replace two
+Open [`FanControl-Idle.xml`](FanControl-Idle.xml) and
+[`FanControl-Game.xml`](FanControl-Game.xml) in a text editor and replace three
 placeholders in each:
 
 | Placeholder | Replace with |
 | --- | --- |
 | `__DOMAIN__\__USERNAME__` | your account — run `whoami` to print it |
 | `__FANCONTROL_DIR__` | the FanControl folder (it appears **twice** per file) |
+| `__CONFIGURATION__` | the configuration for that role — `Quiet` in the Idle file, `Game` in the Game file, or whatever yours are called |
 
 Both files are UTF-16 with a BOM, the encoding Task Scheduler itself exports —
 keep it if your editor asks.
@@ -126,8 +155,8 @@ Then, from a PowerShell or Command Prompt **opened as administrator**, in this
 folder:
 
 ```
-schtasks /Create /XML "FanControl-Game.xml"  /TN "GameModeExecutor\FanControl Game"  /F
-schtasks /Create /XML "FanControl-Quiet.xml" /TN "GameModeExecutor\FanControl Quiet" /F
+schtasks /Create /XML "FanControl-Idle.xml" /TN "GameModeExecutor\FanControl Idle" /F
+schtasks /Create /XML "FanControl-Game.xml" /TN "GameModeExecutor\FanControl Game" /F
 ```
 
 The backslash in the name puts the task inside a **`GameModeExecutor` folder**
@@ -152,7 +181,7 @@ you create next lands inside it rather than at the root.
 Then **Action → Create Task…** — not *Create Basic Task*, which does not offer
 the settings that matter.
 
-Do this twice, once per profile. For the `Game` one:
+Do this twice, once per role. For `Game`:
 
 **General tab**
 - Name: `FanControl Game` — the folder already says which program it belongs to
@@ -160,15 +189,15 @@ Do this twice, once per profile. For the `Game` one:
 - Leave *Run only when user is logged on* selected
 
 **Triggers tab**
-- **Nothing.** Add no trigger at all. A trigger would apply a fan profile on its
-  own; this task must only ever run when asked.
+- **Nothing.** Add no trigger at all. A trigger would apply a configuration on
+  its own; this task must only ever run when asked.
 
 **Actions tab** → New…
 - Action: *Start a program*
 - Program: the full path to `FanControl.exe`
-- Add arguments: `-c Game.json`
+- Add arguments: `-c Game.json` — your gaming configuration's file name
 - **Start in**: the FanControl folder — without it, FanControl will not find the
-  profile
+  configuration
 
 **Conditions tab**
 - ☐ Uncheck **Start the task only if the computer is on AC power**
@@ -185,12 +214,12 @@ Do this twice, once per profile. For the `Game` one:
   *These three matter for one reason: if FanControl was not already running, the
   task's own process **is** FanControl and stays alive. With the defaults, Task
   Scheduler would eventually kill it, and would silently ignore every later
-  request to switch profile. With the service, the task's process exits at once
+  request to switch configuration. With the service, the task's process exits at once
   and these settings never come into play — they cost nothing, and keep the
   task right for both ways of running FanControl.*
 
-Then repeat, changing only the name to `FanControl Quiet` and the argument to
-`-c Quiet.json`.
+Then repeat, changing only the name to `FanControl Idle` and the argument to
+your everyday configuration — `-c Quiet.json` in this guide's example.
 
 ## 4. Test the tasks on their own
 
@@ -198,7 +227,7 @@ Before involving any game. From a normal, **non**-administrator prompt:
 
 ```powershell
 schtasks /Run /TN "GameModeExecutor\FanControl Game"
-schtasks /Run /TN "GameModeExecutor\FanControl Quiet"
+schtasks /Run /TN "GameModeExecutor\FanControl Idle"
 ```
 
 Watch FanControl's window: the active configuration should change each time. If
@@ -217,7 +246,7 @@ log_level = "info"
 mode = "series"
 
 [[on_game_start.actions]]
-name = "FanControl - Game profile"
+name = "FanControl - Game"
 program = "schtasks.exe"
 args = ["/Run", "/TN", 'GameModeExecutor\FanControl Game']
 wait = true
@@ -227,16 +256,17 @@ timeout = "15s"
 mode = "series"
 
 [[on_game_stop.actions]]
-name = "FanControl - Quiet profile"
+name = "FanControl - Idle"
 program = "schtasks.exe"
-args = ["/Run", "/TN", 'GameModeExecutor\FanControl Quiet']
+args = ["/Run", "/TN", 'GameModeExecutor\FanControl Idle']
 wait = true
 timeout = "15s"
 ```
 
-Note there is no path to FanControl anywhere in it. That is the point of the
-detour: the command lives in the task, so this file stays something a
-non-administrator can edit freely.
+Note there is no path to FanControl anywhere in it, and no configuration
+name either. That is the point of the detour: both live in the task, so this
+file is the same for everyone and stays something a non-administrator can edit
+freely.
 
 ```bash
 gamemode-executor validate
@@ -245,12 +275,12 @@ gamemode-executor validate
 ## 6. Test the chain, then turn it on
 
 ```bash
-gamemode-executor trigger start   # should switch FanControl to Game
-gamemode-executor trigger stop    # and back to Quiet
+gamemode-executor trigger start   # should switch FanControl to your gaming configuration
+gamemode-executor trigger stop    # and back to the everyday one
 ```
 
 You can confirm it from FanControl's own state rather than from our log —
-FanControl records the active profile in a file called `CACHE`, in its
+FanControl records the active configuration in a file called `CACHE`, in its
 `Configurations` folder:
 
 ```powershell
@@ -268,14 +298,14 @@ Done. Play a game and the fans follow.
 
 ## Worth knowing
 
-**FanControl must be running** for a profile switch to apply to a live system.
+**FanControl must be running** for a switch to apply to a live system.
 If it is not, the task starts it — which works, but is slower. Most people have
 it start with Windows.
 
 **Nothing happens at logon.** There is no "no game" event when the watcher
-starts, so FanControl keeps whatever profile it had. Since it remembers its last
-profile across restarts, and the watcher restores `Quiet` whenever a session
-ends, it settles correctly on its own.
+starts, so FanControl keeps whatever configuration it had. Since it remembers
+its last one across restarts, and the watcher applies the idle configuration
+whenever a session ends, it settles correctly on its own.
 
 **The switch back can lag**, sometimes by a minute or more. That wait is Windows
 releasing its own "a game is running" signal, not this program —

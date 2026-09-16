@@ -121,7 +121,7 @@ mode = "series"
 # registered once with "run with highest privileges" - see the README section
 # "Programs that require elevation".
 [[on_game_start.actions]]
-name = "FanControl - Game profile"
+name = "FanControl - Game"
 program = "schtasks.exe"
 args = ["/Run", "/TN", 'GameModeExecutor\FanControl Game']
 wait = true
@@ -139,8 +139,8 @@ timeout = "15s"
 mode = "series"
 
 [[on_game_stop.actions]]
-name = "FanControl - Quiet profile"
+name = "FanControl - Idle"
 program = "schtasks.exe"
-args = ["/Run", "/TN", 'GameModeExecutor\FanControl Quiet']
+args = ["/Run", "/TN", 'GameModeExecutor\FanControl Idle']
 wait = true
 timeout = "15s"

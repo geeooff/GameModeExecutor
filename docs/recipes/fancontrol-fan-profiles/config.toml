@@ -1,13 +1,17 @@
 # Fan profiles with FanControl
 #
-# Quiet fans outside games, the Game profile while playing.
+# One fan profile while a game runs, another the rest of the time.
 # Full instructions: see README.md next to this file.
 #
 # Before this works you need two scheduled tasks, registered once with
 # "run with highest privileges":
 #
-#   GameModeExecutor\FanControl Game    ->  FanControl.exe -c Game.json
-#   GameModeExecutor\FanControl Quiet   ->  FanControl.exe -c Quiet.json
+#   GameModeExecutor\FanControl Game   ->  FanControl.exe -c <your gaming configuration>.json
+#   GameModeExecutor\FanControl Idle   ->  FanControl.exe -c <your everyday configuration>.json
+#
+# The task names are fixed. Which FanControl configuration each one applies is
+# chosen when the tasks are registered and lives in the task, so this file is
+# the same for everyone and never has to know what you called yours.
 #
 # The backslash is a Task Scheduler folder, not a path on disk: everything this
 # program installs lives under \GameModeExecutor rather than loose at the root.
@@ -21,8 +25,8 @@
 # instead, which is what keeps this file editable by a non-administrator.
 
 [general]
-# Restore the quiet profile if the watcher stops while a game is running --
-# logging off and shutting down included.
+# Apply the idle configuration if the watcher stops while a game is running. After
+# a logoff or shutdown that happens at the next logon instead.
 stop_actions_on_exit = true
 
 # "debug" adds the detail behind each line: which process was matched, and how
@@ -33,7 +37,7 @@ log_level = "info"
 mode = "series"
 
 [[on_game_start.actions]]
-name = "FanControl - Game profile"
+name = "FanControl - Game"
 program = "schtasks.exe"
 args = ["/Run", "/TN", 'GameModeExecutor\FanControl Game']
 # Wait for the trigger to be accepted, so the log records whether it was.
@@ -45,8 +49,8 @@ timeout = "15s"
 mode = "series"
 
 [[on_game_stop.actions]]
-name = "FanControl - Quiet profile"
+name = "FanControl - Idle"
 program = "schtasks.exe"
-args = ["/Run", "/TN", 'GameModeExecutor\FanControl Quiet']
+args = ["/Run", "/TN", 'GameModeExecutor\FanControl Idle']
 wait = true
 timeout = "15s"

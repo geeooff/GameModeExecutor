@@ -258,7 +258,7 @@ https://github.com/Geeooff/GameModeExecutor
     # every other.
     foreach ($template in Get-ChildItem (Join-Path $stage 'docs') -Recurse -Filter 'FanControl-*.xml') {
         $content = [System.IO.File]::ReadAllText($template.FullName, [System.Text.Encoding]::Unicode)
-        foreach ($placeholder in '__FANCONTROL_DIR__', '__DOMAIN__\__USERNAME__') {
+        foreach ($placeholder in '__FANCONTROL_DIR__', '__DOMAIN__\__USERNAME__', '__CONFIGURATION__') {
             if ($content -notlike "*$placeholder*") {
                 Fail "$($template.Name) has lost its $placeholder placeholder"
             }

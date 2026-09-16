@@ -5,18 +5,29 @@
 #
 # FanControl requires administrator rights because it talks to hardware, and
 # GameModeExecutor runs without them on purpose, so it cannot start FanControl
-# directly. The bridge is one scheduled task per profile, registered once with
+# directly. The bridge is one scheduled task per role, registered once with
 # "run with highest privileges". Triggering one afterwards needs no rights and
 # raises no prompt.
 #
+# Two roles, with fixed names, so config.toml is the same for everyone:
+#
+#   \GameModeExecutor\FanControl Idle   applied when no game is running
+#   \GameModeExecutor\FanControl Game   applied while a game is running
+#
+# Which FanControl configuration each role applies is yours -- FanControl's
+# word for a saved set of fan curves, the files in its Configurations folder.
+# It is asked for, or given with -IdleConfiguration / -GameConfiguration, and
+# it lives in the task's argument. Call yours whatever you like.
+#
 # Usage:
-#   .\install-tasks.ps1
-#   .\install-tasks.ps1 -FanControlDir "D:\Tools\FanControl"   (if detection fails)
-#   .\install-tasks.ps1 -Profiles Game,Quiet,Pump              (to add your own)
+#   .\install-tasks.ps1                                                  asks
+#   .\install-tasks.ps1 -IdleConfiguration Quiet -GameConfiguration Game  no questions
+#   .\install-tasks.ps1 -FanControlDir "D:\Tools\FanControl"             if detection fails
 
 param(
-    [string]   $FanControlDir,
-    [string[]] $Profiles = @('Game', 'Quiet')
+    [string] $FanControlDir,
+    [string] $IdleConfiguration,
+    [string] $GameConfiguration
 )
 
 $ErrorActionPreference = 'Stop'
@@ -55,48 +66,81 @@ if (-not $FanControlDir -or -not (Test-Path (Join-Path $FanControlDir 'FanContro
     Write-Host "(right-click your FanControl shortcut -> Open file location)"
     exit 1
 }
-Write-Host "FanControl : $FanControlDir" -ForegroundColor Cyan
+Write-Host "FanControl     : $FanControlDir" -ForegroundColor Cyan
 
-# --- 3. Check the profiles exist --------------------------------------------
-# They cannot be shipped: a fan curve depends on the machine's hardware, so
-# someone else's would be useless at best.
-$configs = Join-Path $FanControlDir 'Configurations'
-$missing = $Profiles | Where-Object { -not (Test-Path (Join-Path $configs "$_.json")) }
-if ($missing) {
-    Write-Host ""
-    Write-Host "Missing profiles in ${configs}: $(($missing | ForEach-Object { "$_.json" }) -join ', ')" -ForegroundColor Yellow
-    Write-Host "Create them in FanControl (set the curves, then Save configuration as...)."
-    Write-Host "The tasks are registered anyway; they will do nothing until the"
-    Write-Host "profiles exist."
-    Write-Host ""
+# --- 3. Which configuration plays which role ---------------------------------
+# Configurations cannot be shipped: a fan curve depends on the machine's
+# hardware, so someone else's would be useless at best. What can be done is
+# list the ones you saved, and ask.
+$folder = Join-Path $FanControlDir 'Configurations'
+$available = @(Get-ChildItem $folder -Filter *.json -ErrorAction SilentlyContinue |
+               ForEach-Object { $_.BaseName })
+if ($available) {
+    Write-Host "Configurations : $($available -join ', ')" -ForegroundColor Cyan
+} else {
+    Write-Host "Configurations : none saved yet in $folder" -ForegroundColor Yellow
 }
+
+function Choose-Configuration([string] $Role, [string] $Meaning, [string] $Given) {
+    $name = $Given
+    if (-not $name) {
+        # One named after the role is the obvious default; anything else is a
+        # question, not a guess.
+        $default = $available | Where-Object { $_ -ieq $Role } | Select-Object -First 1
+        $hint = if ($default) { " [$default]" } else { '' }
+        Write-Host ""
+        Write-Host "Configuration for $Role -- $Meaning" -ForegroundColor Cyan
+        $name = Read-Host "  name$hint"
+        if (-not $name) { $name = $default }
+        if (-not $name) {
+            Write-Host "No configuration named for $Role. Nothing was changed." -ForegroundColor Red
+            Write-Host "Run again with -${Role}Configuration <name>, or answer the question."
+            exit 1
+        }
+    }
+    $name = $name.Trim() -replace '\.json$', ''
+    # Use the casing on disk: FanControl may compare the name exactly.
+    $onDisk = $available | Where-Object { $_ -ieq $name } | Select-Object -First 1
+    if ($onDisk) {
+        return $onDisk
+    }
+    Write-Host "  '$name.json' is not in $folder yet." -ForegroundColor Yellow
+    Write-Host "  Registered anyway; the task does nothing until that configuration is saved in FanControl."
+    return $name
+}
+
+$IdleConfiguration = Choose-Configuration -Role 'Idle' -Meaning 'applied when no game is running' -Given $IdleConfiguration
+$GameConfiguration = Choose-Configuration -Role 'Game' -Meaning 'applied while a game is running' -Given $GameConfiguration
+
+Write-Host ""
+Write-Host "Idle           : $IdleConfiguration.json" -ForegroundColor Cyan
+Write-Host "Game           : $GameConfiguration.json" -ForegroundColor Cyan
 
 # --- 4. Register ------------------------------------------------------------
 $user = "$env:USERDOMAIN\$env:USERNAME"
-Write-Host "Account    : $user" -ForegroundColor Cyan
+Write-Host "Account        : $user" -ForegroundColor Cyan
 Write-Host ""
 
-# Any profile beyond Game and Quiet reuses the Game template: the two differ
-# only in the argument and the description.
-foreach ($profile in $Profiles) {
-    $template = Join-Path $here "FanControl-$profile.xml"
-    if (-not (Test-Path $template)) { $template = Join-Path $here "FanControl-Game.xml" }
+$roles = @(
+    @{ Role = 'Idle'; Configuration = $IdleConfiguration },
+    @{ Role = 'Game'; Configuration = $GameConfiguration }
+)
+foreach ($entry in $roles) {
+    $role = $entry.Role
+    $template = Join-Path $here "FanControl-$role.xml"
     if (-not (Test-Path $template)) {
-        Write-Host "  no template found for $profile" -ForegroundColor Red
-        continue
+        Write-Host "  template FanControl-$role.xml is missing next to this script" -ForegroundColor Red
+        exit 1
     }
 
     $xml = [System.IO.File]::ReadAllText($template, [System.Text.Encoding]::Unicode)
     $xml = $xml.Replace('__FANCONTROL_DIR__', $FanControlDir)
     $xml = $xml.Replace('__DOMAIN__\__USERNAME__', $user)
-    # Harmless when the template already matches; needed when reusing Game's.
-    $xml = $xml -replace '-c \w+\.json', "-c $profile.json"
-    $xml = $xml -replace '<URI>[^<]*</URI>', "<URI>\GameModeExecutor\FanControl $profile</URI>"
-    $xml = $xml -replace 'the FanControl &quot;\w+&quot; profile', "the FanControl &quot;$profile&quot; profile"
+    $xml = $xml.Replace('__CONFIGURATION__', $entry.Configuration)
 
-    Register-ScheduledTask -Xml $xml -TaskName "FanControl $profile" `
+    Register-ScheduledTask -Xml $xml -TaskName "FanControl $role" `
                            -TaskPath '\GameModeExecutor\' -Force | Out-Null
-    Write-Host "  registered \GameModeExecutor\FanControl $profile" -ForegroundColor Green
+    Write-Host "  registered \GameModeExecutor\FanControl $role  ->  -c $($entry.Configuration).json" -ForegroundColor Green
 }
 
 # --- 5. Show what landed ----------------------------------------------------
@@ -104,13 +148,30 @@ Write-Host ""
 Write-Host "In \GameModeExecutor :" -ForegroundColor Cyan
 Get-ScheduledTask -TaskPath '\GameModeExecutor\' |
     Select-Object TaskName,
-                  @{n = 'RunLevel'; e = { $_.Principal.RunLevel } },
+                  @{n = 'Applies';   e = { $_.Actions[0].Arguments } },
+                  @{n = 'RunLevel';  e = { $_.Principal.RunLevel } },
                   @{n = 'TimeLimit'; e = { $_.Settings.ExecutionTimeLimit } },
                   @{n = 'Instances'; e = { $_.Settings.MultipleInstancesPolicy } } |
     Format-Table -AutoSize
 
-Write-Host "Try them now, from a NORMAL (non-elevated) window:" -ForegroundColor Cyan
-foreach ($profile in $Profiles) {
-    Write-Host "   schtasks /Run /TN `"GameModeExecutor\FanControl $profile`""
+# An earlier version of this recipe named the tasks after the configurations
+# ("FanControl Quiet"). Those still work, but nothing points at them any more.
+$managed = 'FanControl Idle', 'FanControl Game'
+$others = @(Get-ScheduledTask -TaskPath '\GameModeExecutor\' |
+            Where-Object { $_.TaskName -like 'FanControl *' -and $_.TaskName -notin $managed })
+if ($others) {
+    Write-Host "Also there, not managed by this script:" -ForegroundColor Yellow
+    foreach ($task in $others) {
+        Write-Host "   $($task.TaskName)  ($($task.Actions[0].Arguments))"
+    }
+    Write-Host "If these are leftovers from an earlier version of this recipe, remove them:"
+    foreach ($task in $others) {
+        Write-Host "   Unregister-ScheduledTask -TaskPath '\GameModeExecutor\' -TaskName '$($task.TaskName)' -Confirm:`$false"
+    }
+    Write-Host ""
 }
+
+Write-Host "Try them now, from a NORMAL (non-elevated) window:" -ForegroundColor Cyan
+Write-Host '   schtasks /Run /TN "GameModeExecutor\FanControl Game"'
+Write-Host '   schtasks /Run /TN "GameModeExecutor\FanControl Idle"'
 Write-Host "FanControl's active configuration should change each time."
