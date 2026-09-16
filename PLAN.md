@@ -1399,7 +1399,7 @@ Recorded so they stop coming back:
 
 | Assumption | Status |
 | --- | --- |
-| FanControl switches profiles with `-c <profile>.json` | Settled. Unreachable directly because the binary requires elevation; bridged through a scheduled task, and the whole chain verified by reading the applied profile back from FanControl. |
+| FanControl switches profiles with `-c <profile>.json` | Settled. Unreachable directly because the binary requires elevation; bridged through a scheduled task, and the whole chain verified by reading the applied profile back from FanControl. Also holds for the installer version running as a service, `C:\Program Files (x86)\FanControl`, profiles in its `Configurations` folder -- reported by the user from that machine, 2026-09-16. |
 | The presence writer is activated for games only | Notepad was a clean negative control; not proof for every application |
 | Naming covers the titles actually played | Named in the field on every title played so far: Farming Simulator 25 and Skyrim Special Edition by executable path, Starfield by package family once the install-location assumption was removed, Battlefield 6 by its anti-cheat's parent directory. |
 | The writer never blinks mid-session | Holds over two sessions including alt-tabs; `watch` polls at 100 ms, so a sub-100 ms dip could hide |

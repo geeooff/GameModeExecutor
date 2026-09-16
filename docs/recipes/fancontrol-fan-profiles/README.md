@@ -39,7 +39,8 @@ You need two profiles saved in FanControl, named exactly:
 
 Create them in FanControl's interface if you have not already — set the curves
 you want, then **Save configuration as…**. They land in the `Configurations`
-folder next to `FanControl.exe`.
+folder next to `FanControl.exe` — for the installer,
+`C:\Program Files (x86)\FanControl\Configurations`, service or not.
 
 ## 2. Find where FanControl actually lives
 
