@@ -1,0 +1,127 @@
+# Working in this repository
+
+GameModeExecutor is a Rust program for Windows that runs configured
+executables when a game starts and stops. Detection is Windows' own verdict —
+the lifetime of the Game Bar presence writer process — never a list of games.
+It runs unelevated, connects to nothing, and shows only a notification area
+icon.
+
+This file is for coding agents and for people. It says how to work here; the
+*why* behind the code is in [`docs/design/`](docs/design/README.md), the
+exact behaviour in [`docs/reference.md`](docs/reference.md).
+
+## Principles
+
+These decide most questions before they are asked.
+
+- **OS-native over heuristics.** When Windows already knows something, read
+  it from Windows. No allow-lists, no scanning, no guessing at what a game is.
+  Prefer waiting on a handle to polling; prefer a documented API to a
+  workaround, and a workaround that fails *visibly and harmlessly* to one that
+  fails silently. `SetPreferredAppMode` is the one undocumented call in the
+  program and `docs/design/06-notification-icon.md` says why it was let in.
+- **Measure before deciding.** When the documentation leaves the deciding
+  question open, build the smallest thing that logs what the system actually
+  does, then decide. Several early designs here were wrong until measured;
+  the design record keeps the numbers. Do not report a mechanism as working
+  until a real game session has exercised it.
+- **Strict and simple over clever.** An unambiguous state ("it is off, fix the
+  file") beats a fallback whose behaviour needs explaining. Put the strict
+  option first and argue for a fallback only if it protects something
+  concrete.
+- **Discreet.** No dialogs, no windows, no sounds. The icon, its tooltip and
+  its menu are the whole user interface; the log is the rest.
+- **No elevation, no network, no service, no telemetry.** Recorded as
+  non-goals in the design record with their reasons. Programs that need
+  administrator rights are reached through a scheduled task the user registers
+  once, never by elevating the watcher.
+- **Microsoft libraries only.** The `windows` crate for Win32, the Windows
+  SDK's `rc.exe` for resources. No third-party tray, icon, or installer crate.
+
+## How work is organised
+
+Work is taken in numbered **lots**, each with a "done when" and its own page
+under `docs/design/`. Lots are proposed there before they are built and
+closed only when verified in the field. Do not add or reorder lots on your
+own; propose, with the reasoning, and let the maintainer decide.
+
+**Needs explicit approval, every time:** creating the public repository,
+pushing to it, publishing a release, changing the scheduled tasks or the
+configuration on the maintainer's machine, and any history rewrite.
+
+**The standing rule:** a change to what the user sees updates
+`docs/getting-started.md` and `docs/how-it-works.md` in the same commit. A
+documented promise that a measurement contradicts is corrected in place, not
+deleted.
+
+## Conventions
+
+- Everything in the repository is in English, in natural sentence case — no
+  `ALL CAPS` categories, no `camelCase` in prose. Conversation with the
+  maintainer is in French.
+- **Log lines follow the contract in `docs/reference.md`.** `info` is
+  reserved for detection and the watcher's own start and stop; everything
+  else is `debug` unless it is a degradation (`warn`) or needs the user
+  (`error`). The message is the sentence, the fields are the technical annex,
+  and every call names a `target:` — a test fails the build otherwise.
+- Module-level doc comments carry the rules a module is shaped by (the tray's
+  re-entrancy rule, the marker's location, the engine's callback). Read them
+  before changing a module, and update them when the rule changes.
+- Pure logic gets a unit test; Win32 behaviour gets verified by hand and the
+  result written into the design record with its date.
+- Commit messages: an imperative subject, a short body saying what changed
+  and why, and a `Co-Authored-By` trailer for the agent that co-wrote it. The
+  collaboration is not hidden.
+- FanControl is mentioned only in its recipe. Everywhere else the program
+  "runs executables".
+
+## Workflow
+
+```powershell
+.\scripts\build.ps1 test       # fmt, clippy -D warnings, tests, every shipped config.toml validated, every doc link resolved
+.\scripts\build.ps1 build      # + release build, PE subsystem check
+.\scripts\build.ps1 release    # + refuses a dirty tree, checks the stamped commit, zips into dist\
+```
+
+Run `test` before every commit and read its result — a `FAILED` scrolling
+past a `git commit` in the same block has happened. `release` requires a clean
+tree because the binaries carry the commit they were built from.
+
+Verifying a change means running it as the user does: deploy the two
+executables to the install folder, restart the logon task
+(`schtasks /Run /TN "GameModeExecutor\Watcher"`), and read the log at `debug`
+through a real game session. Restarting the watcher while a game is running
+fires the stop commands; do not.
+
+## Pitfalls that have already cost time
+
+- `sed` and shell substitutions eat backslashes: `GameModeExecutor\FanControl`
+  becomes `GameModeExecutorFanControl` and `validate` accepts it. Edit files
+  with a tool that takes literal strings, and grep the result.
+- In PowerShell, `$LASTEXITCODE` is set by native commands only; after a cmdlet
+  it is stale. Use `try { … -ErrorAction Stop } catch`.
+- The task templates in `docs/recipes/` are UTF-16 with a BOM and CRLF, as
+  Task Scheduler exports them, and carry placeholders the release check
+  verifies. Read and write them with that encoding.
+- `TrackPopupMenuEx` is modal and re-enters the window procedure; never hold a
+  `RefCell` borrow across it, or across `ShellExecuteW`.
+- `FindWindow` cannot find a window whose class was registered by another
+  process; use `EnumWindows`.
+- A process started after `WM_QUERYENDSESSION` dies with
+  `STATUS_DLL_INIT_FAILED`. Nothing can run a command at logoff; the session
+  marker runs it at the next start instead.
+- The refinement's single timed attempt is a known margin, not a calibration
+  — `docs/design/09-robustness.md`.
+- `.git/HEAD` does not change on commit; `build.rs` watches the ref it names
+  and `packed-refs` too, or the stamp goes stale.
+
+## Working with the maintainer
+
+- Read what is linked before designing from it.
+- Give a recommendation, not a survey; say plainly what was measured and what
+  was inferred.
+- Report outcomes exactly: a test that failed, a step that was skipped, a
+  claim that turned out wrong. Corrections go in place, with the date.
+- Machine-specific facts — install paths, where the maintainer's own tools
+  live, how to reach files from inside a sandboxed shell — belong in
+  `CLAUDE.local.md`, which is not committed, never in this file.

@@ -12,3 +12,6 @@
 
 # Claude Design staging files
 /.claude/design/
+
+# Personal, per-machine instructions for Claude Code
+/CLAUDE.local.md

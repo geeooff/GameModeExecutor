@@ -97,8 +97,9 @@ They are a convenience, filled from the list of titles Windows itself keeps. A
 game Windows tracks but does not describe leaves them empty — **detection never
 depends on them**, and every command still runs.
 
-`{process_id}` is deliberately empty on `game_stop`: by then that process is
-usually long gone, and claiming otherwise would be a lie.
+On `game_stop` the placeholders carry what was captured when the session
+started. By then that process is usually long gone, so treat `{process_id}` as
+history rather than something to act on.
 
 ## The rest of the file
 

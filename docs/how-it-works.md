@@ -196,7 +196,7 @@ and forth at every logon would achieve nothing.
 
 ## Going further
 
-The [README](../README.md) has the measurements behind all of the above, and why
-every other detection mechanism was ruled out. `presence-probe.exe`, shipped
-alongside, lets you watch the Windows signal directly if you want to see it for
-yourself.
+The [design record](design/) has the measurements behind all of the above,
+and why every other detection mechanism was ruled out — start with
+[Detection](design/00-detection.md). The [reference](reference.md) has every
+command, configuration field and exit code.

@@ -103,7 +103,7 @@ function Invoke-Tests {
 
     Step "Documentation links resolve"
     $broken = @()
-    $pages = @(Join-Path $root 'README.md') +
+    $pages = @((Join-Path $root 'README.md'), (Join-Path $root 'AGENTS.md')) +
              (Get-ChildItem (Join-Path $root 'docs') -Recurse -Filter '*.md' |
                   ForEach-Object { $_.FullName })
     foreach ($page in $pages) {

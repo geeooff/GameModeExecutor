@@ -40,7 +40,7 @@ stop_actions_on_exit = true
 #
 # Run in a terminal rather than hidden and the same lines appear there too,
 # identical to the file and coloured when the terminal is a real one. See
-# "Reading the log" in the README.
+# "The log" in docs/reference.md.
 log_level = "info"
 
 # Where the log file goes. Defaults to %LOCALAPPDATA%\GameModeExecutor\logs --
@@ -118,8 +118,8 @@ mode = "series"
 
 # FanControl requires administrator elevation, so it cannot be started
 # directly by this unelevated watcher (error 740). Go through a scheduled task
-# registered once with "run with highest privileges" - see the README section
-# "Programs that require elevation".
+# registered once with "run with highest privileges" - see "Programs that
+# require administrator rights" in docs/reference.md.
 [[on_game_start.actions]]
 name = "FanControl - Game"
 program = "schtasks.exe"
