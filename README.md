@@ -29,6 +29,13 @@ small icon in the notification area.
 | [Design record](docs/design/) | Why it is built this way: the decisions, the measurements behind them, and what is still open. |
 | [AGENTS.md](AGENTS.md) | How to work in this repository — for coding agents, and for people. |
 
+## Status
+
+Version 0.1.0, in daily use on its author's machine; no release has been
+published yet. Developed and measured on Windows 11 25H2. It relies on the Game
+Bar component Windows ships by default, so a machine where Game Bar has been
+removed will not detect anything.
+
 ## Install
 
 Two self-contained executables, no runtime dependencies. `gamemode-executor.exe`

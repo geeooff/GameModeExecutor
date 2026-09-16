@@ -335,7 +335,11 @@ mod tests {
         );
     }
 
+    // Reads this machine's registry. A GitHub-hosted Windows runner is a
+    // server image without Game Bar, so the key is absent there; the build
+    // script runs the ignored tests on a developer machine.
     #[test]
+    #[ignore = "reads the Known Game List, which Windows Server runners do not have"]
     fn the_real_list_loads() {
         let list = KnownGames::load().expect("GameConfigStore is readable");
         assert!(list.entries > 0, "expected at least one known game entry");

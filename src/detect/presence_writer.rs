@@ -105,6 +105,8 @@ pub fn wait_for_exit_until(
         INFINITE, OpenProcess, PROCESS_SYNCHRONIZE, WaitForMultipleObjects,
     };
 
+    // SAFETY: `OpenProcess` has no memory preconditions; a pid that no longer
+    // exists makes it fail, which the `else` handles.
     let Ok(process) = (unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid) }) else {
         // Already gone, or not ours to wait on: treat as exited rather than
         // spinning on a handle we cannot get.
@@ -116,7 +118,11 @@ pub fn wait_for_exit_until(
         None => INFINITE,
     };
     let handles = [process, stop.handle()];
+    // SAFETY: both handles are valid for the whole wait -- `process` was just
+    // opened and is closed only afterwards, and the stop event lives as long
+    // as `stop`.
     let result = unsafe { WaitForMultipleObjects(&handles, false, millis) };
+    // SAFETY: closes the handle opened above, exactly once.
     unsafe { _ = CloseHandle(process) };
 
     Ok(if result == WAIT_OBJECT_0 {
@@ -132,7 +138,10 @@ pub fn wait_for_exit_until(
 mod tests {
     use super::*;
 
+    // Same caveat as the Known Game List: Game Bar is a client feature, and
+    // its registration does not exist on a Windows Server runner.
     #[test]
+    #[ignore = "reads the Game Bar registration, absent on Windows Server runners"]
     fn the_registration_is_readable_without_elevation() {
         let exe = registered_exe().expect("presence writer registration");
         assert!(

@@ -83,6 +83,15 @@ function Invoke-Tests {
     Step "Tests"
     Run 'cargo' @('test')
 
+    # A few tests read this machine's registry -- the Known Game List, the
+    # Game Bar registration -- which a hosted Windows Server runner does not
+    # have. They are marked #[ignore] for that reason and run here, where the
+    # machine is a real Windows client. GitHub sets CI=true on its runners.
+    if (-not $env:CI) {
+        Step "Tests that need a Windows client"
+        Run 'cargo' @('test', '--', '--ignored')
+    }
+
     Step "Shipped configurations parse"
     # These are files people copy over their own, so a typo in one is a typo in
     # theirs. Checked with the program itself rather than by eye.
@@ -219,9 +228,10 @@ THE RECIPE THIS BUNDLE IS SET UP FOR
     config.toml here is already that recipe. It does nothing until you
     register its two scheduled tasks -- that folder has a script for it.
 
-    You must create the two FanControl profiles yourself, named Quiet.json and
-    Game.json. They are not shipped and cannot be: a fan curve depends on the
-    machine's own hardware.
+    You need two FanControl configurations saved on this machine -- one for
+    everyday use, one for games, named however you like. The script asks
+    which is which. They are not shipped and cannot be: a fan curve depends
+    on the machine's own hardware.
 
 THE TWO EXECUTABLES
     gamemode-executor.exe    the one you talk to. Every command. It answers,

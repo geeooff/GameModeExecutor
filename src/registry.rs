@@ -30,6 +30,9 @@ impl Key {
     fn open(root: HKEY, root_name: &str, path: &str) -> Result<Self> {
         let subkey = wide(path);
         let mut key = HKEY::default();
+        // SAFETY: `subkey` is NUL-terminated and outlives the call, and `key`
+        // is a valid out pointer. The handle returned is owned by the `Key`
+        // and closed exactly once, on drop.
         unsafe {
             RegOpenKeyExW(root, PCWSTR(subkey.as_ptr()), None, KEY_READ, &mut key)
                 .ok()
@@ -41,6 +44,7 @@ impl Key {
     pub fn open_subkey(&self, name: &str) -> Result<Self> {
         let subkey = wide(name);
         let mut key = HKEY::default();
+        // SAFETY: as for `open`; `self.0` is open for as long as `self` lives.
         unsafe {
             RegOpenKeyExW(self.0, PCWSTR(subkey.as_ptr()), None, KEY_READ, &mut key)
                 .ok()
@@ -56,6 +60,9 @@ impl Key {
         let mut buffer = [0u16; 256];
         for index in 0.. {
             let mut length = buffer.len() as u32;
+            // SAFETY: `length` tells the API the buffer holds 256 UTF-16 units,
+            // so it cannot write past the end; the optional out pointers are
+            // `None`, and the key is open for as long as `self` lives.
             let result = unsafe {
                 RegEnumKeyExW(
                     self.0,
@@ -83,6 +90,9 @@ impl Key {
     pub fn string_value(&self, name: &str) -> Option<String> {
         let name = wide(name);
         let mut size = 0u32;
+        // SAFETY: the first call asks for the size only, with no data pointer.
+        // The second is given a buffer of exactly that many bytes, so its
+        // write is bounded. The name is NUL-terminated and the key is open.
         unsafe {
             RegQueryValueExW(
                 self.0,
@@ -106,8 +116,10 @@ impl Key {
             .ok()
             .ok()?;
             let units: Vec<u16> = buffer
-                .chunks_exact(2)
-                .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&pair| u16::from_le_bytes(pair))
                 .take_while(|&unit| unit != 0)
                 .collect();
             let value = String::from_utf16_lossy(&units);
@@ -123,6 +135,9 @@ impl Key {
         let name = wide(name);
         let mut value = 0u32;
         let mut size = std::mem::size_of::<u32>() as u32;
+        // SAFETY: the data pointer is a `u32` and `size` says four bytes, so
+        // the API cannot write more than the variable holds; the size it
+        // reports back is checked before the value is trusted.
         unsafe {
             RegQueryValueExW(
                 self.0,
@@ -141,6 +156,8 @@ impl Key {
 
 impl Drop for Key {
     fn drop(&mut self) {
+        // SAFETY: the handle came from `RegOpenKeyExW` and is closed here,
+        // exactly once.
         unsafe { _ = RegCloseKey(self.0) };
     }
 }

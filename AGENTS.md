@@ -67,6 +67,12 @@ deleted.
 - Module-level doc comments carry the rules a module is shaped by (the tray's
   re-entrancy rule, the marker's location, the engine's callback). Read them
   before changing a module, and update them when the rule changes.
+- **Every `unsafe` block and `unsafe impl` carries a `// SAFETY:` comment**
+  saying why the call is sound -- which pointer outlives what, which size
+  bounds which write, which handle is closed where. Clippy's
+  `undocumented_unsafe_blocks` is set to deny in `Cargo.toml`, so a missing
+  one fails the build. Most of the program is FFI into Win32; "it compiles"
+  is not an argument there.
 - Pure logic gets a unit test; Win32 behaviour gets verified by hand and the
   result written into the design record with its date.
 - Commit messages: an imperative subject, a short body saying what changed
@@ -86,6 +92,12 @@ deleted.
 Run `test` before every commit and read its result — a `FAILED` scrolling
 past a `git commit` in the same block has happened. `release` requires a clean
 tree because the binaries carry the commit they were built from.
+
+Two tests read this machine's registry — the Known Game List and the Game Bar
+registration — which a GitHub-hosted Windows Server runner does not have. They
+are `#[ignore]`d with that reason and the script runs them when `CI` is not
+set. CI must stay green on a stock runner: a test that needs a real Windows
+client, a GPU or a game says so with `#[ignore]`.
 
 Verifying a change means running it as the user does: deploy the two
 executables to the install folder, restart the logon task

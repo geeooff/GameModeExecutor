@@ -2,13 +2,16 @@
 name = "game-mode-executor"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
-description = "Detects when a game is running on Windows and runs configured executables on start/stop (e.g. switch FanControl profiles)."
+# Let chains, stable since 1.88.
+rust-version = "1.88"
+description = "Runs the executables you configure when a game starts and stops on Windows, using Windows' own game signal rather than a list of games."
 license = "MIT"
 repository = "https://github.com/Geeooff/GameModeExecutor"
 readme = "README.md"
-keywords = ["windows", "gaming", "automation", "fancontrol"]
+keywords = ["windows", "gaming", "automation"]
 categories = ["command-line-utilities"]
+# An application, not a library: never meant for crates.io.
+publish = false
 
 [[bin]]
 name = "gamemode-executor"
@@ -66,3 +69,8 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+[lints.clippy]
+# Every unsafe block says why it is sound. FFI into Win32 is most of this
+# program, and "it compiles" is not an argument there.
+undocumented_unsafe_blocks = "deny"

@@ -94,6 +94,8 @@ pub fn session_sink(window: isize) -> crate::engine::SessionSink {
             *held = next;
         }
         // Wake the thread that owns the window; it reads the value itself.
+        // SAFETY: posting carries no pointers, and a window that is gone makes
+        // the call fail, which is ignored.
         unsafe {
             let _ = PostMessageW(
                 Some(HWND(window as *mut std::ffi::c_void)),
@@ -168,6 +170,10 @@ mod dark {
             );
             return;
         };
+        // SAFETY: the pointer was resolved from uxtheme by ordinal, on a build
+        // where that ordinal is documented by observation to take one
+        // `PreferredAppMode` argument; the signature was checked against that
+        // build number before this point.
         unsafe { set(ALLOW_DARK) };
         flush();
         tracing::debug!(
@@ -183,6 +189,8 @@ mod dark {
                 .and_then(|library| resolve::<FlushMenuThemes>(library, ORDINAL_FLUSH_MENU_THEMES))
         });
         if let Some(flush) = flush {
+            // SAFETY: as for `SetPreferredAppMode`: a no-argument export
+            // resolved by ordinal on a checked build.
             unsafe { flush() };
         }
     }
@@ -191,6 +199,9 @@ mod dark {
         static LIBRARY: OnceLock<Option<isize>> = OnceLock::new();
         let handle = LIBRARY.get_or_init(|| {
             let name: Vec<u16> = "uxtheme.dll\0".encode_utf16().collect();
+            // SAFETY: `name` is NUL-terminated and outlives the call. The
+            // module is never freed: it is a system DLL kept for the process's
+            // lifetime.
             unsafe { LoadLibraryW(PCWSTR(name.as_ptr())) }
                 .ok()
                 .map(|module| module.0 as isize)
@@ -201,9 +212,14 @@ mod dark {
     /// `GetProcAddress` takes an ordinal as a pointer whose value *is* the
     /// number, which is what `MAKEINTRESOURCE` means in C.
     fn resolve<T>(library: HMODULE, ordinal: usize) -> Option<T> {
+        // SAFETY: an ordinal is passed as a pointer whose value is the number,
+        // which is what the API documents; `library` was loaded above.
         let address = unsafe { GetProcAddress(library, PCSTR(ordinal as *const u8)) }?;
-        // The signature is the caller's claim, checked by the ordinal and the
-        // build number above and by nothing else. That is the bargain.
+        // SAFETY: a function pointer is reinterpreted as another function
+        // pointer type of the same size. Whether the signature is right is the
+        // caller's claim, checked by the ordinal and the build number and by
+        // nothing else. That is the bargain, and it is why this module lets
+        // exactly two ordinals in.
         Some(unsafe { std::mem::transmute_copy::<_, T>(&address) })
     }
 
@@ -407,6 +423,7 @@ pub fn install(window: isize, targets: Targets, stop: Arc<StopSignal>) -> Result
     let icon =
         load_icon(State::Idle, theme, window).context("cannot build the notification icon")?;
     let name = wide("TaskbarCreated");
+    // SAFETY: `name` is NUL-terminated and outlives the call.
     let taskbar_created = unsafe { RegisterWindowMessageW(PCWSTR(name.as_ptr())) };
 
     // Before the first menu is ever built.
@@ -443,6 +460,8 @@ pub fn uninstall() {
     }) else {
         return;
     };
+    // SAFETY: `data` is the fully initialised struct the icon was added with,
+    // and `icon` is the handle this module created, destroyed once here.
     unsafe {
         let _ = Shell_NotifyIconW(NIM_DELETE, &data);
         let _ = DestroyIcon(icon);
@@ -528,6 +547,8 @@ impl Tray {
 // ---------------------------------------------------------------------------
 
 fn add(data: &NOTIFYICONDATAW) -> Result<()> {
+    // SAFETY: `data` is fully initialised, `cbSize` included, and the handles
+    // it carries are live.
     unsafe {
         Shell_NotifyIconW(NIM_ADD, data)
             .ok()
@@ -590,11 +611,15 @@ fn reload() {
     });
     let Some((previous, data)) = swapped else {
         if let Some(icon) = fresh {
+            // SAFETY: an icon this function just created and will not use.
             unsafe { _ = DestroyIcon(icon) };
         }
         return;
     };
 
+    // SAFETY: `data` is the fully initialised struct with the new icon; the
+    // previous icon is no longer referenced by the shell once the modify call
+    // returns, and is destroyed once.
     unsafe {
         let _ = Shell_NotifyIconW(NIM_MODIFY, &data);
         if let Some(previous) = previous {
@@ -627,6 +652,7 @@ fn show_menu(window: HWND, at: POINT) {
     // nothing moved.
     reload();
 
+    // SAFETY: no arguments; the menu is destroyed below on every path.
     let Ok(menu) = (unsafe { CreatePopupMenu() }) else {
         return;
     };
@@ -638,6 +664,10 @@ fn show_menu(window: HWND, at: POINT) {
     let docs = wide("Documentation");
     let quit = wide("Quit");
 
+    // SAFETY: the strings outlive the block, `menu` was just created and is
+    // destroyed at the end, and `window` is the tray's own window. Nothing
+    // in the tray is borrowed across this block: `TrackPopupMenuEx` pumps
+    // messages and re-enters the window procedure.
     let chosen = unsafe {
         // Disabled on purpose: it is the answer to "what is running", not
         // something to click. Id 0 so a stray selection means nothing.
@@ -734,6 +764,8 @@ fn open(target: &str, arguments: Option<&str>) -> bool {
     let verb = wide("open");
     let target = wide(target);
     let arguments = arguments.map(wide);
+    // SAFETY: every string is NUL-terminated and outlives the call, and
+    // nothing in the tray is borrowed while the shell may show UI.
     let result = unsafe {
         ShellExecuteW(
             None,
@@ -762,6 +794,8 @@ fn load_icon(state: State, theme: Theme, window: HWND) -> Result<HICON> {
 
     // 0x0003_0000 is the icon format version, and the only value Windows
     // accepts here.
+    // SAFETY: `frame` is a slice inside a compiled-in `.ico`, so it lives for
+    // the whole program; the length passed is the slice's own.
     unsafe {
         CreateIconFromResourceEx(
             frame,
@@ -782,12 +816,15 @@ fn load_icon(state: State, theme: Theme, window: HWND) -> Result<HICON> {
 /// pair that tells the truth, and it needs the process to have declared itself
 /// dpi-aware first -- see `win::declare_dpi_awareness`.
 fn small_icon_size(window: HWND) -> (i32, i32) {
+    // SAFETY: a handle query with no pointers; an invalid handle yields 0.
     let dpi = unsafe { GetDpiForWindow(window) };
     if dpi == 0 {
         // No window yet, or an older Windows. The unscaled values are still
         // better than nothing.
+        // SAFETY: plain integer queries.
         return unsafe { (GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON)) };
     }
+    // SAFETY: plain integer queries.
     unsafe {
         (
             GetSystemMetricsForDpi(SM_CXSMICON, dpi),
@@ -844,6 +881,10 @@ fn setting_is(lparam: LPARAM, name: &str) -> bool {
     // The string is short and null-terminated; the cap is there so a stray
     // pointer cannot walk memory forever.
     for offset in 0..64 {
+        // SAFETY: Windows hands `WM_SETTINGCHANGE` a pointer to a
+        // NUL-terminated string that is valid for the duration of the message;
+        // it was checked non-null above, and the read stops at the terminator
+        // or at 64 units, whichever comes first.
         let unit = unsafe { *pointer.add(offset) };
         if unit == 0 {
             break;

@@ -65,6 +65,7 @@ struct LocalTimestamp;
 
 impl FormatTime for LocalTimestamp {
     fn format_time(&self, writer: &mut Writer<'_>) -> std::fmt::Result {
+        // SAFETY: `GetLocalTime` takes no input and only returns a struct.
         let now = unsafe { GetLocalTime() };
         write!(
             writer,
@@ -77,6 +78,7 @@ impl FormatTime for LocalTimestamp {
 /// The local time as the log writes it, to the second. For anything that
 /// wants to be read next to the log and agree with it.
 pub fn local_now() -> String {
+    // SAFETY: `GetLocalTime` takes no input and only returns a struct.
     let now = unsafe { GetLocalTime() };
     format!(
         "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",

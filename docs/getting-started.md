@@ -240,3 +240,9 @@ gamemode-executor uninstall-task
 ```
 
 Removes the logon task. Nothing else is left running.
+
+## Everything else
+
+The [reference](reference.md) lists every command, every configuration field
+and every exit code. [How it works](how-it-works.md) explains the mechanism
+for the curious.

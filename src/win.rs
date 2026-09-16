@@ -31,22 +31,28 @@ pub struct StopSignal {
     event: HANDLE,
 }
 
-// A Win32 event handle is safe to signal and wait on from any thread.
+// SAFETY: a Win32 event handle is a kernel object; signalling and waiting on
+// it from any thread is what it is for, and the struct holds nothing else.
 unsafe impl Send for StopSignal {}
+// SAFETY: as above -- every method takes `&self` and the kernel serialises.
 unsafe impl Sync for StopSignal {}
 
 impl StopSignal {
     pub fn new() -> Result<Self> {
+        // SAFETY: no security attributes, no name; the handle that comes back
+        // is owned by `StopSignal` and closed on drop.
         let event = unsafe { CreateEventW(None, true, false, PCWSTR::null()) }
             .context("cannot create the stop event")?;
         Ok(Self { event })
     }
 
     pub fn signal(&self) {
+        // SAFETY: the event is open for as long as `self` lives.
         let _ = unsafe { SetEvent(self.event) };
     }
 
     pub fn is_set(&self) -> bool {
+        // SAFETY: as for `signal`.
         unsafe { WaitForSingleObject(self.event, 0) == WAIT_OBJECT_0 }
     }
 
@@ -54,6 +60,7 @@ impl StopSignal {
     /// callers treat as "give up and return".
     pub fn wait_timeout(&self, timeout: Duration) -> bool {
         let millis = timeout.as_millis().min(u128::from(INFINITE - 1)) as u32;
+        // SAFETY: as for `signal`.
         unsafe { WaitForSingleObject(self.event, millis) == WAIT_OBJECT_0 }
     }
 
@@ -64,6 +71,7 @@ impl StopSignal {
 
 impl Drop for StopSignal {
     fn drop(&mut self) {
+        // SAFETY: the handle came from `CreateEventW` and is closed once.
         unsafe { _ = CloseHandle(self.event) };
     }
 }
@@ -138,6 +146,8 @@ unsafe extern "system" fn window_proc(
             LRESULT(0)
         }
         WM_WATCHER_FINISHED | WM_DESTROY => {
+            // SAFETY: no arguments beyond the exit code; only affects the
+            // calling thread's message queue.
             unsafe { PostQuitMessage(0) };
             LRESULT(0)
         }
@@ -146,6 +156,8 @@ unsafe extern "system" fn window_proc(
         // falls through to Windows as usual.
         _ => match crate::tray::dispatch(message, wparam, lparam) {
             Some(result) => result,
+            // SAFETY: the arguments are exactly those Windows handed to this
+            // procedure, forwarded unchanged.
             None => unsafe { DefWindowProcW(window, message, wparam, lparam) },
         },
     }
@@ -153,10 +165,12 @@ unsafe extern "system" fn window_proc(
 
 /// A top-level window that is never shown.
 ///
-/// It exists for one message: `WM_QUERYENDSESSION`. The console build learned
-/// about logoff and shutdown through `ctrlc`, whose Windows handler signals on
-/// every control event; a Windows-subsystem process with no window is simply
-/// terminated instead, mid-game profile and all. This restores that behaviour.
+/// It was built for one message, `WM_QUERYENDSESSION`, to preserve what the
+/// console build was believed to do at logoff through `ctrlc`. A real logoff
+/// showed that a command started at that point cannot run -- see
+/// `docs/design/05-windowless-watcher.md` -- so the handshake is kept for a
+/// `Quit`, and the window earns its place as what the notification icon and
+/// the theme broadcasts hang off.
 ///
 /// **Not a message-only window.** Those are documented as not receiving
 /// broadcast messages, and both `WM_QUERYENDSESSION` and the `WM_SETTINGCHANGE`
@@ -180,6 +194,7 @@ impl SessionWindow {
         });
 
         let class_name = HSTRING::from("GameModeExecutorSession");
+        // SAFETY: `None` asks for the calling executable's own module.
         let instance = unsafe { GetModuleHandleW(None) }.context("GetModuleHandleW failed")?;
 
         let class = WNDCLASSEXW {
@@ -189,6 +204,8 @@ impl SessionWindow {
             lpszClassName: PCWSTR(class_name.as_ptr()),
             ..Default::default()
         };
+        // SAFETY: `class` is fully initialised, `cbSize` included, and the
+        // strings it points at outlive the registration.
         if unsafe { RegisterClassExW(&class) } == 0 {
             anyhow::bail!(
                 "cannot register the session window class: {}",
@@ -196,6 +213,8 @@ impl SessionWindow {
             );
         }
 
+        // SAFETY: the class was registered just above with a valid procedure,
+        // and `class_name` outlives the call. The window is destroyed on drop.
         let window = unsafe {
             CreateWindowExW(
                 WINDOW_EX_STYLE::default(),
@@ -226,6 +245,8 @@ impl SessionWindow {
 
 impl Drop for SessionWindow {
     fn drop(&mut self) {
+        // SAFETY: the window was created by this struct and is destroyed once,
+        // on the thread that created it.
         unsafe { _ = DestroyWindow(self.window) };
     }
 }
@@ -241,6 +262,8 @@ impl Drop for SessionWindow {
 /// Failure is ignored on purpose: it means an older Windows, where the process
 /// is DPI-unaware and the icon is merely soft.
 pub fn declare_dpi_awareness() {
+    // SAFETY: a process-wide setting with no pointer arguments; it fails
+    // harmlessly if already set.
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
@@ -252,9 +275,12 @@ pub fn run_message_loop() {
     let mut message = MSG::default();
     loop {
         // 0 is WM_QUIT, -1 is an error. Both mean stop pumping.
+        // SAFETY: `message` is a valid out pointer for the calling thread's
+        // queue.
         if unsafe { GetMessageW(&mut message, None, 0, 0) }.0 <= 0 {
             return;
         }
+        // SAFETY: `message` was just filled in by `GetMessageW`.
         unsafe {
             let _ = TranslateMessage(&message);
             DispatchMessageW(&message);
@@ -266,6 +292,8 @@ pub fn run_message_loop() {
 /// loop return. `PostMessageW` is safe to call from any thread.
 pub fn wake_message_loop(window: isize) {
     let window = HWND(window as *mut c_void);
+    // SAFETY: posting to a handle carries no pointers; a window that no longer
+    // exists makes the call fail, which is ignored.
     unsafe {
         let _ = PostMessageW(Some(window), WM_WATCHER_FINISHED, WPARAM(0), LPARAM(0));
     }
@@ -294,9 +322,13 @@ impl SingleInstance {
     /// Acquire the session-local mutex `name`, or fail if another process holds it.
     pub fn acquire(name: &str) -> Result<Self> {
         let name = HSTRING::from(format!("Local\\{name}"));
+        // SAFETY: `name` is NUL-terminated and outlives the call; the handle is
+        // owned by `SingleInstance` and closed on drop.
         let handle = unsafe { CreateMutexW(None, true, PCWSTR(name.as_ptr())) }
             .context("CreateMutexW failed")?;
+        // SAFETY: reads the calling thread's last error, set by the call above.
         if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+            // SAFETY: the handle was just created and is not kept.
             unsafe { _ = CloseHandle(handle) };
             return Err(anyhow::Error::new(AlreadyRunning));
         }
@@ -306,6 +338,7 @@ impl SingleInstance {
 
 impl Drop for SingleInstance {
     fn drop(&mut self) {
+        // SAFETY: the handle came from `CreateMutexW` and is closed once.
         unsafe { _ = CloseHandle(self.handle) };
     }
 }

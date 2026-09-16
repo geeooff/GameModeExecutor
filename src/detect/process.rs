@@ -16,6 +16,8 @@ struct OwnedHandle(HANDLE);
 
 impl Drop for OwnedHandle {
     fn drop(&mut self) {
+        // SAFETY: every `OwnedHandle` wraps a handle this module opened, and
+        // this is the one place it is closed.
         unsafe { _ = CloseHandle(self.0) };
     }
 }
@@ -35,6 +37,7 @@ pub struct Snapshot {
 
 impl Snapshot {
     pub fn take() -> Result<Self> {
+        // SAFETY: no pointers go in; the handle that comes out is owned below.
         let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }
             .context("CreateToolhelp32Snapshot failed")?;
         let snapshot = OwnedHandle(snapshot);
@@ -45,12 +48,15 @@ impl Snapshot {
             ..Default::default()
         };
 
+        // SAFETY: `entry.dwSize` is set to the struct's size, which is the
+        // contract for these two calls, and the snapshot handle is open.
         let mut ok = unsafe { Process32FirstW(snapshot.0, &mut entry) };
         while ok.is_ok() {
             processes.push(ProcessInfo {
                 pid: entry.th32ProcessID,
                 name: from_wide_nul(&entry.szExeFile),
             });
+            // SAFETY: as for `Process32FirstW`.
             ok = unsafe { Process32NextW(snapshot.0, &mut entry) };
         }
         Ok(Self { processes })
@@ -64,6 +70,8 @@ impl Snapshot {
 /// Open a process for the read-only queries below. Fails for processes the
 /// current user may not touch, which is expected and not an error here.
 fn open_for_query(pid: u32) -> Option<OwnedHandle> {
+    // SAFETY: no memory preconditions; a refused or vanished process makes
+    // the call fail, which is the `None` case.
     unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }
         .ok()
         .map(OwnedHandle)
@@ -110,6 +118,8 @@ pub fn package_family_name(pid: u32) -> Option<String> {
 fn image_path(handle: &OwnedHandle) -> Option<String> {
     let mut buffer = [0u16; 32768];
     let mut size = buffer.len() as u32;
+    // SAFETY: `size` tells the API how many UTF-16 units the buffer holds, so
+    // the write is bounded; the handle is open for as long as `handle` lives.
     unsafe {
         QueryFullProcessImageNameW(
             handle.0,
@@ -126,6 +136,7 @@ fn family_name(handle: &OwnedHandle) -> Option<String> {
     let mut length = 0u32;
     // First call sizes the buffer; it fails with ERROR_INSUFFICIENT_BUFFER for
     // a packaged process and with APPMODEL_ERROR_NO_PACKAGE otherwise.
+    // SAFETY: with no buffer the API only writes the required length.
     unsafe { GetPackageFamilyName(handle.0, &mut length, None) }
         .ok()
         .err()?;
@@ -133,6 +144,7 @@ fn family_name(handle: &OwnedHandle) -> Option<String> {
         return None;
     }
     let mut buffer = vec![0u16; length as usize];
+    // SAFETY: the buffer holds exactly the `length` the API asked for.
     unsafe { GetPackageFamilyName(handle.0, &mut length, Some(PWSTR(buffer.as_mut_ptr()))) }
         .ok()
         .ok()?;

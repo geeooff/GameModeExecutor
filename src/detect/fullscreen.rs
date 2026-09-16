@@ -15,6 +15,7 @@ use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThre
 
 /// Only meaningful in an interactive session: it fails from session 0.
 pub fn notification_state() -> Result<QUERY_USER_NOTIFICATION_STATE> {
+    // SAFETY: no arguments; the API only produces its return value.
     match unsafe { SHQueryUserNotificationState() } {
         Ok(state) => Ok(state),
         Err(error) => bail!("SHQueryUserNotificationState failed: {error}"),
@@ -33,11 +34,14 @@ pub fn state_label(state: QUERY_USER_NOTIFICATION_STATE) -> &'static str {
 
 /// Process owning the foreground window.
 pub fn foreground_pid() -> Option<u32> {
+    // SAFETY: no arguments and no preconditions; a null handle is checked.
     let window = unsafe { GetForegroundWindow() };
     if window.is_invalid() {
         return None;
     }
     let mut pid = 0u32;
+    // SAFETY: `pid` is a valid out pointer. A window that vanished since the
+    // call above makes the API return 0, which leaves `pid` untouched.
     unsafe { GetWindowThreadProcessId(window, Some(&mut pid)) };
     (pid != 0).then_some(pid)
 }

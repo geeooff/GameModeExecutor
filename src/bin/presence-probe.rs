@@ -123,6 +123,11 @@ impl IPresenceWriter_Vtbl {
             app_id: *mut c_void,
             app_id_type: i32,
         ) -> HRESULT {
+            // SAFETY: this is the vtable thunk shape the `windows` crate's
+            // `implement` macro generates. `this` is the interface pointer
+            // COM handed us, `OFFSET` is the interface's position inside the
+            // implementing object, and `app_id` is an HSTRING the caller owns
+            // for the duration of the call, so borrowing it is sound.
             unsafe {
                 let this: &Identity =
                     &*((this as *const *const ()).offset(OFFSET) as *const Identity);
@@ -228,6 +233,7 @@ fn log(message: &str) {
 
 fn timestamp() -> String {
     use windows::Win32::System::SystemInformation::GetLocalTime;
+    // SAFETY: `GetLocalTime` takes no input and only returns a struct.
     let now = unsafe { GetLocalTime() };
     format!(
         "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
@@ -247,6 +253,8 @@ impl RegKey {
     fn open(access: REG_SAM_FLAGS) -> windows::core::Result<Self> {
         let subkey = wide(SERVER_KEY);
         let mut key = HKEY::default();
+        // SAFETY: `subkey` is NUL-terminated and outlives the call, `key` is
+        // a valid out pointer, and the handle is closed on drop.
         unsafe {
             RegOpenKeyExW(
                 HKEY_LOCAL_MACHINE,
@@ -263,6 +271,8 @@ impl RegKey {
     fn read(&self, name: &str) -> Option<String> {
         let name = wide(name);
         let mut size = 0u32;
+        // SAFETY: the first call asks for the size only; the second is given a
+        // buffer of exactly that many bytes, so the write is bounded.
         unsafe {
             RegQueryValueExW(
                 self.0,
@@ -286,8 +296,10 @@ impl RegKey {
             .ok()
             .ok()?;
             let units: Vec<u16> = buffer
-                .chunks_exact(2)
-                .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&pair| u16::from_le_bytes(pair))
                 .take_while(|&unit| unit != 0)
                 .collect();
             Some(String::from_utf16_lossy(&units))
@@ -297,19 +309,25 @@ impl RegKey {
     fn write(&self, name: &str, value: &str) -> windows::core::Result<()> {
         let name = wide(name);
         let data = wide(value);
+        // SAFETY: a `[u16]` viewed as twice as many bytes, within the same
+        // allocation, for the duration of the borrow.
         let bytes: &[u8] =
             unsafe { std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), data.len() * 2) };
+        // SAFETY: `name` is NUL-terminated and `bytes` is the NUL-terminated
+        // UTF-16 value; both outlive the call.
         unsafe { RegSetValueExW(self.0, PCWSTR(name.as_ptr()), None, REG_SZ, Some(bytes)).ok() }
     }
 
     fn delete(&self, name: &str) -> windows::core::Result<()> {
         let name = wide(name);
+        // SAFETY: `name` is NUL-terminated and the key is open.
         unsafe { RegDeleteValueW(self.0, PCWSTR(name.as_ptr())).ok() }
     }
 }
 
 impl Drop for RegKey {
     fn drop(&mut self) {
+        // SAFETY: the handle came from `RegOpenKeyExW` and is closed once.
         unsafe { _ = RegCloseKey(self.0) };
     }
 }
@@ -455,6 +473,7 @@ fn cmd_watch(seconds: u64) -> windows::core::Result<()> {
 fn cmd_activate(hold: u64, linger: u64) -> windows::core::Result<()> {
     use windows::Win32::System::WinRT::RoActivateInstance;
 
+    // SAFETY: initialises the Windows Runtime for this thread; no pointers.
     unsafe { RoInitialize(RO_INIT_MULTITHREADED)? };
 
     let exe = writer_exe();
@@ -469,6 +488,7 @@ fn cmd_activate(hold: u64, linger: u64) -> windows::core::Result<()> {
     ));
 
     let started = std::time::Instant::now();
+    // SAFETY: the class id is a valid HSTRING that outlives the call.
     let instance = unsafe { RoActivateInstance(&HSTRING::from(CLASS_ID)) };
     match &instance {
         Ok(object) => {
@@ -610,6 +630,7 @@ fn cmd_serve() -> windows::core::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     log(&format!("serve: started, argv={args:?}"));
 
+    // SAFETY: initialises the Windows Runtime for this thread; no pointers.
     unsafe { RoInitialize(RO_INIT_MULTITHREADED)? };
 
     let class_ids = [HSTRING::from(CLASS_ID)];
@@ -617,6 +638,8 @@ fn cmd_serve() -> windows::core::Result<()> {
         get_activation_factory
             as unsafe extern "system" fn(Ref<HSTRING>, OutRef<IActivationFactory>) -> HRESULT,
     )];
+    // SAFETY: both arrays have one element and outlive the registration --
+    // the function never returns, so they live for the process.
     unsafe {
         RoRegisterActivationFactories(
             class_ids.as_ptr(),

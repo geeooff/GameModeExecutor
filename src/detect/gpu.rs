@@ -33,6 +33,7 @@ struct Query(PDH_HQUERY);
 
 impl Drop for Query {
     fn drop(&mut self) {
+        // SAFETY: the handle came from `PdhOpenQueryW` and is closed once.
         unsafe { PdhCloseQuery(self.0) };
     }
 }
@@ -49,6 +50,8 @@ fn wide(value: &str) -> Vec<u16> {
 /// wait between them; a second is what Task Manager uses.
 pub fn rendering_load(interval: std::time::Duration) -> Result<HashMap<u32, f64>> {
     let mut handle = PDH_HQUERY::default();
+    // SAFETY: a null data source means the live machine; `handle` is a valid
+    // out pointer, and the query it receives is owned by `Query` below.
     let status = unsafe { PdhOpenQueryW(PCWSTR::null(), 0, &mut handle) };
     if status != 0 {
         bail!("PdhOpenQueryW failed (0x{status:08X})");
@@ -57,17 +60,21 @@ pub fn rendering_load(interval: std::time::Duration) -> Result<HashMap<u32, f64>
 
     let path = wide(COUNTER_PATH);
     let mut counter = PDH_HCOUNTER::default();
+    // SAFETY: `path` is NUL-terminated and outlives the call; the query is
+    // open, and the counter lives and dies with it.
     let status = unsafe { PdhAddEnglishCounterW(query.0, PCWSTR(path.as_ptr()), 0, &mut counter) };
     if status != 0 {
         bail!("cannot add the GPU Engine counter (0x{status:08X})");
     }
 
     // A rate needs a baseline and a second reading.
+    // SAFETY: the query is open for as long as `query` lives.
     let status = unsafe { PdhCollectQueryData(query.0) };
     if status != 0 {
         bail!("first PdhCollectQueryData failed (0x{status:08X})");
     }
     std::thread::sleep(interval);
+    // SAFETY: as above.
     let status = unsafe { PdhCollectQueryData(query.0) };
     if status != 0 {
         bail!("second PdhCollectQueryData failed (0x{status:08X})");
@@ -81,6 +88,7 @@ fn collect(counter: PDH_HCOUNTER) -> Result<HashMap<u32, f64>> {
     let mut items = 0u32;
 
     // First call sizes the buffer and is expected to fail with PDH_MORE_DATA.
+    // SAFETY: with no buffer the API only writes the two sizes.
     let status = unsafe {
         PdhGetFormattedCounterArrayW(counter, PDH_FMT_DOUBLE, &mut bytes, &mut items, None)
     };
@@ -96,6 +104,9 @@ fn collect(counter: PDH_HCOUNTER) -> Result<HashMap<u32, f64>> {
     let size = size_of::<PDH_FMT_COUNTERVALUE_ITEM_W>();
     let mut buffer: Vec<PDH_FMT_COUNTERVALUE_ITEM_W> =
         Vec::with_capacity(bytes as usize / size + 1);
+    // SAFETY: the capacity is at least `bytes` bytes, which is what `bytes`
+    // tells the API it may write, so the items and the strings behind them
+    // all land inside the allocation.
     let status = unsafe {
         PdhGetFormattedCounterArrayW(
             counter,
@@ -108,10 +119,16 @@ fn collect(counter: PDH_HCOUNTER) -> Result<HashMap<u32, f64>> {
     if status != 0 {
         bail!("reading the counter array failed (0x{status:08X})");
     }
+    // SAFETY: the API initialised exactly `items` structs at the front of the
+    // buffer. The strings it wrote after them stay inside the capacity, so the
+    // `szName` pointers remain valid until `buffer` is dropped -- which is
+    // after the loop below.
     unsafe { buffer.set_len(items as usize) };
 
     let mut load: HashMap<u32, f64> = HashMap::new();
     for item in &buffer {
+        // SAFETY: `szName` points into `buffer`'s tail, still allocated and
+        // NUL-terminated by PDH.
         let name = unsafe { item.szName.to_string() }.unwrap_or_default();
         let Some((pid, engine)) = parse_instance(&name) else {
             continue;
@@ -119,6 +136,8 @@ fn collect(counter: PDH_HCOUNTER) -> Result<HashMap<u32, f64>> {
         if !RENDERING_ENGINES.contains(&engine.as_str()) {
             continue;
         }
+        // SAFETY: the array was requested as PDH_FMT_DOUBLE, so this is the
+        // union member PDH wrote.
         let value = unsafe { item.FmtValue.Anonymous.doubleValue };
         if value.is_finite() && value > 0.0 {
             *load.entry(pid).or_default() += value;
@@ -173,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn the_counters_are_readable_on_this_machine() {
+    fn reading_the_counters_never_panics() {
         // Not an assertion about every account: reading these can be refused,
         // and every caller treats that as "no opinion" rather than an error.
         match rendering_load(std::time::Duration::from_millis(200)) {
