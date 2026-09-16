@@ -33,14 +33,15 @@ if (-not $admin) {
 }
 
 # --- 2. Find FanControl -----------------------------------------------------
-# It has no standard install folder: it ships as an archive you extract
-# wherever you like.
+# The installer puts it under Program Files (x86), possibly as a service --
+# which changes nothing here, -c reaches it the same way. The archive goes
+# wherever it was extracted.
 if (-not $FanControlDir) {
     $found = @(
         (Get-Process FanControl -ErrorAction SilentlyContinue | Select-Object -First 1).Path,
-        "$env:LOCALAPPDATA\Programs\FanControl\FanControl.exe",
-        "$env:ProgramFiles\FanControl\FanControl.exe",
         "${env:ProgramFiles(x86)}\FanControl\FanControl.exe",
+        "$env:ProgramFiles\FanControl\FanControl.exe",
+        "$env:LOCALAPPDATA\Programs\FanControl\FanControl.exe",
         "$env:USERPROFILE\scoop\apps\fancontrol\current\FanControl.exe"
     ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 

@@ -43,17 +43,23 @@ folder next to `FanControl.exe`.
 
 ## 2. Find where FanControl actually lives
 
-**FanControl has no standard install folder.** It is distributed as an archive
-you extract wherever you like, so there is no path this guide can assume — and
-the several ways of installing it each end up somewhere different.
+FanControl comes two ways, and they end up in different places:
+
+- **The installer** puts it in `C:\Program Files (x86)\FanControl` and offers
+  to run it **as a Windows service**. Both are fine here. `-c` reaches the
+  service exactly as it reaches the windowed application, and needs the same
+  elevation either way — so nothing below changes for a service install.
+- **The archive** is extracted wherever you like, so there is no path to
+  assume.
 
 This finds it:
 
 ```powershell
 @(
   (Get-Process FanControl -ErrorAction Ignore | Select-Object -First 1).Path,
-  "$env:LOCALAPPDATA\Programs\FanControl\FanControl.exe",
+  "${env:ProgramFiles(x86)}\FanControl\FanControl.exe",
   "$env:ProgramFiles\FanControl\FanControl.exe",
+  "$env:LOCALAPPDATA\Programs\FanControl\FanControl.exe",
   "$env:USERPROFILE\scoop\apps\fancontrol\current\FanControl.exe"
 ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1 | Split-Path
 ```
@@ -68,6 +74,8 @@ Keep that folder path. Everything below calls it **the FanControl folder**.
 Each task runs FanControl with `-c` and a profile name. That flag does exactly
 what is needed here: it applies the profile, and if FanControl is *already*
 running it switches the live configuration instead of starting a second copy.
+With FanControl installed as a service, the same command hands the profile to
+the service and exits at once.
 
 ```
 FanControl.exe -c Game.json
@@ -176,7 +184,9 @@ Do this twice, once per profile. For the `Game` one:
   *These three matter for one reason: if FanControl was not already running, the
   task's own process **is** FanControl and stays alive. With the defaults, Task
   Scheduler would eventually kill it, and would silently ignore every later
-  request to switch profile.*
+  request to switch profile. With the service, the task's process exits at once
+  and these settings never come into play — they cost nothing, and keep the
+  task right for both ways of running FanControl.*
 
 Then repeat, changing only the name to `FanControl Quiet` and the argument to
 `-c Quiet.json`.
