@@ -8,6 +8,7 @@ configuration-fault design is decided and waiting; two smaller items remain.
 - [ ] Stop timing the refinement; let the OS say when — below
 - [ ] `ShutdownBlockReasonCreate`, so Windows' shutdown screen says what is being restored rather than naming the process
 - [ ] Behaviour across two games launched back to back
+- [ ] Give the engine a seam, so its loop can be tested without a game — below
 
 ## The session marker
 
@@ -122,3 +123,38 @@ Two changes worth weighing, in order of appetite:
   re-identifying when it exits, needs no timer and no polling. The event that
   mattered — the launcher exiting — would have woken it exactly then. The same
   OS-native shape the rest of detection uses.
+
+## The engine has no tests, and the reason is structural
+
+Measured 2026-09-17 with `cargo llvm-cov`, ignored tests included: the
+library sits at 55 % line coverage. The pure modules are where they should
+be — `actions` 91 %, `marker` 94 %, `detect` 77–91 %, `exit` 100 % — and the
+Win32 plumbing (`win`, `service`, most of `tray`) is at or near zero, which is
+expected: it is verified by hand, and the design record says so with dates.
+
+The number that is not acceptable is **`engine.rs` at 0 %**. The design
+record calls the engine "the part worth keeping testable", and it is: the
+session loop, the start and stop edges, the refinement's survivor rule, the
+marker's confirm-or-keep decision on a mid-game stop, the recovery at start.
+None of it runs under a test, because `Engine::new` reads the presence
+writer's registration and `run` waits on real process handles.
+
+The cut that fixes it is one trait for the I/O the engine performs, so the
+logic stays in the engine and only the OS moves behind an interface:
+
+```rust
+pub trait Probe {
+    fn writer_pid(&self) -> Option<u32>;
+    fn wait_writer(&self, pid: u32, stop: &StopSignal, timeout: Option<Duration>) -> Result<WaitOutcome>;
+    fn known_games(&self) -> Result<KnownGames>;
+    fn snapshot(&self) -> Result<Snapshot>;
+    fn rendering_load(&self, sample: Duration) -> Result<HashMap<u32, f64>>;
+}
+```
+
+The real implementation is the five calls the engine makes today, moved. A
+scripted fake in the tests then drives whole sessions in milliseconds: a
+launcher that dies and leaves one candidate, a stop mid-game whose commands
+cannot be confirmed, a marker found at start. The actions can stay real —
+`cmd.exe /c exit N` is what the runner's own tests use. Cost: a trait, a
+generic parameter or a `Box<dyn Probe>` on `Engine`, and no behaviour change.
