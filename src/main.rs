@@ -128,11 +128,11 @@ fn run() -> Result<()> {
             Ok(())
         }
         Some(Commands::Status) => {
-            let _guards = logging::init(&level, None, true)?;
+            logging::init(&level, None, true)?;
             cmd_status(&config)
         }
         Some(Commands::Trigger { event }) => {
-            let _guards = logging::init(&level, None, true)?;
+            logging::init(&level, None, true)?;
             let engine = engine::Engine::new(config)?;
             match event {
                 TriggerEvent::Start => engine.fire_start_manual(),

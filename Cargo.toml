@@ -26,49 +26,35 @@ humantime-serde = "1"
 serde = { version = "1", features = ["derive"] }
 toml = "1"
 tracing = "0.1"
-tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [target.'cfg(windows)'.dependencies]
+# Microsoft's own bindings, and nothing else for Win32. Every feature below is
+# used; `cargo build` is the check, since a function is only generated when
+# all the features its signature needs are on.
 windows = { version = "0.62", features = [
     "Win32_Foundation",
-    "Win32_Storage_Packaging_Appx",
+    # CreateEventW and CreateMutexW take SECURITY_ATTRIBUTES, even as None.
     "Win32_Security",
+    "Win32_Storage_Packaging_Appx",
     # WNDCLASSEXW names HBRUSH, HICON and HCURSOR, so the window class needs Gdi
     # even though this program never draws anything.
     "Win32_Graphics_Gdi",
-    "Win32_System_Console",
     "Win32_System_LibraryLoader",
     # Without this the process is DPI-unaware, GetSystemMetrics answers with the
     # 96 dpi value, and the notification icon is built at 16 px then stretched
     # to whatever the taskbar actually wants.
     "Win32_UI_HiDpi",
     "Win32_UI_Shell",
-    "Win32_System_Com",
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Performance",
-    "Win32_System_Registry",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
     "Win32_System_WinRT",
 ] }
-windows-core = "0.62"
-windows-sys = { version = "0.61", features = [
-    "Win32_Foundation",
-    "Win32_System_Console",
-    "Win32_System_Diagnostics_ToolHelp",
-    "Win32_System_Threading",
-    "Win32_UI_Shell",
-    "Win32_UI_WindowsAndMessaging",
-] }
-
-[profile.release]
-opt-level = "z"
-lto = true
-codegen-units = 1
-panic = "abort"
-strip = true
+# The safe registry wrapper from the same project.
+windows-registry = "0.6"
 
 [lints.clippy]
 # Every unsafe block says why it is sound. FFI into Win32 is most of this

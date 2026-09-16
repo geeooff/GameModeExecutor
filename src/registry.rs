@@ -1,163 +1,62 @@
 //! Minimal read-only registry access.
+//!
+//! A thin shape over Microsoft's `windows-registry`, the safe wrapper the
+//! `windows` project ships for exactly this. What stays here is what the rest
+//! of the program wants: open under a root with a failure that names the key,
+//! walk subkeys, and read a string or a DWORD as an `Option` -- absent and
+//! wrong-typed both mean "no", because every caller treats them the same.
 
 use anyhow::{Context, Result};
-use windows::Win32::Foundation::ERROR_NO_MORE_ITEMS;
-use windows::Win32::System::Registry::{
-    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, RegCloseKey, RegEnumKeyExW,
-    RegOpenKeyExW, RegQueryValueExW,
-};
-use windows::core::{PCWSTR, PWSTR};
-
-fn wide(value: &str) -> Vec<u16> {
-    value.encode_utf16().chain(std::iter::once(0)).collect()
-}
+use windows_registry::{CURRENT_USER, LOCAL_MACHINE};
 
 /// An open registry key, closed on drop.
-pub struct Key(HKEY);
+pub struct Key(windows_registry::Key);
 
 impl Key {
     /// Open a key under `HKEY_CURRENT_USER` for reading.
     pub fn open_current_user(path: &str) -> Result<Self> {
-        Self::open(HKEY_CURRENT_USER, "HKCU", path)
+        CURRENT_USER
+            .open(path)
+            .map(Self)
+            .with_context(|| format!("cannot open HKCU\\{path}"))
     }
 
-    /// Open a key under `HKEY_LOCAL_MACHINE` for reading. Reading needs no
-    /// elevation, unlike writing.
+    /// Open a key under `HKEY_LOCAL_MACHINE` for reading.
     pub fn open_local_machine(path: &str) -> Result<Self> {
-        Self::open(HKEY_LOCAL_MACHINE, "HKLM", path)
-    }
-
-    fn open(root: HKEY, root_name: &str, path: &str) -> Result<Self> {
-        let subkey = wide(path);
-        let mut key = HKEY::default();
-        // SAFETY: `subkey` is NUL-terminated and outlives the call, and `key`
-        // is a valid out pointer. The handle returned is owned by the `Key`
-        // and closed exactly once, on drop.
-        unsafe {
-            RegOpenKeyExW(root, PCWSTR(subkey.as_ptr()), None, KEY_READ, &mut key)
-                .ok()
-                .with_context(|| format!("cannot open {root_name}\\{path}"))?;
-        }
-        Ok(Self(key))
+        LOCAL_MACHINE
+            .open(path)
+            .map(Self)
+            .with_context(|| format!("cannot open HKLM\\{path}"))
     }
 
     pub fn open_subkey(&self, name: &str) -> Result<Self> {
-        let subkey = wide(name);
-        let mut key = HKEY::default();
-        // SAFETY: as for `open`; `self.0` is open for as long as `self` lives.
-        unsafe {
-            RegOpenKeyExW(self.0, PCWSTR(subkey.as_ptr()), None, KEY_READ, &mut key)
-                .ok()
-                .with_context(|| format!("cannot open subkey `{name}`"))?;
-        }
-        Ok(Self(key))
+        self.0
+            .open(name)
+            .map(Self)
+            .with_context(|| format!("cannot open subkey `{name}`"))
     }
 
     /// Names of the immediate subkeys.
     pub fn subkey_names(&self) -> Vec<String> {
-        let mut names = Vec::new();
-        // Key names are capped at 255 characters plus the terminator.
-        let mut buffer = [0u16; 256];
-        for index in 0.. {
-            let mut length = buffer.len() as u32;
-            // SAFETY: `length` tells the API the buffer holds 256 UTF-16 units,
-            // so it cannot write past the end; the optional out pointers are
-            // `None`, and the key is open for as long as `self` lives.
-            let result = unsafe {
-                RegEnumKeyExW(
-                    self.0,
-                    index,
-                    Some(PWSTR(buffer.as_mut_ptr())),
-                    &mut length,
-                    None,
-                    None,
-                    None,
-                    None,
-                )
-            };
-            if result == ERROR_NO_MORE_ITEMS {
-                break;
-            }
-            if result.is_err() {
-                break;
-            }
-            names.push(String::from_utf16_lossy(&buffer[..length as usize]));
-        }
-        names
+        self.0
+            .keys()
+            .map(|names| names.collect())
+            .unwrap_or_default()
     }
 
-    /// A `REG_SZ` value, or `None` when it is absent or not a string.
+    /// A `REG_SZ` value, or `None` when it is absent, not a string, or empty.
     pub fn string_value(&self, name: &str) -> Option<String> {
-        let name = wide(name);
-        let mut size = 0u32;
-        // SAFETY: the first call asks for the size only, with no data pointer.
-        // The second is given a buffer of exactly that many bytes, so its
-        // write is bounded. The name is NUL-terminated and the key is open.
-        unsafe {
-            RegQueryValueExW(
-                self.0,
-                PCWSTR(name.as_ptr()),
-                None,
-                None,
-                None,
-                Some(&mut size),
-            )
+        self.0
+            .get_string(name)
             .ok()
-            .ok()?;
-            let mut buffer = vec![0u8; size as usize];
-            RegQueryValueExW(
-                self.0,
-                PCWSTR(name.as_ptr()),
-                None,
-                None,
-                Some(buffer.as_mut_ptr()),
-                Some(&mut size),
-            )
-            .ok()
-            .ok()?;
-            let units: Vec<u16> = buffer
-                .as_chunks::<2>()
-                .0
-                .iter()
-                .map(|&pair| u16::from_le_bytes(pair))
-                .take_while(|&unit| unit != 0)
-                .collect();
-            let value = String::from_utf16_lossy(&units);
-            (!value.is_empty()).then_some(value)
-        }
+            .filter(|value| !value.is_empty())
     }
 
-    /// A `REG_DWORD` value, or `None` when it is absent or the wrong size.
+    /// A `REG_DWORD` value, or `None` when it is absent or not one.
     ///
     /// Windows keeps several of its own switches this way -- the taskbar theme
     /// among them -- so reading one is not the same job as reading a string.
     pub fn dword_value(&self, name: &str) -> Option<u32> {
-        let name = wide(name);
-        let mut value = 0u32;
-        let mut size = std::mem::size_of::<u32>() as u32;
-        // SAFETY: the data pointer is a `u32` and `size` says four bytes, so
-        // the API cannot write more than the variable holds; the size it
-        // reports back is checked before the value is trusted.
-        unsafe {
-            RegQueryValueExW(
-                self.0,
-                PCWSTR(name.as_ptr()),
-                None,
-                None,
-                Some(std::ptr::from_mut(&mut value).cast()),
-                Some(&mut size),
-            )
-            .ok()
-            .ok()?;
-        }
-        (size as usize == std::mem::size_of::<u32>()).then_some(value)
-    }
-}
-
-impl Drop for Key {
-    fn drop(&mut self) {
-        // SAFETY: the handle came from `RegOpenKeyExW` and is closed here,
-        // exactly once.
-        unsafe { _ = RegCloseKey(self.0) };
+        self.0.get_u32(name).ok()
     }
 }

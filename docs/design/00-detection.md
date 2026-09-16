@@ -94,7 +94,8 @@ presence-probe activate    # time the on-demand activation
 presence-probe watch 900   # log the writer coming and going
 ```
 
-`watch` polls every 100 ms so a brief launch is not missed; that is deliberate
-for a measurement tool and is not how the watcher works. `install` and
-`uninstall` are kept for the record and fail with access denied, for the
-reason in the table above.
+`watch` polls every 200 ms so a brief launch is not missed; that is deliberate
+for a measurement tool and is not how the watcher works. The tool once
+carried an `install` command that tried to register itself as the writer; it
+failed with access denied for the reason in the table above, and was removed
+once the finding was recorded here.

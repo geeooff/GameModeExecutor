@@ -238,10 +238,6 @@ fn payload(info: &std::panic::PanicHookInfo<'_>) -> String {
     }
 }
 
-/// Kept for the lifetime of the program. Empty now that the file is written
-/// synchronously, and still returned so callers keep the shape they had.
-pub struct Guards;
-
 /// One directive per category, so the filter can never fall out of step with
 /// the vocabulary. Listing them by hand is how a renamed category becomes a
 /// silently empty log.
@@ -273,7 +269,7 @@ fn verbose_for(level: &str) -> bool {
 /// `--hidden` -- and that conflated two unrelated things: whether a window is
 /// visible, and whether anything is written to it. The result was a visible
 /// window that stayed blank forever.
-pub fn init(level: &str, log_dir: Option<&Path>, console: bool) -> Result<Guards> {
+pub fn init(level: &str, log_dir: Option<&Path>, console: bool) -> Result<()> {
     let verbose = verbose_for(level);
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(directives(level)));
@@ -290,14 +286,19 @@ pub fn init(level: &str, log_dir: Option<&Path>, console: bool) -> Result<Guards
             // thread would save nothing at this volume and costs the only lines
             // that really matter: the release profile aborts on panic, so
             // nothing is dropped and a buffered crash report is never flushed.
-            let appender = tracing_appender::rolling::never(dir, LOG_FILE_NAME);
+            let path = dir.join(LOG_FILE_NAME);
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .with_context(|| format!("cannot open the log file `{}`", path.display()))?;
             Some(
                 fmt::layer()
                     .event_format(Line {
                         verbose,
                         ansi: false,
                     })
-                    .with_writer(appender),
+                    .with_writer(std::sync::Mutex::new(file)),
             )
         }
         None => None,
@@ -319,7 +320,7 @@ pub fn init(level: &str, log_dir: Option<&Path>, console: bool) -> Result<Guards
         .with(file_layer)
         .init();
 
-    Ok(Guards)
+    Ok(())
 }
 
 #[cfg(test)]

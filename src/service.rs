@@ -47,7 +47,7 @@ pub fn serve(
         .log_dir
         .clone()
         .or_else(|| config::local_dir().map(|dir| dir.join("logs")));
-    let _guards = logging::init(level, log_dir.as_deref(), console)?;
+    logging::init(level, log_dir.as_deref(), console)?;
     // Installed as early as the log exists, so a panic anywhere after this
     // leaves a FATAL line behind rather than a process that simply vanished.
     logging::install_panic_hook();
