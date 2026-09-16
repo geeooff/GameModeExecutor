@@ -87,10 +87,6 @@ pub enum WaitOutcome {
 ///
 /// This is the whole point of the design: while a game runs there is no
 /// polling at all, just a thread parked in the kernel on two handles.
-pub fn wait_for_exit(pid: u32, stop: &crate::win::StopSignal) -> Result<WaitOutcome> {
-    wait_for_exit_until(pid, stop, None)
-}
-
 /// Same, giving up after `timeout` and reporting `TimedOut`.
 ///
 /// Used to do something partway through a session without giving up the

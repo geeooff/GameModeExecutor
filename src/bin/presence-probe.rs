@@ -96,7 +96,7 @@ fn writer_exe() -> std::path::PathBuf {
 /// The process owning the foreground window, to correlate a presence writer
 /// launch with whatever the user was doing.
 fn foreground_process_name() -> String {
-    let Some(pid) = game_mode_executor::detect::fullscreen::foreground_pid() else {
+    let Some(pid) = game_mode_executor::detect::process::foreground_pid() else {
         return "(none)".to_owned();
     };
     let name = game_mode_executor::detect::process::Snapshot::take()

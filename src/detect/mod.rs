@@ -2,9 +2,8 @@
 //!
 //! `presence_writer` is the detector: the lifetime of the Game Bar presence
 //! writer process is the game session. `known_games` only puts a name on what
-//! it found, and `fullscreen` is kept for diagnostics.
+//! it found.
 
-pub mod fullscreen;
 pub mod gpu;
 pub mod known_games;
 pub mod presence_writer;

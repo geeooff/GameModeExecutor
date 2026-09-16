@@ -274,14 +274,6 @@ fn cmd_status(_config: &Config) -> Result<()> {
     print_foreground(&snapshot, known.as_ref().ok());
 
     println!("Processes visible    : {}", snapshot.processes.len());
-    match detect::fullscreen::notification_state() {
-        Ok(state) => println!(
-            "Shell notification   : {} ({}) [diagnostic only]",
-            detect::fullscreen::state_label(state),
-            state.0
-        ),
-        Err(error) => println!("Shell notification   : unavailable ({error})"),
-    }
     Ok(())
 }
 
@@ -347,7 +339,7 @@ fn print_foreground(
     snapshot: &detect::process::Snapshot,
     known: Option<&detect::known_games::KnownGames>,
 ) {
-    let Some(pid) = detect::fullscreen::foreground_pid() else {
+    let Some(pid) = detect::process::foreground_pid() else {
         println!("Foreground           : none");
         return;
     };

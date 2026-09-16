@@ -9,6 +9,7 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
 use windows::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
+use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 use windows::core::PWSTR;
 
 /// A borrowed Win32 handle closed on drop.
@@ -110,9 +111,18 @@ pub fn full_path(pid: u32) -> Option<String> {
     identity(pid).path
 }
 
-/// Best-effort package family name.
-pub fn package_family_name(pid: u32) -> Option<String> {
-    identity(pid).package_family
+/// Process owning the foreground window.
+pub fn foreground_pid() -> Option<u32> {
+    // SAFETY: no arguments and no preconditions; a null handle is checked.
+    let window = unsafe { GetForegroundWindow() };
+    if window.is_invalid() {
+        return None;
+    }
+    let mut pid = 0u32;
+    // SAFETY: `pid` is a valid out pointer. A window that vanished since the
+    // call above makes the API return 0, which leaves `pid` untouched.
+    unsafe { GetWindowThreadProcessId(window, Some(&mut pid)) };
+    (pid != 0).then_some(pid)
 }
 
 fn image_path(handle: &OwnedHandle) -> Option<String> {
@@ -179,6 +189,6 @@ mod tests {
     #[test]
     fn an_unpackaged_process_has_no_package_family_name() {
         // The test binary is a plain Win32 executable.
-        assert_eq!(package_family_name(std::process::id()), None);
+        assert_eq!(identity(std::process::id()).package_family, None);
     }
 }

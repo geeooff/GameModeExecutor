@@ -231,6 +231,95 @@ fn wait_for(
 mod tests {
     use super::*;
 
+    /// `cmd.exe /c exit N` is on every Windows machine, runners included, and
+    /// exits with exactly the code asked for.
+    fn exit_with(code: u8, wait: bool) -> Action {
+        Action {
+            name: Some(format!("exit {code}")),
+            program: "cmd.exe".into(),
+            args: vec!["/c".to_owned(), format!("exit {code}")],
+            wait,
+            timeout: Some(Duration::from_secs(10)),
+            ..Action::default()
+        }
+    }
+
+    fn event(mode: Mode, actions: Vec<Action>) -> Event {
+        Event { mode, actions }
+    }
+
+    #[test]
+    fn a_series_reports_each_waited_command_and_keeps_going_after_a_failure() {
+        let outcome = run_all(
+            &event(
+                Mode::Series,
+                vec![exit_with(0, true), exit_with(3, true), exit_with(0, true)],
+            ),
+            &ActionContext::default(),
+        );
+        assert_eq!(
+            outcome,
+            Outcome {
+                checked: 3,
+                failed: 1
+            }
+        );
+        assert!(!outcome.confirmed());
+    }
+
+    #[test]
+    fn parallel_commands_are_all_waited_for() {
+        let outcome = run_all(
+            &event(Mode::Parallel, vec![exit_with(0, true), exit_with(0, true)]),
+            &ActionContext::default(),
+        );
+        assert_eq!(
+            outcome,
+            Outcome {
+                checked: 2,
+                failed: 0
+            }
+        );
+        assert!(outcome.confirmed());
+    }
+
+    #[test]
+    fn a_fire_and_forget_command_gives_no_verdict() {
+        let outcome = run_all(
+            &event(Mode::Series, vec![exit_with(1, false)]),
+            &ActionContext::default(),
+        );
+        assert_eq!(outcome, Outcome::default());
+        assert!(!outcome.confirmed());
+    }
+
+    #[test]
+    fn a_program_that_cannot_start_is_a_failure_on_its_own() {
+        let mut broken = exit_with(0, false);
+        broken.program = "no-such-program-gamemode-executor.exe".into();
+        let outcome = run_all(
+            &event(Mode::Series, vec![broken, exit_with(0, true)]),
+            &ActionContext::default(),
+        );
+        // The failure to start counts even though it was not waited for, and
+        // the next command still ran.
+        assert_eq!(
+            outcome,
+            Outcome {
+                checked: 2,
+                failed: 1
+            }
+        );
+    }
+
+    #[test]
+    fn a_disabled_command_is_skipped() {
+        let mut off = exit_with(7, true);
+        off.enabled = false;
+        let outcome = run_all(&event(Mode::Series, vec![off]), &ActionContext::default());
+        assert_eq!(outcome, Outcome::default());
+    }
+
     #[test]
     fn nothing_checked_confirms_nothing() {
         // Every command fire-and-forget: there is no verdict to lean on, so

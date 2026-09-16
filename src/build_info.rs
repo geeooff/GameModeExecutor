@@ -15,10 +15,6 @@
 /// Full commit, or `unknown` when built outside a git checkout.
 pub const COMMIT: &str = env!("GIT_COMMIT");
 
-/// Empty, or `-dirty` when the tree had uncommitted changes.
-pub const DIRTY: &str = env!("GIT_DIRTY");
-
-/// The commit as a person should read it, excuse included when there is none.
 pub const COMMIT_DISPLAY: &str = env!("GIT_COMMIT_DISPLAY");
 
 pub const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
@@ -63,15 +59,15 @@ pub const LONG_VERSION: &str = concat!(
     "/docs/getting-started.md"
 );
 
-/// True when the commit is unknown, which makes the documentation link
-/// approximate rather than exact.
-pub fn is_unstamped() -> bool {
-    COMMIT == "unknown"
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// True when the commit is unknown, which makes the documentation link
+    /// approximate rather than exact.
+    fn is_unstamped() -> bool {
+        COMMIT == "unknown"
+    }
 
     #[test]
     fn the_documentation_link_names_this_build() {

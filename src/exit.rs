@@ -9,8 +9,7 @@ use crate::win;
 
 pub const SUCCESS: u8 = 0;
 pub const FAILURE: u8 = 1;
-/// Reserved: `clap` returns this for command-line misuse.
-pub const USAGE: u8 = 2;
+// 2 is clap's, for command-line misuse; it never comes from here.
 pub const CONFIG_MISSING: u8 = 3;
 pub const CONFIG_INVALID: u8 = 4;
 pub const ALREADY_RUNNING: u8 = 5;
@@ -57,7 +56,15 @@ mod tests {
 
     #[test]
     fn clap_keeps_its_own_code() {
-        // Documented so nobody reuses 2 for an application failure.
-        assert_eq!(USAGE, 2);
+        // 2 is what clap returns for command-line misuse; none of ours may
+        // collide with it, or a script could not tell the two apart.
+        let ours = [
+            SUCCESS,
+            FAILURE,
+            CONFIG_MISSING,
+            CONFIG_INVALID,
+            ALREADY_RUNNING,
+        ];
+        assert!(!ours.contains(&2));
     }
 }
