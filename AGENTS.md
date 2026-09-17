@@ -122,6 +122,11 @@ fires the stop commands; do not.
   with a tool that takes literal strings, and grep the result.
 - In PowerShell, `$LASTEXITCODE` is set by native commands only; after a cmdlet
   it is stale. Use `try { … -ErrorAction Stop } catch`.
+- `Select-Object -First N` **stops the upstream pipeline** once it has N
+  objects, and a `.ps1` upstream is aborted mid-run with its last native exit
+  code left standing. Never put it after `build.ps1`: a truncated checklist
+  reported OK, and a stale `dist\` was deployed. Filter with `Select-String`
+  and read the whole output, or read `release OK` at the end.
 - The task templates in `docs/recipes/` are UTF-16 with a BOM and CRLF, as
   Task Scheduler exports them, and carry placeholders the release check
   verifies. Read and write them with that encoding.
