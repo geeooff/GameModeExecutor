@@ -8,7 +8,7 @@ cannot be made by hand is not one CI can make either. What is left, in the
 order it is taken:
 
 - [x] Create the public GitHub repository and push — done 2026-09-17, with approval
-- [ ] The three measurements below, on a minimal package, before any table is written
+- [x] The three measurements below, on a minimal package, before any table is written — done 2026-09-17
 - [ ] `VERSIONINFO` metadata in the executables, through the same `rc.exe` step that embeds the icon
 - [ ] An MSI, per-user, into `%LOCALAPPDATA%\Programs\GameModeExecutor`, with the user's files outside its components
 - [ ] `gamemode-executor purge`, the same command in every mode — below
@@ -221,18 +221,34 @@ record of what it was weighed against. How the MSI is authored — the SDK
 tools, given what is said of WiX below — is confirmed when the lot starts
 and the tables are actually written, not before.
 
-**To measure first, before a single table is written.** Everything above
-about per-user MSI comes from Microsoft's documentation, not from this
-project; a minimal package settles it in an afternoon:
+**Measured 2026-09-17, three yeses.** A minimal package — one text file,
+no UI, built in PowerShell with nothing but Windows Installer's own COM
+automation and `makecab` — was installed, upgraded and removed from an
+unelevated shell, `/passive`, with a verbose log each time:
 
-1. A per-user MSI installs from an unelevated account **with no prompt**.
-2. A second MSI with a higher version, run `/passive` by an unelevated
-   process, replaces the files **with no prompt**, and *Programs and
-   Features* shows the new version.
-3. Uninstalling asks nothing and leaves the user's scheduled task alone.
+| | Result | The log's word for it |
+| --- | --- | --- |
+| Install 0.1.0 | exit 0 in 7 s, no prompt; the file in `%LOCALAPPDATA%\Programs\<name>\`, the product registered per-user (`AssignmentType=0`) and listed in *Programs and Features* | `MSI_LUA: Package is marked as LUA installation capable with no elevation required` |
+| Upgrade to 0.2.0 | exit 0 in 6 s, no prompt; file replaced, the old product gone, one product left at 0.2.0 | `Nested installation UAC elevation tracks that of parent (is not elevated)` — `RemoveExistingProducts` at 1510 removed 0.1.0 first |
+| Uninstall | exit 0 in 6 s, no prompt; folder gone, registration gone; the neighbouring folders, the watcher's install and its scheduled tasks untouched | `Removal completed successfully` |
 
-Three yeses close the choice. One no says exactly what to weigh against
-Inno Setup.
+Two things the documentation had not made plain. **The summary stream's
+"elevated privileges not required" bit (WordCount bit 3) is the whole
+mechanism**: with it set, Windows Installer treats the package as per-user
+outright, redirects `ProgramFilesFolder` to `%LOCALAPPDATA%\Programs`, and
+logs `MSIINSTALLPERUSER property is not valid for UAC compliant package.
+Ignoring` — so `ALLUSERS=2` and `MSIINSTALLPERUSER=1`, the dual-purpose
+recipe, are not needed for a program with no per-machine story, and the
+package is simpler without them. And **no SDK tool is needed to build the
+database**: the COM automation creates tables, inserts rows and embeds the
+cabinet, which means the release script can produce the MSI on a stock
+runner the same way it produces the zip. `MsiDb`, `MsiFiler` and `Orca`
+remain what they are, tools to inspect one. What the probe did not do and
+the real package must: carry versioned files with `VERSIONINFO`, and pass
+ICE validation (`MsiVal2`, from the SDK).
+
+The choice is closed: **MSI, authored from PowerShell through Windows
+Installer's automation, per-user by the summary bit.**
 
 Both candidates can offer per-user *or* per-machine from one installer, but
 **this program has no per-machine story**: the logon task, the configuration
