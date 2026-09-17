@@ -105,9 +105,20 @@ apart by `MsiEnumRelatedProducts` on the upgrade code, and a test checks
 the Rust constant against the one `scripts/msi.ps1` writes. The watcher is
 stopped with `WM_CLOSE` on its session window, found by `EnumWindows`
 because `FindWindow` cannot see a class another process registered, and
-the single-instance mutex says when it has gone. Still to measure in the
-field: the purge itself on a real installation, and the cost of an
-uninstall-time prompt, in tables — not built, and not missed so far.
+the single-instance mutex says when it has gone. Still to measure: the
+cost of an uninstall-time prompt, in tables — not built, and not missed
+so far.
+
+**Run for real on 2026-09-17**, on the maintainer's hand-installed copy,
+after the recipe's `uninstall-tasks.ps1` and `uninstall-task`: it listed
+ten things and did them. Two lessons, both fixed the same evening: the
+detached shell opened a console window — `DETACHED_PROCESS` leaves `cmd`
+without one, so `ping` made its own; `CREATE_NO_WINDOW` alone is right —
+and the program's folder stayed because the PowerShell the command was
+typed into sat inside it, which the command now says. And one thing left
+behind by the rule: a log dated 2026-09-09 in `%APPDATA%\GameModeExecutor\logs`,
+from a layout no release ever shipped. The purge does not learn layouts
+nobody else has; the file was deleted by hand.
 
 ## Versioning
 
