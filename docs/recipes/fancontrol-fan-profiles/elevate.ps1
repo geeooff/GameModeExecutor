@@ -16,6 +16,10 @@
 # Refusing the prompt is not an error of the script: sudo answers 0x800704C7
 # and Start-Process throws "canceled by the user". Both end here with exit
 # code 1 and nothing changed.
+#
+# Verified the same day with the real scripts, from Windows PowerShell 5.1
+# and from PowerShell 7: uninstall then install through inline sudo, the
+# questions answered in the same window, the tasks back as they were.
 
 function Assert-Elevated {
     param(

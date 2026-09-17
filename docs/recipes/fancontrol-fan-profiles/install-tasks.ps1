@@ -148,7 +148,7 @@ Get-ScheduledTask -TaskPath '\GameModeExecutor\' |
                   @{n = 'Applies';   e = { $_.Actions[0].Arguments } },
                   @{n = 'RunLevel';  e = { $_.Principal.RunLevel } },
                   @{n = 'TimeLimit'; e = { $_.Settings.ExecutionTimeLimit } },
-                  @{n = 'Instances'; e = { $_.Settings.MultipleInstancesPolicy } } |
+                  @{n = 'Instances'; e = { $_.Settings.MultipleInstances } } |
     Format-Table -AutoSize
 
 # An earlier version of this recipe named the tasks after the configurations
