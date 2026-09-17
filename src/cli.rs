@@ -11,8 +11,8 @@
 //! every install -- seen on 2026-09-18 -- which is why the installer runs
 //! `init` and `install-task` through the twin.
 //!
-//! `init`, `install-task` and `uninstall-task` write what they did to the
-//! log, under `setup`, at `info`: the log then says who did what to this
+//! `init`, `install-task`, `uninstall-task` and `stop` write what they did to
+//! the log, under `setup`, at `info`: the log then says who did what to this
 //! machine and when, whether a person typed it or the installer ran it.
 
 use std::path::{Path, PathBuf};
@@ -98,6 +98,10 @@ pub enum Command {
     },
     /// Remove the logon task.
     UninstallTask,
+    /// Stop the running watcher, the way Quit in its menu does: mid-game,
+    /// the stop commands run on the way out. None running is not an error.
+    /// The logon task is left as it is; `install-task` starts it again.
+    Stop,
     /// Remove every trace of the program: the logon task, the configuration,
     /// the log, the session marker, and the executables themselves. Refuses
     /// while a game is running. Shows what it will remove and asks first.
@@ -138,6 +142,11 @@ pub fn run(cli: Cli, console: bool) -> Result<()> {
         Some(Command::UninstallTask) => {
             setup_logging(cli.config.as_deref(), cli.log_level.as_deref(), console)?;
             return task::uninstall();
+        }
+        Some(Command::Stop) => {
+            setup_logging(cli.config.as_deref(), cli.log_level.as_deref(), console)?;
+            service::stop()?;
+            return Ok(());
         }
         Some(Command::Check { path, pid }) => return check(path.as_deref(), pid),
         Some(Command::Purge { yes }) => return purge_command(cli.config, yes),

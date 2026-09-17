@@ -25,8 +25,8 @@ Both executables take the same command line. Type it into
 `gamemode-executor.exe`: it answers where you can read it and a shell waits
 for it. `gamemode-executorw.exe` accepts the same line but prints nothing and
 nobody waits for it, which suits its two callers — the logon task, which
-runs `run`, and the installer, which runs `init` and `install-task`. What
-those commands do is written in the log either way.
+runs `run`, and the installer, which runs `stop`, `init` and `install-task`.
+What those commands do is written in the log either way.
 
 | Command | What it does |
 | --- | --- |
@@ -38,6 +38,7 @@ those commands do is written in the log either way.
 | `init [--force]` | Write the starter configuration file into `%APPDATA%\GameModeExecutor`. One that is already there is kept unless `--force`. The installer runs this. What happened is logged under `setup`. |
 | `install-task [--delay 15s] [--force]` | Register a per-user logon task that runs `gamemode-executorw.exe` with no window, then start it now. A task already registered is kept unless `--force`. The configuration path is stored absolute. The installer runs this too. Logged under `setup`. |
 | `uninstall-task` | Remove that task. No task is not an error. Logged under `setup`. |
+| `stop` | Stop the running watcher the way *Quit* in its menu does — mid-game, the stop commands run on the way out — and wait until it has gone. None running is not an error. The task is left alone; `install-task` starts it again. The installer runs this before removing or replacing the executables. Logged under `setup`. |
 | `purge [--yes]` | Remove every trace of the program: the logon task, the configuration, the log, the session marker, the executables. It lists what it will remove and asks; `--yes` is for scripts. Refuses while a game is running. See [Removing it](how-it-works.md#removing-it). |
 
 Global options: `--config <PATH>`, `--log-level <LEVEL>`, `--version`.
@@ -176,9 +177,13 @@ Each line is `time  LEVEL  category  message`, with the category one of
 2026-09-10 17:58:41.833  INFO  game      Game no longer detected: bf6.exe
 ```
 
-`setup` is written by `init`, `install-task` and `uninstall-task`, whether a
-person typed them or the installer ran them: a configuration written, kept or
-replaced; a task registered, kept, replaced or removed; the watcher started.
+`setup` is written by `init`, `install-task`, `uninstall-task` and `stop`,
+whether a person typed them or the installer ran them: a configuration
+written, kept or replaced; a task registered, kept, replaced or removed; the
+watcher started or stopped. Two processes then write the one file — `stop`
+and the watcher it stops — and their lines interleave whole: the file is
+opened for appending only, so Windows itself places each write at the end,
+and a line is one write.
 Those commands open the log where the watcher would — the configuration's
 `log_dir` when a configuration can be read, the default location otherwise —
 so a fresh install's first lines say what the installer did, and a machine

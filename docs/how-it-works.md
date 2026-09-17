@@ -127,7 +127,10 @@ rather than doubling up your commands.
 A **per-user scheduled task**, triggered at logon, fifteen seconds in. The
 installer registers it and starts it once the files are in place, which is
 why the icon appears as the install ends; from the zip, `install-task` does
-the same by hand.
+the same by hand. Before an upgrade or an uninstall replaces or removes the
+executables, the installer runs `stop` — *Quit*, typed — so Windows never
+finds the watcher holding a file it is about to touch and never has to ask
+you to close it.
 
 A Windows service was considered and dropped. Services run before anyone logs
 on, in a separate session, where they cannot see the desktop the game is on —

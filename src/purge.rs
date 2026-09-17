@@ -22,13 +22,13 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
 use crate::config;
 use crate::logging;
 use crate::marker;
+use crate::service;
 use crate::task;
 use crate::win;
 
@@ -213,7 +213,7 @@ pub fn discover(config: Option<&config::Config>, config_path: &Path) -> Layout {
         .and_then(|config| config.general.log_dir.clone())
         .or_else(|| local_dir.as_ref().map(|dir| dir.join("logs")));
     Layout {
-        watcher_running: win::SingleInstance::acquire("GameModeExecutor").is_err(),
+        watcher_running: win::SingleInstance::is_held(service::INSTANCE),
         task_registered: task::exists(),
         config_candidates: candidates,
         log: log_dir.map(|dir| dir.join(logging::LOG_FILE_NAME)),
@@ -231,7 +231,7 @@ pub fn discover(config: Option<&config::Config>, config_path: &Path) -> Layout {
 /// the caller prints nothing after this returns.
 pub fn execute(plan: &Plan) -> Result<()> {
     if plan.stop_watcher {
-        stop_watcher()?;
+        service::stop()?;
         println!("Watcher stopped.");
     }
     if plan.remove_task {
@@ -293,20 +293,6 @@ pub fn execute(plan: &Plan) -> Result<()> {
         None => {}
     }
     Ok(())
-}
-
-/// Ask the running watcher to quit the way its menu does -- `WM_CLOSE` on
-/// its session window -- and wait for it to have gone.
-fn stop_watcher() -> Result<()> {
-    win::close_session_window()?;
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while Instant::now() < deadline {
-        if win::SingleInstance::acquire("GameModeExecutor").is_ok() {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(250));
-    }
-    anyhow::bail!("the watcher did not stop within 30 seconds")
 }
 
 /// The product code Windows Installer registered for this upgrade code, if
@@ -375,6 +361,8 @@ fn after_process(pid: u32, steps: &[String]) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use super::*;
 
     fn scratch() -> PathBuf {

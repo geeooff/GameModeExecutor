@@ -169,6 +169,26 @@ worked, and four remarks came back, all taken the same evening:
 - **After `install-task`, nothing said how to start it.** It starts the
   task now, and says the icon is coming.
 - **The purge, first run:** it did what it listed; the two fixes are above.
+- **The first uninstall asked to close "GameModeExecutor watcher".** The
+  Restart Manager, at `InstallValidate`, lists every process holding a file
+  the install is about to remove, by its window title, and puts up its
+  dialog. Clicking through was clean — the handshake the session window
+  keeps for a *Quit* answered `WM_QUERYENDSESSION` and the log read
+  *Stopped* — but a dialog is a dialog. The package now stops the watcher
+  itself: `stop`, a command that is *Quit* from outside (`WM_CLOSE` on the
+  session window, then a wait on the single-instance mutex), run as an
+  immediate action before `InstallValidate` on an uninstall and on an
+  upgrade. It runs the executable already installed, since an upgrade has
+  not replaced it yet, and carries on if that fails — a version too old to
+  know `stop` gets the dialog back, visibly and harmlessly. `purge` uses
+  the same command. Two processes write the log at that moment, the
+  watcher's *Stopped* and the command's *Watcher stopped, as asked*; the
+  file is opened for appending only, so each write lands at the end by the
+  file system's doing, and 80 processes writing at once on 2026-09-18 left
+  80 whole lines. Whether an immediate action of a per-user package runs
+  in the interactive session, where `EnumWindows` can see the window, was
+  inferred from the deferred ones — which had — and is settled by the
+  first uninstall of a package that carries it.
 
 ## Versioning
 

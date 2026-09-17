@@ -11,7 +11,8 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{
-    CreateEventW, CreateMutexW, INFINITE, SetEvent, WaitForSingleObject,
+    CreateEventW, CreateMutexW, INFINITE, OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE, SetEvent,
+    WaitForSingleObject,
 };
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
@@ -374,6 +375,27 @@ impl SingleInstance {
             return Err(anyhow::Error::new(AlreadyRunning));
         }
         Ok(Self { handle })
+    }
+
+    /// Whether some process holds the mutex `name`, without taking it.
+    ///
+    /// `acquire` would answer the same question, but it creates the mutex
+    /// when nobody holds it, and a watcher starting in that instant would
+    /// read the probe as a running instance and exit. Opening an existing
+    /// mutex creates nothing, and the handle is closed before returning so
+    /// the object does not outlive the process that owns it.
+    pub fn is_held(name: &str) -> bool {
+        let name = HSTRING::from(format!("Local\\{name}"));
+        // SAFETY: `name` is NUL-terminated and outlives the call; a handle
+        // that comes back is closed here and kept nowhere.
+        match unsafe { OpenMutexW(SYNCHRONIZATION_SYNCHRONIZE, false, PCWSTR(name.as_ptr())) } {
+            Ok(handle) => {
+                // SAFETY: the handle was just opened and is not used again.
+                unsafe { _ = CloseHandle(handle) };
+                true
+            }
+            Err(_) => false,
+        }
     }
 }
 

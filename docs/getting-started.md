@@ -27,8 +27,9 @@ configuration if you have none, registers the logon task, and starts the
 watcher: the confirmation that it worked is the **grey controller icon**
 that appears in the notification area, beside the clock. No window to click
 through, and *Programs and Features* lists it afterwards. A newer release
-installs over it the same way and leaves your configuration and your task
-where they are. Skip to [Say what to run](#say-what-to-run).
+installs over it the same way: it stops the running watcher, replaces the
+files, leaves your configuration and your task where they are, and starts
+the watcher again. Skip to [Say what to run](#say-what-to-run).
 
 **The zip, `GameModeExecutor-<version>.zip`,** for anyone who would rather
 not run an installer: unzip it and keep it somewhere. Two things make the
@@ -102,14 +103,15 @@ gamemode-executor trigger stop
 ```
 
 The watcher reads the file when it starts, so after editing it, restart it:
-**Quit** from the icon's menu, then
 
 ```bash
+gamemode-executor stop
 gamemode-executor install-task
 ```
 
-which starts it again — and, from the zip, registers the task that starts it
-at every logon, once. No administrator rights, no password, no window.
+The first is **Quit** from the icon's menu, typed. The second starts it again
+— and, from the zip, registers the task that starts it at every logon, once.
+No administrator rights, no password, no window.
 
 **That is the end of the setup.** Play. The commands fire by themselves.
 
@@ -253,10 +255,12 @@ where the time went if you set `log_level = "debug"`.
 ## Turning it off
 
 ```bash
+gamemode-executor stop
 gamemode-executor uninstall-task
 ```
 
-Removes the logon task. Nothing else is left running.
+The first stops the one running now; the second removes the logon task, so
+nothing starts at the next logon.
 
 ## Everything else
 

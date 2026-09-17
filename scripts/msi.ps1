@@ -267,12 +267,20 @@ try {
     # console binary would flash one twice (seen 2026-09-18).
     Insert 'CustomAction' @('InitConfig', 1042, 'gamemode_executorw.exe', 'init', $null)
     Insert 'CustomAction' @('RegisterTask', 1042, 'gamemode_executorw.exe', 'install-task', $null)
+    # 98 = 34 (run a command line in a directory from the Directory table)
+    # + 64 (carry on if it fails). Immediate, before InstallValidate, where
+    # the Restart Manager would otherwise find the watcher holding the files
+    # and put up its "close these applications" dialog (seen 2026-09-18 on
+    # the first uninstall). It runs the *installed* executable, which an
+    # upgrade has not replaced yet; one too old to know `stop` fails, and
+    # the dialog comes back -- a visible, harmless degradation.
+    Insert 'CustomAction' @('StopWatcher', 98, 'INSTALLDIR', '"[INSTALLDIR]gamemode-executorw.exe" stop', $null)
 
     $sequences = @{
         InstallExecuteSequence = @(
             @('FindRelatedProducts', 25), @('LaunchConditions', 100), @('ValidateProductID', 700),
             @('CostInitialize', 800), @('FileCost', 900), @('CostFinalize', 1000),
-            @('InstallValidate', 1400), @('InstallInitialize', 1500),
+            @('StopWatcher', 1300), @('InstallValidate', 1400), @('InstallInitialize', 1500),
             @('RemoveExistingProducts', 1510),
             @('ProcessComponents', 1600), @('UnpublishFeatures', 1800),
             @('RemoveFiles', 3500), @('InstallFiles', 4000),
@@ -298,9 +306,15 @@ try {
             @('PublishFeatures', 6300), @('PublishProduct', 6400), @('InstallFinalize', 6600)
         )
     }
-    # The custom actions run on an install and on an upgrade -- a new product
-    # code is not Installed -- and never on a repair or an uninstall.
-    $conditions = @{ InitConfig = 'NOT Installed'; RegisterTask = 'NOT Installed' }
+    # The setup actions run on an install and on an upgrade -- a new product
+    # code is not Installed -- and never on a repair or an uninstall. The
+    # watcher is stopped on an uninstall and on an upgrade, where its files
+    # are about to go; a fresh install has none to stop.
+    $conditions = @{
+        InitConfig   = 'NOT Installed'
+        RegisterTask = 'NOT Installed'
+        StopWatcher  = 'REMOVE="ALL" OR PREVIOUSVERSIONS'
+    }
     foreach ($t in $sequences.Keys) {
         foreach ($row in $sequences[$t]) {
             $condition = if ($conditions.ContainsKey($row[0])) { $conditions[$row[0]] } else { $null }
