@@ -250,27 +250,36 @@ pub fn execute(plan: &Plan) -> Result<()> {
     }
     match &plan.program {
         Some(Program::Installed { product_code }) => {
-            // Detached, after a pause: this process lives in the folder the
-            // installer is about to empty, and Windows Installer would find
-            // it in use.
-            detached(&format!(
-                "ping -n 3 127.0.0.1 > nul & msiexec /x {product_code} /passive"
-            ))?;
+            // Once this process is gone: it lives in the folder the installer
+            // is about to empty, and Windows Installer would find it in use.
+            after_exit(&[format!(
+                "Start-Process msiexec.exe -ArgumentList '/x {product_code} /passive'"
+            )])?;
             println!("Windows Installer will now remove the program.");
         }
         Some(Program::Unpacked { dir, files, docs }) => {
             let mut steps: Vec<String> = files
                 .iter()
-                .map(|file| format!("del /q \"{}\"", file.display()))
+                .map(|file| {
+                    format!(
+                        "Remove-Item -LiteralPath {} -Force -ErrorAction SilentlyContinue",
+                        quoted(file)
+                    )
+                })
                 .collect();
             if let Some(docs) = docs {
-                steps.push(format!("rmdir /s /q \"{}\"", docs.display()));
+                steps.push(format!(
+                    "Remove-Item -LiteralPath {} -Recurse -Force -ErrorAction SilentlyContinue",
+                    quoted(docs)
+                ));
             }
-            detached(&format!(
-                "ping -n 3 127.0.0.1 > nul & {} & rmdir \"{}\"",
-                steps.join(" & "),
-                dir.display()
-            ))?;
+            // The folder itself: only if that left it empty, which is what
+            // Remove-Item without -Recurse does.
+            steps.push(format!(
+                "Remove-Item -LiteralPath {} -ErrorAction SilentlyContinue",
+                quoted(dir)
+            ));
+            after_exit(&steps)?;
             println!("The executables will be deleted once this command has exited.");
             // A folder cannot go while a shell sits in it, and the shell this
             // was typed into usually does. Seen in the field on 2026-09-17.
@@ -320,22 +329,44 @@ pub fn installed_product() -> Option<String> {
     Some(String::from_utf16_lossy(&buffer[..len]))
 }
 
-/// A command shell that survives this process and shows no window.
+/// A path as a PowerShell single-quoted literal, which only a quote can
+/// end -- doubled inside, and nothing else expands.
+fn quoted(path: &Path) -> String {
+    format!("'{}'", path.display().to_string().replace('\'', "''"))
+}
+
+/// Run PowerShell statements once this process has exited, in a window
+/// nobody sees.
 ///
-/// `CREATE_NO_WINDOW` alone: the shell gets a console of its own, hidden,
-/// which its children inherit. With `DETACHED_PROCESS` instead it would have
-/// none, and `ping` would open a visible one for itself -- seen in the
-/// field on 2026-09-17. Outliving this process needs no flag; Windows does
-/// not end children with their parent.
-fn detached(command: &str) -> Result<()> {
+/// Windows PowerShell rather than `cmd.exe`, because it can wait for
+/// exactly this process -- `Wait-Process` on our own id -- where a batch
+/// line could only guess with a delay. Each step says for itself what it
+/// does when its target is already gone. `CREATE_NO_WINDOW` gives it a hidden console of its own;
+/// outliving this process needs no flag, Windows does not end children with
+/// their parent. Only single quotes reach the command line, so std's
+/// quoting for `CommandLineToArgvW` carries it through intact.
+fn after_exit(steps: &[String]) -> Result<()> {
+    after_process(std::process::id(), steps)
+}
+
+/// The same, once the process `pid` has exited -- which is how the tests
+/// run the steps without exiting themselves.
+fn after_process(pid: u32, steps: &[String]) -> Result<()> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    // Raw, because std would escape the quotes around the paths as \" for
-    // CommandLineToArgvW, and cmd.exe does not read those: `del` would then
-    // look for a file that does not exist and say nothing.
-    Command::new("cmd.exe")
-        .raw_arg("/c")
-        .raw_arg(command)
+    let mut script = vec![format!(
+        "Wait-Process -Id {pid} -ErrorAction SilentlyContinue"
+    )];
+    script.extend(steps.iter().cloned());
+    Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+        ])
+        .arg(script.join("; "))
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .context("cannot start the shell that finishes the removal")?;
@@ -497,11 +528,11 @@ mod tests {
         );
     }
 
-    /// The hand-installed case hands the executables to a shell that
-    /// outlives this process. Here the process stays, so the shell's pause is
-    /// what is waited out.
+    /// The hand-installed case hands the executables to a shell that waits
+    /// for this process to exit. The test cannot exit, so the shell is told
+    /// to wait for a process that already has.
     #[test]
-    fn an_unpacked_program_is_deleted_by_the_shell_after_the_pause() {
+    fn an_unpacked_program_is_deleted_by_the_shell_once_the_process_is_gone() {
         let dir = scratch().join("program");
         let exe = dir.join("gamemode-executor.exe");
         let license = dir.join("LICENSE");
@@ -509,19 +540,35 @@ mod tests {
         touch(&exe);
         touch(&license);
         touch(&page);
-        let plan = Plan {
-            stop_watcher: false,
-            remove_task: false,
-            files: vec![],
-            dirs: vec![],
-            program: Some(Program::Unpacked {
-                dir: dir.clone(),
-                files: vec![exe.clone(), license.clone()],
-                docs: Some(dir.join("docs")),
-            }),
-        };
+        let gone = Command::new("cmd.exe")
+            .args(["/c", "exit"])
+            .spawn()
+            .unwrap();
+        let pid = gone.id();
+        gone.wait_with_output().unwrap();
 
-        execute(&plan).unwrap();
+        after_process(
+            pid,
+            &[
+                format!(
+                    "Remove-Item -LiteralPath {} -Force -ErrorAction SilentlyContinue",
+                    quoted(&exe)
+                ),
+                format!(
+                    "Remove-Item -LiteralPath {} -Force -ErrorAction SilentlyContinue",
+                    quoted(&license)
+                ),
+                format!(
+                    "Remove-Item -LiteralPath {} -Recurse -Force -ErrorAction SilentlyContinue",
+                    quoted(&dir.join("docs"))
+                ),
+                format!(
+                    "Remove-Item -LiteralPath {} -ErrorAction SilentlyContinue",
+                    quoted(&dir)
+                ),
+            ],
+        )
+        .unwrap();
 
         let deadline = Instant::now() + Duration::from_secs(15);
         while dir.exists() && Instant::now() < deadline {

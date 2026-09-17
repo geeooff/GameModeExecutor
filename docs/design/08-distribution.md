@@ -96,12 +96,17 @@ tasks, all of it — and nothing removes any of it without being asked.
 **Built 2026-09-17, `src/purge.rs`.** The plan is computed from a `Layout`
 that says what exists, separately from discovering the machine, so seven
 tests drive it on scratch folders — including the hand-installed case,
-where a detached `cmd.exe` deletes the executables after a pause and the
-test waits it out. One thing that cost an hour: `std::process::Command`
-escapes the quotes around paths as `\"` for `CommandLineToArgvW`, which
-`cmd.exe` does not read, so `del` looked for a file that did not exist and
-said nothing; the command line is passed raw. The installed case is told
-apart by `MsiEnumRelatedProducts` on the upgrade code, and a test checks
+where the executables are handed to a hidden Windows PowerShell that
+`Wait-Process`es on this process's id and then removes them; the test
+hands it the id of a process that has already exited. That replaced a
+first version built on `cmd.exe` with the batch idiom `ping -n 3
+127.0.0.1` as its pause, which the maintainer rightly found curious: a
+guessed delay, a shell whose quoting `std::process::Command` gets wrong
+(it escapes quotes as `\"` for `CommandLineToArgvW`, which `cmd.exe` does
+not read), and a program that promises to connect to nothing pinging
+anything at all. Waiting for the exact process is what was wanted. The
+installed case is told apart by `MsiEnumRelatedProducts` on the upgrade
+code, and a test checks
 the Rust constant against the one `scripts/msi.ps1` writes. The watcher is
 stopped with `WM_CLOSE` on its session window, found by `EnumWindows`
 because `FindWindow` cannot see a class another process registered, and
@@ -112,10 +117,11 @@ so far.
 **Run for real on 2026-09-17**, on the maintainer's hand-installed copy,
 after the recipe's `uninstall-tasks.ps1` and `uninstall-task`: it listed
 ten things and did them. Two lessons, both fixed the same evening: the
-detached shell opened a console window — `DETACHED_PROCESS` leaves `cmd`
-without one, so `ping` made its own; `CREATE_NO_WINDOW` alone is right —
-and the program's folder stayed because the PowerShell the command was
-typed into sat inside it, which the command now says. And one thing left
+shell that finishes the removal opened a console window — a process
+started with `DETACHED_PROCESS` has no console, so its first console child
+made a visible one; `CREATE_NO_WINDOW` alone gives it a hidden one to pass
+down — and the program's folder stayed because the PowerShell the command
+was typed into sat inside it, which the command now says. And one thing left
 behind by the rule: a log dated 2026-09-09 in `%APPDATA%\GameModeExecutor\logs`,
 from a layout no release ever shipped. The purge does not learn layouts
 nobody else has; the file was deleted by hand.
