@@ -65,14 +65,22 @@ tasks, all of it — and nothing removes any of it without being asked.
   **before** the uninstall, in every mode. The shape proposed: refuse while
   a game session is open, because leaving a machine on its gaming
   configuration with nothing left to restore it is the one thing this must
-  not do; stop the watcher; remove the scheduled tasks, its own and the ones
-  the recipes had the user register; remove `%LOCALAPPDATA%\GameModeExecutor`
-  and `%APPDATA%\GameModeExecutor`, the configuration wherever it was found,
-  the log wherever it was written; and last the executables — a process
-  cannot delete itself, so a hand-installed copy hands that step to a
-  detached shell that waits for it to exit, and an MSI install runs
-  `msiexec /x` so Windows Installer's registration goes too. It lists what
-  it is about to remove and asks once; `--yes` is for scripts.
+  not do; stop the watcher; remove its own scheduled task; remove
+  `%LOCALAPPDATA%\GameModeExecutor` and `%APPDATA%\GameModeExecutor`, the
+  configuration wherever it was found, the log wherever it was written; and
+  last the executables — a process cannot delete itself, so a hand-installed
+  copy hands that step to a detached shell that waits for it to exit, and an
+  MSI install runs `msiexec /x` so Windows Installer's registration goes
+  too. It lists what it is about to remove and asks once; `--yes` is for
+  scripts.
+- **It removes what it recognises as its own and leaves the rest, saying
+  what it left.** The program does not know which recipe the user followed,
+  and must not: a task in the `\GameModeExecutor` folder that it did not
+  register stays, and the folder stays with it; a log folder that holds
+  anything but its log stays. The recipes' tasks are the recipes' business —
+  `install-tasks.ps1` is a convenience script, and an `uninstall-tasks.ps1`
+  beside it, elevating the same way, is the correct counterpart. Decided
+  2026-09-17.
 - **A prompt at MSI uninstall time** — *also remove the configuration, logs
   and tasks?* — is the obvious UX, and exactly where a hand-authored MSI gets
   expensive: a dialog is the Dialog, Control and ControlEvent tables plus a
@@ -80,11 +88,10 @@ tasks, all of it — and nothing removes any of it without being asked.
   alternative, no dialog and the documented command, and decides with the
   number in hand.
 
-**To measure, with the installer:** whether an unelevated process can delete
-a task registered with highest privileges — the recipes' tasks — and, if
-not, how the purge says which ones it left and what to do; the self-removal
-of a hand-installed folder from a detached shell; and the cost of the
-uninstall-time prompt, in tables.
+**To measure, with the installer:** the self-removal of a hand-installed
+folder from a detached shell, and the cost of the uninstall-time prompt, in
+tables. The watcher's own task is registered with `LeastPrivilege`, so the
+purge needs no elevation to remove it.
 
 ## Versioning
 
