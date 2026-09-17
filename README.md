@@ -58,8 +58,9 @@ gamemode-executor init          # write the starter config.toml
 gamemode-executor install-task  # start the watcher now and at every logon
 ```
 
-To remove it, *Programs and Features* takes the executables away and leaves
-your configuration; `gamemode-executor purge` removes every trace. Building
+To remove it, *Programs and Features* takes the executables and the logon
+task away and leaves your configuration; `gamemode-executor purge` removes
+every trace. Building
 from source is in the [reference](docs/reference.md#building-and-releasing).
 
 ## License

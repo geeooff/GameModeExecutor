@@ -182,10 +182,11 @@ leaves your profile alone, and so does the next logon.
 ## Removing it
 
 Uninstalling from *Programs and Features* removes what the installer put
-there — the executables — and nothing else, as Windows applications ordinarily
-do: your configuration, the log, the session marker and the logon task stay,
-so that installing again finds everything as you left it. Upgrading never
-touches them either.
+there — the executables and the logon task it registered, which would
+otherwise try to start a missing program at every logon — and nothing else,
+as Windows applications ordinarily do: your configuration, the log and the
+session marker stay, so that installing again finds everything as you left
+it. Upgrading touches none of them, the task included.
 
 When you want every trace gone, ask for it:
 

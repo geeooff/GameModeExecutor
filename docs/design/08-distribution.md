@@ -61,8 +61,9 @@ tasks, all of it — and nothing removes any of it without being asked.
   repair, upgrade or uninstall can touch them. The installer runs `init` at
   the end, and `init` writes only where there is no file.
 - **Uninstalling does not purge either.** The MSI's uninstall removes what
-  the MSI installed — the executables — which is what Windows applications
-  ordinarily do. The zip has no uninstaller; the user deletes the folder.
+  the MSI installed — the executables and, since 2026-09-18, the logon task
+  it registered — which is what Windows applications ordinarily do. The zip
+  has no uninstaller; the user deletes the folder and runs `uninstall-task`.
 - **The purge is a command, `gamemode-executor purge`, not a script.** The
   program already knows every location — where the configuration was found,
   where the log is written, the local folder, the task names — and a script
@@ -204,6 +205,25 @@ worked, and four remarks came back, all taken the same evening:
   confusing line, so the action is now skipped in a product being removed
   by an upgrade (`UPGRADINGPRODUCTCODE`); a package with that condition
   has yet to be upgraded from, which the next release will do.
+- **The uninstall left the logon task behind, armed.** The rule above had
+  put the task with the user's data, and the maintainer's remark on the
+  reinstalled machine corrected it: a task that starts a missing executable
+  at every logon is not data kept for a reinstall, it is infrastructure
+  the package set up and must take down, and it fails visibly in Task
+  Scheduler until someone does. `UnregisterTask` now runs `uninstall-task`
+  on an uninstall, deferred, before `RemoveFiles` takes the executable it
+  runs; not on the removal an upgrade performs, so a delay or a
+  configuration path chosen with `install-task` survives the upgrade as
+  before. `purge` still removes the task itself, first, and the package's
+  action then finds none to remove.
+- **The package's own metadata.** Explorer's Details tab showed *Title:
+  Installation Database* — the phrase the SDK suggests, which tells a tool
+  what the file is and a person nothing. The summary now names the product
+  and its version in the title, says what it does in the subject, carries
+  the commit and the documentation link in the comments, and sets the
+  creation time, which Explorer otherwise takes from the file — and NTFS
+  tunnels a creation time across a delete-and-recreate seconds apart, so
+  it read as the build from the day before.
 
 ## Versioning
 

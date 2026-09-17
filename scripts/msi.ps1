@@ -267,6 +267,13 @@ try {
     # console binary would flash one twice (seen 2026-09-18).
     Insert 'CustomAction' @('InitConfig', 1042, 'gamemode_executorw.exe', 'init', $null)
     Insert 'CustomAction' @('RegisterTask', 1042, 'gamemode_executorw.exe', 'install-task', $null)
+    # The task is the package's infrastructure, not the user's data: left
+    # behind, it would start a missing executable at every logon and fail
+    # (the maintainer's remark on 2026-09-18). Removed on an uninstall, from
+    # the executable it runs before RemoveFiles takes it; kept through an
+    # upgrade, which re-registers nothing and so keeps a delay or a path the
+    # user chose.
+    Insert 'CustomAction' @('UnregisterTask', 1042, 'gamemode_executorw.exe', 'uninstall-task', $null)
     # 98 = 34 (run a command line in a directory from the Directory table)
     # + 64 (carry on if it fails). Immediate, before InstallValidate, where
     # the Restart Manager would otherwise find the watcher holding the files
@@ -283,7 +290,7 @@ try {
             @('StopWatcher', 1300), @('InstallValidate', 1400), @('InstallInitialize', 1500),
             @('RemoveExistingProducts', 1510),
             @('ProcessComponents', 1600), @('UnpublishFeatures', 1800),
-            @('RemoveFiles', 3500), @('InstallFiles', 4000),
+            @('UnregisterTask', 3400), @('RemoveFiles', 3500), @('InstallFiles', 4000),
             @('InitConfig', 4100), @('RegisterTask', 4200),
             @('RegisterUser', 6000), @('RegisterProduct', 6100),
             @('PublishFeatures', 6300), @('PublishProduct', 6400),
@@ -314,9 +321,10 @@ try {
     # stopped the watcher before it got here, and the first upgrade
     # (2026-09-18) logged a second, empty stop for nothing.
     $conditions = @{
-        InitConfig   = 'NOT Installed'
-        RegisterTask = 'NOT Installed'
-        StopWatcher  = '(REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE) OR PREVIOUSVERSIONS'
+        InitConfig     = 'NOT Installed'
+        RegisterTask   = 'NOT Installed'
+        StopWatcher    = '(REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE) OR PREVIOUSVERSIONS'
+        UnregisterTask = 'REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE'
     }
     foreach ($t in $sequences.Keys) {
         foreach ($row in $sequences[$t]) {
@@ -427,18 +435,28 @@ Upgrade | VersionMin | Y |  |  |  |  | Text |  | The minimum ProductVersion of t
     # Summary information. WordCount: 2 = compressed sources, 8 = elevated
     # privileges not required -- the bit that makes the package per-user.
     # Template names the platform, PageCount the schema, Revision is the
-    # package code.
+    # package code. The rest is what Explorer's Details tab shows a person
+    # who right-clicks the file: the SDK's customary title, "Installation
+    # Database", says what the file is to a tool and nothing to them, so
+    # the title names the product and the subject says what it does. The
+    # times are set because Explorer otherwise shows the file's creation
+    # time, which NTFS tunnels from the build before when a file of the
+    # same name was there seconds earlier.
     $si = Get-ComProperty $db 'SummaryInformation' @(20)
+    $now = (Get-Date).ToUniversalTime()
     $summary = [ordered] @{
-        2  = 'Installation Database'
-        3  = 'GameModeExecutor'
+        2  = "$ProductName $Version installer"
+        3  = 'Runs the executables you configure when a game starts and when it stops.'
         4  = $Author
-        5  = 'Installer'
-        6  = "GameModeExecutor $Version, built from commit $Commit"
+        5  = "Installer; $ProductName; Windows; games"
+        6  = "Built from commit $Commit. Documentation: $DocumentationUrl"
         7  = 'x64;1033'
         9  = $PackageCode
+        12 = $now
+        13 = $now
         14 = 500
         15 = 10
+        18 = 'GameModeExecutor scripts\msi.ps1, over Windows Installer automation'
         19 = 0
     }
     # Enumerated, not indexed: an integer index into an ordered dictionary is

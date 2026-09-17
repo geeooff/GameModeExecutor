@@ -25,8 +25,9 @@ Both executables take the same command line. Type it into
 `gamemode-executor.exe`: it answers where you can read it and a shell waits
 for it. `gamemode-executorw.exe` accepts the same line but prints nothing and
 nobody waits for it, which suits its two callers — the logon task, which
-runs `run`, and the installer, which runs `stop`, `init` and `install-task`.
-What those commands do is written in the log either way.
+runs `run`, and the installer, which runs `stop`, `init`, `install-task`
+and `uninstall-task`. What those commands do is written in the log either
+way.
 
 | Command | What it does |
 | --- | --- |
@@ -37,7 +38,7 @@ What those commands do is written in the log either way.
 | `validate` | Parse and check the configuration. The command to script against: it returns 3 or 4 without starting anything. |
 | `init [--force]` | Write the starter configuration file into `%APPDATA%\GameModeExecutor`. One that is already there is kept unless `--force`. The installer runs this. What happened is logged under `setup`. |
 | `install-task [--delay 15s] [--force]` | Register a per-user logon task that runs `gamemode-executorw.exe` with no window, then start it now. A task already registered is kept unless `--force`. The configuration path is stored absolute. The installer runs this too. Logged under `setup`. |
-| `uninstall-task` | Remove that task. No task is not an error. Logged under `setup`. |
+| `uninstall-task` | Remove that task. No task is not an error. The installer runs this on an uninstall, not on an upgrade. Logged under `setup`. |
 | `stop` | Stop the running watcher the way *Quit* in its menu does — mid-game, the stop commands run on the way out — and wait until it has gone. None running is not an error. The task is left alone; `install-task` starts it again. The installer runs this before removing or replacing the executables. Logged under `setup`. |
 | `purge [--yes]` | Remove every trace of the program: the logon task, the configuration, the log, the session marker, the executables. It lists what it will remove and asks; `--yes` is for scripts. Refuses while a game is running. See [Removing it](how-it-works.md#removing-it). |
 
@@ -209,7 +210,7 @@ syntax — `RUST_LOG=game=debug` for the detection lines alone.
 | Configuration | next to the executable, or `%APPDATA%\GameModeExecutor\config.toml` | yours; roams with the profile |
 | Log | `%LOCALAPPDATA%\GameModeExecutor\logs\` | disposable |
 | Session marker | `%LOCALAPPDATA%\GameModeExecutor\pending-stop-actions` | present while a game session is open; left behind by a logoff, shutdown or crash, and honoured at the next start. `status` reports it. |
-| Logon task | `\GameModeExecutor\Watcher` in Task Scheduler | records the absolute path of the executable |
+| Logon task | `\GameModeExecutor\Watcher` in Task Scheduler | records the absolute path of the executable; removed with the package, kept through an upgrade |
 
 ## Building and releasing
 
