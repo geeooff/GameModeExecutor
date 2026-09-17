@@ -1,7 +1,8 @@
 # Removes the two scheduled tasks install-tasks.ps1 registered, and nothing
 # else.
 #
-# RUN THIS FROM AN ELEVATED POWERSHELL, as install-tasks.ps1 was.
+# Run it from any PowerShell window: it elevates itself, with one prompt.
+# Refuse the prompt and nothing is changed.
 #
 # What goes:
 #
@@ -18,17 +19,17 @@
 # Usage:
 #   .\uninstall-tasks.ps1
 
-$ErrorActionPreference = 'Stop'
+param(
+    # Set by elevate.ps1 when it had to open a second window for this script.
+    [switch] $InNewWindow
+)
 
-# --- 1. Refuse now rather than half-way through -----------------------------
-$admin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
-         ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $admin) {
-    Write-Host "This needs an elevated PowerShell." -ForegroundColor Red
-    Write-Host "Start menu -> type PowerShell -> right-click -> Run as administrator."
-    Write-Host "Nothing was changed."
-    exit 1
-}
+$ErrorActionPreference = 'Stop'
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# --- 1. Elevate first, or stop here with nothing changed --------------------
+. (Join-Path $here 'elevate.ps1')
+Assert-Elevated -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 # --- 2. Remove the two roles ------------------------------------------------
 $managed = 'FanControl Idle', 'FanControl Game'
@@ -70,3 +71,4 @@ Write-Host "FanControl keeps whichever configuration is active right now; pick t
 Write-Host "you want in FanControl itself." -ForegroundColor Cyan
 Write-Host "GameModeExecutor's config.toml still names these tasks: edit it, or the" -ForegroundColor Cyan
 Write-Host "watcher will report a failed command at the next game." -ForegroundColor Cyan
+Leave

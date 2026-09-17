@@ -1,7 +1,8 @@
 # Registers the two scheduled tasks this recipe needs, filling in the
 # placeholders for you.
 #
-# RUN THIS FROM AN ELEVATED POWERSHELL.
+# Run it from any PowerShell window: it elevates itself, with one prompt.
+# Refuse the prompt and nothing is changed.
 #
 # FanControl requires administrator rights because it talks to hardware, and
 # GameModeExecutor runs without them on purpose, so it cannot start FanControl
@@ -27,21 +28,17 @@
 param(
     [string] $FanControlDir,
     [string] $IdleConfiguration,
-    [string] $GameConfiguration
+    [string] $GameConfiguration,
+    # Set by elevate.ps1 when it had to open a second window for this script.
+    [switch] $InNewWindow
 )
 
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# --- 1. Refuse now rather than half-way through -----------------------------
-$admin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
-         ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $admin) {
-    Write-Host "This needs an elevated PowerShell." -ForegroundColor Red
-    Write-Host "Start menu -> type PowerShell -> right-click -> Run as administrator."
-    Write-Host "Nothing was changed."
-    exit 1
-}
+# --- 1. Elevate first, or stop here with nothing changed --------------------
+. (Join-Path $here 'elevate.ps1')
+Assert-Elevated -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 # --- 2. Find FanControl -----------------------------------------------------
 # The installer puts it under Program Files (x86), possibly as a service --
@@ -64,7 +61,7 @@ if (-not $FanControlDir -or -not (Test-Path (Join-Path $FanControlDir 'FanContro
     Write-Host "Run again naming its folder, for example:"
     Write-Host '   .\install-tasks.ps1 -FanControlDir "D:\Tools\FanControl"'
     Write-Host "(right-click your FanControl shortcut -> Open file location)"
-    exit 1
+    Leave 1
 }
 Write-Host "FanControl     : $FanControlDir" -ForegroundColor Cyan
 
@@ -95,7 +92,7 @@ function Choose-Configuration([string] $Role, [string] $Meaning, [string] $Given
         if (-not $name) {
             Write-Host "No configuration named for $Role. Nothing was changed." -ForegroundColor Red
             Write-Host "Run again with -${Role}Configuration <name>, or answer the question."
-            exit 1
+            Leave 1
         }
     }
     $name = $name.Trim() -replace '\.json$', ''
@@ -130,7 +127,7 @@ foreach ($entry in $roles) {
     $template = Join-Path $here "FanControl-$role.xml"
     if (-not (Test-Path $template)) {
         Write-Host "  template FanControl-$role.xml is missing next to this script" -ForegroundColor Red
-        exit 1
+        Leave 1
     }
 
     $xml = [System.IO.File]::ReadAllText($template, [System.Text.Encoding]::Unicode)
@@ -175,3 +172,4 @@ Write-Host "Try them now, from a NORMAL (non-elevated) window:" -ForegroundColor
 Write-Host '   schtasks /Run /TN "GameModeExecutor\FanControl Game"'
 Write-Host '   schtasks /Run /TN "GameModeExecutor\FanControl Idle"'
 Write-Host "FanControl's active configuration should change each time."
+Leave

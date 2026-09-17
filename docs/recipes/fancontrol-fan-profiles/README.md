@@ -23,6 +23,7 @@ In this folder:
 | [`config.toml`](config.toml) | the complete configuration, ready to copy — the same for everyone |
 | [`install-tasks.ps1`](install-tasks.ps1) | registers both tasks for you, asking which configuration plays which role |
 | [`uninstall-tasks.ps1`](uninstall-tasks.ps1) | removes those two tasks again, and nothing else |
+| [`elevate.ps1`](elevate.ps1) | shared by the two scripts: asks for administrator rights so you need not open an elevated window |
 | [`FanControl-Idle.xml`](FanControl-Idle.xml) | Task Scheduler definition for the *Idle* role |
 | [`FanControl-Game.xml`](FanControl-Game.xml) | the same for *Game* |
 
@@ -104,11 +105,16 @@ denied`.
 ### The quick way: let the script do it
 
 [`install-tasks.ps1`](install-tasks.ps1) fills the placeholders in and registers
-both tasks. From a PowerShell **opened as administrator**, in this folder:
+both tasks. From any PowerShell window, in this folder:
 
 ```powershell
 .\install-tasks.ps1
 ```
+
+It asks for administrator rights itself — one prompt. On Windows 11 with
+`sudo` enabled in *inline* mode it carries on in the same window; otherwise
+a second window opens for the elevated part and waits for Enter before
+closing. Refuse the prompt and nothing is changed.
 
 It finds FanControl by itself, lists the configurations you have saved, and
 asks which one plays each role:
@@ -132,9 +138,8 @@ questions, or if it cannot find FanControl, say so:
 .\install-tasks.ps1 -FanControlDir "D:\Tools\FanControl"
 ```
 
-It refuses to start unelevated rather than failing part-way, warns if a
-configuration you named is not saved yet, and prints the commands to test what
-it registered. Run it again any time you rename a configuration: the tasks are
+It warns if a configuration you named is not saved yet, and prints the
+commands to test what it registered. Run it again any time you rename a configuration: the tasks are
 simply re-registered.
 
 ### Or by hand: import the templates
@@ -315,7 +320,8 @@ there is nothing to tune.
 
 ## Removing the recipe
 
-From an elevated PowerShell, in this folder:
+From any PowerShell window, in this folder — it asks for administrator rights
+the same way the install script does:
 
 ```powershell
 .\uninstall-tasks.ps1
