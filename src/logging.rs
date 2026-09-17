@@ -46,9 +46,13 @@ pub mod target {
     pub const GAME: &str = "game";
     /// Running the executables from the configuration.
     pub const COMMANDS: &str = "commands";
+    /// Setting the program up and taking it down: the starter configuration,
+    /// the logon task. Written by the commands and by the installer alike,
+    /// so the log says who did what to this machine and when.
+    pub const SETUP: &str = "setup";
 
     /// Every category, in the order they appear in a session.
-    pub const ALL: &[&str] = &[WATCHER, GAME, COMMANDS];
+    pub const ALL: &[&str] = &[WATCHER, GAME, COMMANDS, SETUP];
 
     /// Width of the category column, so messages line up whatever the category.
     pub(super) const WIDTH: usize = 8;

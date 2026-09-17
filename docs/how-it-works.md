@@ -97,9 +97,15 @@ It is not a setting you flip afterwards. So a program that must both sit
 silently in the background *and* answer you when you type commands cannot be one
 file.
 
-Hence the pair. `gamemode-executorw.exe` watches and says nothing;
-`gamemode-executor.exe` is everything you type. Python solves the same problem
-the same way, with `python.exe` and `pythonw.exe`.
+Hence the pair. Both understand the same commands. `gamemode-executor.exe`
+is the one you type them into, because it answers where you can read it and
+a shell waits for it to finish. `gamemode-executorw.exe` prints nothing and
+nobody waits for it, which is exactly right for the two things that run it:
+the logon task, which runs the watcher, and the installer, which writes your
+starter configuration and registers the task through it — a console program
+would flash a black window in the middle of the install. What it did is
+written in the log instead. Python solves the same problem the same way, with
+`python.exe` and `pythonw.exe`.
 
 The alternative — one windowless program that borrows the terminal it was
 launched from — was tried on paper and rejected: a shell does not wait for a
@@ -107,7 +113,8 @@ windowless program, so the prompt comes back before the output, and commands
 like `validate` would stop reporting success or failure to any script using
 them. Silently, which is the worst way for that to break.
 
-Both files are built from the same code, so the watcher they run is identical.
+Both files are built from the same code, so the watcher they run is identical,
+and so is every command.
 
 ## Only one watcher at a time
 

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 pub const CONFIG_FILE_NAME: &str = "config.toml";
@@ -247,6 +247,72 @@ pub fn local_dir() -> Option<PathBuf> {
     std::env::var_os("LOCALAPPDATA").map(|local| PathBuf::from(local).join(APP_DIR_NAME))
 }
 
+/// The configuration `init` writes: `config.example.toml` at the root of the
+/// repository, compiled in, so the file a user starts from and the one the
+/// repository documents are the same bytes.
+pub const STARTER: &str = include_str!("../config.example.toml");
+
+/// What writing the starter configuration did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Starter {
+    /// There was no file; there is one now.
+    Written,
+    /// A file was there and was left alone.
+    Kept,
+    /// A file was there and `force` replaced it.
+    Overwritten,
+}
+
+/// The decision alone, so it can be tested without a disk.
+pub fn starter_outcome(exists: bool, force: bool) -> Starter {
+    match (exists, force) {
+        (false, _) => Starter::Written,
+        (true, false) => Starter::Kept,
+        (true, true) => Starter::Overwritten,
+    }
+}
+
+/// Write the starter configuration to `path`, creating its folder. A file
+/// already there is kept unless `force`: the installer runs this on every
+/// install and upgrade, and a configuration someone edited must survive
+/// both. The outcome is logged at `info`, under `setup`.
+pub fn write_starter(path: &Path, force: bool) -> Result<Starter> {
+    let outcome = starter_outcome(path.exists(), force);
+    if outcome != Starter::Kept {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("cannot create `{}`", parent.display()))?;
+        }
+        std::fs::write(path, STARTER)
+            .with_context(|| format!("cannot write `{}`", path.display()))?;
+    }
+    match outcome {
+        Starter::Written => tracing::info!(
+            target: crate::logging::target::SETUP,
+            path = %path.display(),
+            "Starter configuration written"
+        ),
+        Starter::Kept => tracing::info!(
+            target: crate::logging::target::SETUP,
+            path = %path.display(),
+            "Configuration kept: one is already there (--force replaces it)"
+        ),
+        Starter::Overwritten => tracing::info!(
+            target: crate::logging::target::SETUP,
+            path = %path.display(),
+            "Configuration replaced by the starter one, as asked"
+        ),
+    }
+    Ok(outcome)
+}
+
+/// Where `init` writes when not told otherwise: the roaming profile.
+pub fn starter_path() -> Result<PathBuf> {
+    Ok(roaming_dir()
+        .context("cannot determine %APPDATA%")?
+        .join(CONFIG_FILE_NAME))
+}
+
 /// First existing candidate, or the first candidate at all so error messages
 /// point at a sensible location.
 pub fn default_path() -> Result<PathBuf> {
@@ -288,6 +354,29 @@ mod tests {
         assert_eq!(config.general.log_level, "info");
         // No actions at all is valid: the watcher observes and runs nothing.
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn the_starter_is_written_once_and_replaced_only_on_request() {
+        assert_eq!(starter_outcome(false, false), Starter::Written);
+        assert_eq!(starter_outcome(false, true), Starter::Written);
+        assert_eq!(starter_outcome(true, false), Starter::Kept);
+        assert_eq!(starter_outcome(true, true), Starter::Overwritten);
+    }
+
+    #[test]
+    fn write_starter_keeps_what_is_there_unless_forced() {
+        let dir =
+            std::env::temp_dir().join(format!("gamemode-executor-starter-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("sub").join(CONFIG_FILE_NAME);
+        assert_eq!(write_starter(&path, false).unwrap(), Starter::Written);
+        std::fs::write(&path, "# edited\n").unwrap();
+        assert_eq!(write_starter(&path, false).unwrap(), Starter::Kept);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# edited\n");
+        assert_eq!(write_starter(&path, true).unwrap(), Starter::Overwritten);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), STARTER);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

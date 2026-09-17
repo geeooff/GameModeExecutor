@@ -10,7 +10,7 @@ console window, the other has none.
 
 | Executable | Role |
 | --- | --- |
-| **`gamemode-executorw.exe`** | The one that works. It starts by itself when you log on and never shows anything — no window, no icon. You never launch it yourself. |
+| **`gamemode-executorw.exe`** | The one that works. It starts by itself when you log on and never shows anything — no window, no output. You never launch it yourself; the logon task and the installer do. |
 | **`gamemode-executor.exe`** | The one you talk to. Open it in a terminal to set things up, test, or check. It answers, then it is done. It does not keep watching. |
 
 The `w` just means *windowless*, the same convention as `python.exe` and
@@ -165,6 +165,11 @@ The log keeps the history of every session. It lives in
 2026-09-10 17:53:14.080  INFO  game      Game detected: bf6.exe
 2026-09-10 17:58:41.833  INFO  game      Game no longer detected: bf6.exe
 ```
+
+It starts earlier than the first session: the lines marked `setup` say when
+the configuration was written and the logon task registered, whether you
+typed the command or the installer did it. `init`, `install-task` and
+`uninstall-task` print those same lines as they run.
 
 ## Using the game's name in your command
 

@@ -40,7 +40,7 @@ removed will not detect anything.
 ## Install
 
 Two self-contained executables, no runtime dependencies. `gamemode-executor.exe`
-is the one you type commands into; `gamemode-executorw.exe` is the same watcher
+is the one you type commands into; `gamemode-executorw.exe` is the same program
 with no console, started at logon by a task it registers for you.
 
 From the [latest release](https://github.com/Geeooff/GameModeExecutor/releases/latest),

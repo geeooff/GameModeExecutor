@@ -262,9 +262,11 @@ try {
     # 1042 = 18 (run an executable from the File table) + 1024 (deferred,
     # in the install script, after the files are on disk). Impersonated, as
     # deferred actions are by default, so they act as the user -- which is
-    # the only way a per-user package may run anything.
-    Insert 'CustomAction' @('InitConfig', 1042, 'gamemode_executor.exe', 'init', $null)
-    Insert 'CustomAction' @('RegisterTask', 1042, 'gamemode_executor.exe', 'install-task', $null)
+    # the only way a per-user package may run anything. The windowless twin,
+    # because Windows Installer does not hide an action's console and the
+    # console binary would flash one twice (seen 2026-09-18).
+    Insert 'CustomAction' @('InitConfig', 1042, 'gamemode_executorw.exe', 'init', $null)
+    Insert 'CustomAction' @('RegisterTask', 1042, 'gamemode_executorw.exe', 'install-task', $null)
 
     $sequences = @{
         InstallExecuteSequence = @(

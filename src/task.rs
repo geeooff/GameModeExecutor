@@ -24,6 +24,26 @@ pub const TASK_NAME: &str = "GameModeExecutor\\Watcher";
 /// binary, which is the one the user types and therefore the one running now.
 const WATCHER_EXE: &str = "gamemode-executorw.exe";
 
+/// What `install` did about the task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Registration {
+    /// There was no task; there is one now.
+    Registered,
+    /// A task was there and was left alone.
+    Kept,
+    /// A task was there and `force` replaced it.
+    Replaced,
+}
+
+/// The decision alone, so it can be tested without Task Scheduler.
+pub fn registration(exists: bool, force: bool) -> Registration {
+    match (exists, force) {
+        (false, _) => Registration::Registered,
+        (true, false) => Registration::Kept,
+        (true, true) => Registration::Replaced,
+    }
+}
+
 /// Register the logon task that starts the watcher with no console, then
 /// start it, so the icon appears now rather than at the next logon. Runs
 /// only while the user is logged on, so no password and no elevation.
@@ -31,13 +51,17 @@ const WATCHER_EXE: &str = "gamemode-executorw.exe";
 /// A task that is already there is kept unless `force`: the installer calls
 /// this on every install and upgrade, and must not undo a delay or a path
 /// the user chose. Decided 2026-09-17, on the first install from the package.
-pub fn install(config_path: &Path, delay: Duration, force: bool) -> Result<()> {
-    if exists() && !force {
-        println!(
-            "Scheduled task `{TASK_NAME}` already exists and is kept (use --force to replace it)."
+/// Every outcome is logged at `info`, under `setup`.
+pub fn install(config_path: &Path, delay: Duration, force: bool) -> Result<Registration> {
+    let outcome = registration(exists(), force);
+    if outcome == Registration::Kept {
+        tracing::info!(
+            target: crate::logging::target::SETUP,
+            task = TASK_NAME,
+            "Logon task kept: one is already registered (--force replaces it)"
         );
         start()?;
-        return Ok(());
+        return Ok(outcome);
     }
     let here = std::env::current_exe().context("cannot locate the running executable")?;
     let exe = here.with_file_name(WATCHER_EXE);
@@ -74,30 +98,64 @@ pub fn install(config_path: &Path, delay: Duration, force: bool) -> Result<()> {
     let _ = std::fs::remove_file(&temp);
     result?;
 
-    println!("Scheduled task `{TASK_NAME}` created for {user}.");
-    println!("  folder  : \\{TASK_FOLDER} in Task Scheduler");
-    println!("  program : {}", exe.display());
-    println!("  config  : {}", config_path.display());
-    println!("  delay   : {delay:?} after logon, no execution time limit");
-    start()
+    match outcome {
+        Registration::Registered => tracing::info!(
+            target: crate::logging::target::SETUP,
+            task = TASK_NAME,
+            user = %user,
+            program = %exe.display(),
+            config = %config_path.display(),
+            delay = ?delay,
+            "Logon task registered: it starts the watcher at every logon, with no execution time limit"
+        ),
+        _ => tracing::info!(
+            target: crate::logging::target::SETUP,
+            task = TASK_NAME,
+            user = %user,
+            program = %exe.display(),
+            config = %config_path.display(),
+            delay = ?delay,
+            "Logon task replaced, as asked"
+        ),
+    }
+    start()?;
+    Ok(outcome)
 }
 
 /// Run the task now. A watcher already running keeps the single-instance
 /// mutex, so a second start exits at once and nothing doubles.
 fn start() -> Result<()> {
     run_schtasks(&["/Run", "/TN", TASK_NAME])?;
-    println!("The watcher is starting; its icon appears in the notification area.");
+    tracing::info!(
+        target: crate::logging::target::SETUP,
+        task = TASK_NAME,
+        "Watcher started through its task; its icon appears in the notification area"
+    );
     Ok(())
 }
 
+/// Remove the logon task. A task that is not there is not an error: the
+/// outcome is logged either way.
 pub fn uninstall() -> Result<()> {
+    if !exists() {
+        tracing::info!(
+            target: crate::logging::target::SETUP,
+            task = TASK_NAME,
+            "No logon task to remove"
+        );
+        return Ok(());
+    }
     run_schtasks(&["/Delete", "/TN", TASK_NAME, "/F"])?;
-    println!("Scheduled task `{TASK_NAME}` deleted.");
     // The folder is left behind on purpose: anything else the user put in it --
     // the elevated tasks a recipe asks for, for instance -- is theirs, and
     // removing a folder that still holds their work would be worse than
     // leaving an empty one they can delete in a click.
-    println!("  the \\{TASK_FOLDER} folder is left in place, empty or not.");
+    tracing::info!(
+        target: crate::logging::target::SETUP,
+        task = TASK_NAME,
+        folder = TASK_FOLDER,
+        "Logon task removed; the folder in Task Scheduler is left in place, empty or not"
+    );
     Ok(())
 }
 
@@ -214,18 +272,27 @@ fn current_user() -> Option<String> {
 /// Whether the logon task is registered. `schtasks /Query` exits non-zero
 /// for a task that does not exist, which is the whole answer.
 pub fn exists() -> bool {
-    Command::new("schtasks")
-        .args(["/Query", "/TN", TASK_NAME])
+    schtasks(&["/Query", "/TN", TASK_NAME])
         .output()
         .map(|output| output.status.success())
         .unwrap_or(false)
 }
 
+/// `schtasks.exe` with its output captured and no console window of its
+/// own. A console program started from a parent that has no visible console
+/// -- the installer's custom action, the windowless watcher -- opens one for
+/// itself, and the user sees it flash: seen on 2026-09-18, on the first
+/// install from the package.
+fn schtasks(args: &[&str]) -> Command {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let mut command = Command::new("schtasks");
+    command.args(args).creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
 fn run_schtasks(args: &[&str]) -> Result<()> {
-    let output = Command::new("schtasks")
-        .args(args)
-        .output()
-        .context("cannot run schtasks.exe")?;
+    let output = schtasks(args).output().context("cannot run schtasks.exe")?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -237,6 +304,14 @@ fn run_schtasks(args: &[&str]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_task_is_registered_once_and_replaced_only_on_request() {
+        assert_eq!(registration(false, false), Registration::Registered);
+        assert_eq!(registration(false, true), Registration::Registered);
+        assert_eq!(registration(true, false), Registration::Kept);
+        assert_eq!(registration(true, true), Registration::Replaced);
+    }
 
     #[test]
     fn the_definition_disables_the_traps() {

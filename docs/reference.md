@@ -12,17 +12,21 @@ Self-contained, no runtime dependencies.
 | Executable | What it is for |
 | --- | --- |
 | `gamemode-executor.exe` | Everything you type. A console program, so a shell waits for it, pipes work and exit codes come back. |
-| `gamemode-executorw.exe` | Watching, and nothing else. No console at all — this is what the logon task runs. |
+| `gamemode-executorw.exe` | The same commands with no console at all: it prints nothing, and a shell does not wait for it. What the logon task runs, and what the installer runs. |
 | `presence-probe.exe` | Diagnostics, not shipped in the bundle. See [Detection](design/00-detection.md#the-instrument). |
 
 The `w` suffix is the same convention as `python.exe` and `pythonw.exe`, for
 the same reason: a program cannot be both a console and a windowless one in a
-single file. Both share one library, so the watcher they run is the same code.
+single file. Both share one library, so the commands they run are the same code.
 
 ## Commands
 
-All belong to `gamemode-executor.exe`. `gamemode-executorw.exe` takes only
-`--config` and `--log-level`, and watches.
+Both executables take the same command line. Type it into
+`gamemode-executor.exe`: it answers where you can read it and a shell waits
+for it. `gamemode-executorw.exe` accepts the same line but prints nothing and
+nobody waits for it, which suits its two callers — the logon task, which
+runs `run`, and the installer, which runs `init` and `install-task`. What
+those commands do is written in the log either way.
 
 | Command | What it does |
 | --- | --- |
@@ -31,9 +35,9 @@ All belong to `gamemode-executor.exe`. `gamemode-executorw.exe` takes only
 | `check <path>` | Ask whether Windows knows a given executable as a game. |
 | `trigger start\|stop` | Run one set of actions immediately, ignoring detection. Handy to test your commands. |
 | `validate` | Parse and check the configuration. The command to script against: it returns 3 or 4 without starting anything. |
-| `init [--force]` | Write the starter configuration file into `%APPDATA%\GameModeExecutor`. One that is already there is kept unless `--force`. The installer runs this. |
-| `install-task [--delay 15s] [--force]` | Register a per-user logon task that runs `gamemode-executorw.exe` with no window, then start it now. A task already registered is kept unless `--force`. The configuration path is stored absolute. The installer runs this too. |
-| `uninstall-task` | Remove that task. |
+| `init [--force]` | Write the starter configuration file into `%APPDATA%\GameModeExecutor`. One that is already there is kept unless `--force`. The installer runs this. What happened is logged under `setup`. |
+| `install-task [--delay 15s] [--force]` | Register a per-user logon task that runs `gamemode-executorw.exe` with no window, then start it now. A task already registered is kept unless `--force`. The configuration path is stored absolute. The installer runs this too. Logged under `setup`. |
+| `uninstall-task` | Remove that task. No task is not an error. Logged under `setup`. |
 | `purge [--yes]` | Remove every trace of the program: the logon task, the configuration, the log, the session marker, the executables. It lists what it will remove and asks; `--yes` is for scripts. Refuses while a game is running. See [Removing it](how-it-works.md#removing-it). |
 
 Global options: `--config <PATH>`, `--log-level <LEVEL>`, `--version`.
@@ -157,17 +161,28 @@ One log serves two readers, and `log_level` is the dial between them:
 | `trace` | technician | Raw measurements. |
 
 `info` is reserved for what the program is for: a game detected, named or
-gone, the watcher starting or stopping, a session recovered at start. Nothing
-else competes with those lines.
+gone, the watcher starting or stopping, a session recovered at start — and
+what was done to this machine to set it up, which is the same story one
+chapter earlier. Nothing else competes with those lines.
 
 Each line is `time  LEVEL  category  message`, with the category one of
-`watcher`, `game` or `commands`:
+`watcher`, `game`, `commands` or `setup`:
 
 ```
+2026-09-18 00:51:36.740  INFO  setup     Starter configuration written
+2026-09-18 00:51:37.102  INFO  setup     Logon task registered: it starts the watcher at every logon, with no execution time limit
 2026-09-10 17:51:02.433  INFO  watcher   GameModeExecutor 0.1.0 starting
 2026-09-10 17:53:14.080  INFO  game      Game detected: bf6.exe
 2026-09-10 17:58:41.833  INFO  game      Game no longer detected: bf6.exe
 ```
+
+`setup` is written by `init`, `install-task` and `uninstall-task`, whether a
+person typed them or the installer ran them: a configuration written, kept or
+replaced; a task registered, kept, replaced or removed; the watcher started.
+Those commands open the log where the watcher would — the configuration's
+`log_dir` when a configuration can be read, the default location otherwise —
+so a fresh install's first lines say what the installer did, and a machine
+that misbehaves can be read back to the day it was set up.
 
 `debug` does not give a different log. It gives the same one annotated — the
 technical detail rides along as fields rather than in lines of its own:

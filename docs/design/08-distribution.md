@@ -145,10 +145,20 @@ worked, and four remarks came back, all taken the same evening:
   install and on an upgrade and never on a repair or removal. Measured
   with a package of a separate test family beside the real one: both ran,
   both kept what was there, the watcher was untouched. `init` used to fail
-  when the file existed, which would have failed every upgrade. And no
-  window: watched on 2026-09-18, each action's process ran in the user's
-  own session with a console host that had no title and no window —
-  Windows Installer starts executable actions with a hidden console.
+  when the file existed, which would have failed every upgrade. A window
+  after all: a probe watching the actions' processes on 2026-09-18 saw a
+  console host with no title and no window and this record said so; the
+  maintainer, watching the screen, saw a console flash twice at the end of
+  the install. The probe was blind — a console host's window belongs to the
+  host, not to the process it serves — and the eye was right. Windows
+  Installer does not hide an executable action's console. Hiding the
+  `schtasks` child with `CREATE_NO_WINDOW` was not enough, because the
+  flash was the action's own console. The actions now run through
+  `gamemode-executorw.exe`, which has none; the maintainer saw no window on
+  the next install. To carry two commands, the twin took the whole command
+  line rather than two hidden verbs of its own, and the setup commands
+  write what they did to the log — recorded in
+  [the windowless watcher](05-windowless-watcher.md#two-binaries-the-w-convention).
 - **The starter configuration named FanControl.** It now names nothing:
   two commands that beep, commented out, and a pointer to the recipes. That
   needed a configuration with no commands to be valid, which it was not;

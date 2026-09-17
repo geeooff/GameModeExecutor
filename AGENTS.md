@@ -60,9 +60,9 @@ deleted.
   `ALL CAPS` categories, no `camelCase` in prose. Conversation with the
   maintainer is in French.
 - **Log lines follow the contract in `docs/reference.md`.** `info` is
-  reserved for detection and the watcher's own start and stop; everything
-  else is `debug` unless it is a degradation (`warn`) or needs the user
-  (`error`). The message is the sentence, the fields are the technical annex,
+  reserved for detection, the watcher's own start and stop, and what the
+  setup commands did to the machine; everything else is `debug` unless it is
+  a degradation (`warn`) or needs the user (`error`). The message is the sentence, the fields are the technical annex,
   and every call names a `target:` — a test fails the build otherwise.
 - Module-level doc comments carry the rules a module is shaped by (the tray's
   re-entrancy rule, the marker's location, the engine's callback). Read them
