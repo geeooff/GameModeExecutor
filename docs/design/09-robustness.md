@@ -3,7 +3,7 @@
 **Status: partly done.** The session marker is built and verified; the
 configuration-fault design is decided and waiting; two smaller items remain.
 
-- [x] Restore at the next start what a logoff could not — done 2026-09-16
+- [x] Restore at the next start what a logoff could not — done 2026-09-16, a race fixed and re-verified 2026-09-17
 - [ ] Configuration faults shown in the tray, and live reload — designed, below
 - [ ] Stop timing the refinement; let the OS say when — below
 - [ ] `ShutdownBlockReasonCreate`, so Windows' shutdown screen says what is being restored rather than naming the process
@@ -81,6 +81,13 @@ scenario failed on the old loop before it passed on the new one. The same
 morning's three ordinary sessions -- Skyrim, Battlefield 6 with its rename,
 and a *Quit* mid-game whose commands were confirmed and marker removed -- all
 behaved as documented.
+
+The logoff was repeated on the fixed build twenty minutes later and the whole
+chain held: `could not be confirmed` at `warn` before the session ended, the
+recovery line 44 s later at logon, the command exiting 0. That run happened
+to deliver the stop first, as on the 16th; the writer-first ordering has been
+seen once in the field and is what the scenario pins down. Which order a
+logoff produces is Windows' choice, and both now lead to the same branch.
 
 ## Configuration faults, shown where the program already lives
 
