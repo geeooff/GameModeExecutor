@@ -1,0 +1,59 @@
+name: Release
+
+# A tag alone produces the release: push vX.Y.Z and this runs the same
+# checklist a developer runs, builds the installer and the zip from that
+# exact commit, and publishes them with their checksums. Nothing is built
+# or uploaded by hand. docs/design/08-distribution.md has the rules.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The notes list the commits since the previous tag.
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # The version is bumped in the release commit, so the tag and Cargo.toml
+      # must agree; a release named after one and built from the other would
+      # carry the wrong version in every file.
+      - name: The tag names the version in Cargo.toml
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          if ($env:GITHUB_REF_NAME -ne "v$version") {
+            throw "tag $env:GITHUB_REF_NAME does not match Cargo.toml version $version"
+          }
+          "GME_VERSION=$version" | Add-Content $env:GITHUB_ENV
+
+      - name: Test, build and package
+        shell: pwsh
+        run: .\scripts\build.ps1 release
+
+      - name: Checksums and notes
+        shell: pwsh
+        run: .\scripts\release-notes.ps1 -Tag $env:GITHUB_REF_NAME
+
+      - name: Publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME `
+            "dist\GameModeExecutor-$env:GME_VERSION.msi" `
+            "dist\GameModeExecutor-$env:GME_VERSION.zip" `
+            dist\SHA256SUMS.txt `
+            --title "GameModeExecutor $env:GME_VERSION" `
+            --notes-file dist\notes.md `
+            --verify-tag

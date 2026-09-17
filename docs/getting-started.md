@@ -16,10 +16,20 @@ console window, the other has none.
 The `w` just means *windowless*, the same convention as `python.exe` and
 `pythonw.exe`.
 
-## Where to put the folder
+## Installing
 
-There is nothing to install: unzip it and keep it somewhere. Two things make
-the choice worth a moment's thought.
+The release page offers two files that hold the same two executables.
+
+**The installer, `GameModeExecutor-<version>.msi`.** Run it. It asks for no
+administrator rights and installs for you alone, into
+`%LOCALAPPDATA%\Programs\GameModeExecutor`. That is the whole install: no
+window to click through, and *Programs and Features* lists it afterwards. A
+newer release installs over it the same way and leaves your configuration
+where it is. Skip to [Three steps](#three-steps).
+
+**The zip, `GameModeExecutor-<version>.zip`,** for anyone who would rather
+not run an installer: unzip it and keep it somewhere. Two things make the
+choice of somewhere worth a moment's thought.
 
 **It has to stay put.** The logon task records the full path to the executable,
 so moving the folder afterwards means running `install-task` again.

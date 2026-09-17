@@ -219,6 +219,13 @@ Each mode runs everything the one before it does. `test` is more than
 header**: a console program and a windowless one cannot be the same file, and
 getting that backwards is invisible until someone sees a black window at logon.
 
+A release proper is a tag. The version is bumped in `Cargo.toml` in the
+release commit, that commit is tagged `vX.Y.Z`, and pushing the tag makes
+the release workflow run this same script on a GitHub runner, then publish
+the installer, the zip and their SHA-256 checksums as a GitHub release, with
+notes listing the commits since the previous tag. Nothing is built or
+uploaded by hand.
+
 `release` refuses a dirty tree, checks the commit stamped into the binaries is
 the commit being built, checks the version block each executable carries,
 stages the bundle, zips it into `dist\`, builds the Windows Installer package

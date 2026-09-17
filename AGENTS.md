@@ -88,7 +88,7 @@ deleted.
 ```powershell
 .\scripts\build.ps1 test       # fmt, clippy -D warnings, tests, every shipped config.toml validated, every doc link resolved
 .\scripts\build.ps1 build      # + release build, PE subsystem check
-.\scripts\build.ps1 release    # + refuses a dirty tree, checks the stamped commit, zips into dist\
+.\scripts\build.ps1 release    # + refuses a dirty tree, checks the stamped commit, zips into dist\, builds and validates the MSI
 ```
 
 Run `test` before every commit and read its result — a `FAILED` scrolling
@@ -96,6 +96,13 @@ past a `git commit` in the same block has happened. `release` requires a clean
 tree because the binaries carry the commit they were built from, and
 `--version` links to that commit's `docs/getting-started.md`: build a release
 from the commit that carries the final documentation, never before it.
+
+**Publishing a release** is a tag, and the tag needs explicit approval like
+any push: bump `version` in `Cargo.toml` in the release commit, merge it,
+tag that commit `vX.Y.Z`, push the tag. The release workflow runs the same
+script on a runner and publishes the installer, the zip and their checksums.
+Versions follow `docs/design/08-distribution.md`: the number moves only in
+a release commit, and 1.0.0 waits for the criteria written there.
 
 Three tests read this machine's registry — the Known Game List, the Game Bar
 registration, the real sensor — which a GitHub-hosted Windows Server runner

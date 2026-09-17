@@ -12,11 +12,12 @@ order it is taken:
 - [x] `VERSIONINFO` metadata in the executables, through the same `rc.exe` step that embeds the icon — done 2026-09-17, checked by the checklist
 - [x] An MSI, per-user, into `%LOCALAPPDATA%\Programs\GameModeExecutor`, with the user's files outside its components — built 2026-09-17, ICE clean, the round trip measured below
 - [x] `gamemode-executor purge`, the same command in every mode — built 2026-09-17, below
-- [ ] The whole delivery chain, unattended: pushing a `vX.Y.Z` tag makes CI run
+- [x] The whole delivery chain, unattended: pushing a `vX.Y.Z` tag makes CI run
   the checklist, build the **MSI** and the **zip archive**, and publish a
   GitHub Release carrying both with their SHA-256 — nothing built or uploaded
-  by hand
-- [ ] The documentation: *Getting started* and the README point at the release rather than at `cargo build`, the reference gains `purge`, *How it works* gains removal
+  by hand. Written 2026-09-17 (`release.yml`, `scripts/release-notes.ps1`);
+  its first run is the first tag
+- [x] The documentation: *Getting started* and the README point at the release rather than at `cargo build`, the reference gains `purge`, *How it works* gains removal — 2026-09-17
 - [ ] Verified in the field: the MSI on two machines, one real upgrade, one purge round trip
 
 **Done when** a tag alone produces a release a stranger can install from, and
