@@ -16,6 +16,7 @@ pub mod exit;
 pub mod logging;
 pub mod marker;
 pub mod registry;
+pub mod sensor;
 pub mod service;
 pub mod task;
 pub mod tray;

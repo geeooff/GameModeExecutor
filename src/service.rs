@@ -21,7 +21,7 @@ use anyhow::{Context, Result};
 
 use crate::config::{self, Config};
 use crate::win::{SessionWindow, SingleInstance, StopSignal};
-use crate::{engine, logging, tray, win};
+use crate::{engine, logging, sensor, tray, win};
 
 /// Ceiling on how long `WM_ENDSESSION` holds the shutdown while the stop
 /// actions run. `schtasks` returns in about 100 ms, so this is only here so a
@@ -108,8 +108,8 @@ pub fn serve(
     // the user may have sent elsewhere and is entitled to empty.
     let marker = crate::marker::Marker::in_local_dir();
     let worker = std::thread::spawn(move || {
-        let outcome = engine::Engine::new(config)
-            .map(|engine| engine.reporting_to(sink))
+        let outcome = sensor::Windows::new()
+            .map(|sensor| engine::Engine::new(config, sensor).reporting_to(sink))
             .map(|engine| match marker {
                 Some(marker) => engine.remembering(marker),
                 None => engine,

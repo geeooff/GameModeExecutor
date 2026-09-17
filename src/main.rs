@@ -10,7 +10,7 @@ use game_mode_executor::config::{self, Config};
 use game_mode_executor::detect::known_games::KnownGames;
 use game_mode_executor::detect::presence_writer;
 use game_mode_executor::detect::process::Snapshot;
-use game_mode_executor::{build_info, detect, engine, exit, logging, marker, service, task};
+use game_mode_executor::{actions, build_info, detect, exit, logging, marker, service, task};
 
 /// Default config file shipped with the program, also used by `init`.
 const EXAMPLE_CONFIG: &str = include_str!("../config.example.toml");
@@ -133,13 +133,13 @@ fn run() -> Result<()> {
         }
         Some(Commands::Trigger { event }) => {
             logging::init(&level, None, true)?;
-            let engine = engine::Engine::new(config)?;
-            match event {
-                TriggerEvent::Start => engine.fire_start_manual(),
-                TriggerEvent::Stop => {
-                    engine.fire_stop(None);
-                }
-            }
+            // The commands and nothing else: no detection, no session, no
+            // marker. A trigger is for testing what the commands do.
+            let (label, actions) = match event {
+                TriggerEvent::Start => ("game_start", &config.on_game_start),
+                TriggerEvent::Stop => ("game_stop", &config.on_game_stop),
+            };
+            actions::run_all(actions, &actions::ActionContext::new(label, None));
             Ok(())
         }
         _ => cmd_run(config, &path, &level),

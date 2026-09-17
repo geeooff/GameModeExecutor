@@ -74,7 +74,9 @@ deleted.
   one fails the build. Most of the program is FFI into Win32; "it compiles"
   is not an argument there.
 - Pure logic gets a unit test; Win32 behaviour gets verified by hand and the
-  result written into the design record with its date.
+  result written into the design record with its date. The engine reads the
+  OS only through `sensor::Sensor`, and `engine/tests.rs` scripts one to run
+  whole sessions; a change to the loop gets a scenario there.
 - Commit messages: an imperative subject, a short body saying what changed
   and why, and a `Co-Authored-By` trailer for the agent that co-wrote it. The
   collaboration is not hidden.

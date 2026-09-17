@@ -9,50 +9,62 @@
 //! - idle: look for the writer process every `poll_interval`;
 //! - active: park on the writer's process handle, so nothing runs at all until
 //!   Windows lets it go.
+//!
+//! The engine decides and never reads the OS itself: everything it observes
+//! comes through a [`Sensor`], which is what lets `engine/tests.rs` drive whole
+//! sessions in milliseconds with a scripted one.
 
-use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::Result;
 
 use crate::actions::{self, ActionContext, Outcome};
 use crate::config::Config;
-use crate::detect::known_games::KnownGames;
-use crate::detect::presence_writer::{self, WaitOutcome};
-use crate::detect::process::Snapshot;
-use crate::detect::{self, GameSignal, gpu};
+use crate::detect::presence_writer::WaitOutcome;
+use crate::detect::{self, GameSignal};
 use crate::logging::{self, target};
 use crate::marker::Marker;
+use crate::sensor::Sensor;
 use crate::win::StopSignal;
 
-/// Told whenever the session changes: a game started, was named more precisely,
-/// or ended. `None` means no game.
-///
-/// A callback rather than the engine knowing about the tray. The engine is the
-/// part worth keeping testable, and it has no business knowing that anything is
-/// drawn anywhere; the caller decides what a change means. Without one the
-/// engine behaves exactly as before, which is what every test relies on.
-pub type SessionSink = std::sync::Arc<dyn Fn(Option<&GameSignal>) + Send + Sync>;
+/// What the engine tells the outside world about the session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Session {
+    /// No game.
+    Idle,
+    /// A game is running. Named when the Known Game List matched a process;
+    /// `None` is a game Windows tracks but does not describe, which is a
+    /// session all the same.
+    Playing(Option<GameSignal>),
+}
 
-pub struct Engine {
+/// Told whenever the session changes: a game started, was named more
+/// precisely, or ended.
+///
+/// A callback rather than the engine knowing about the tray. The engine has
+/// no business knowing that anything is drawn anywhere; the caller decides
+/// what a change means. Without one the engine behaves exactly as before.
+pub type SessionSink = Arc<dyn Fn(&Session) + Send + Sync>;
+
+pub struct Engine<S: Sensor> {
     config: Config,
-    /// Resolved from the registry once at startup, never hard-coded.
-    writer_exe: PathBuf,
+    sensor: S,
     session: Option<SessionSink>,
     /// Where "a session is open" is remembered across the process's death.
     /// Without one the engine forgets everything when it exits, which is what
-    /// the tests want and what a logoff cannot afford.
+    /// most tests want and what a logoff cannot afford.
     marker: Option<Marker>,
 }
 
-impl Engine {
-    pub fn new(config: Config) -> Result<Self> {
-        let writer_exe = presence_writer::registered_exe()?;
-        Ok(Self {
+impl<S: Sensor> Engine<S> {
+    pub fn new(config: Config, sensor: S) -> Self {
+        Self {
             config,
-            writer_exe,
+            sensor,
             session: None,
             marker: None,
-        })
+        }
     }
 
     /// Report session changes to `sink` as well as to the log.
@@ -70,9 +82,9 @@ impl Engine {
         self
     }
 
-    fn report(&self, signal: Option<&GameSignal>) {
+    fn report(&self, session: &Session) {
         if let Some(sink) = &self.session {
-            sink(signal);
+            sink(session);
         }
     }
 
@@ -152,29 +164,16 @@ impl Engine {
         self.forget();
     }
 
-    pub fn writer_exe(&self) -> &Path {
-        &self.writer_exe
-    }
-
     pub fn run(&mut self, stop: &StopSignal) -> Result<()> {
         tracing::debug!(
             target: target::WATCHER,
-            writer = %self.writer_exe.display(),
             idle_poll = ?self.config.detection.poll_interval,
             "Watching for games"
         );
-        if !presence_writer::is_microsoft_default(&self.writer_exe) {
-            tracing::warn!(
-                target: target::WATCHER,
-                writer = %self.writer_exe.display(),
-                "The registered Game Bar presence writer is not the one Windows ships; \
-                 detection follows whatever is registered"
-            );
-        }
         self.recover();
 
         while let Some(mut pid) = self.await_writer(stop) {
-            let session_start = std::time::Instant::now();
+            let session_start = Instant::now();
             let mut signal = self.identify();
             self.fire_start(signal.as_ref());
 
@@ -192,14 +191,14 @@ impl Engine {
                 let timeout = refine_due.then_some(self.config.detection.identify_after);
                 // Waiting on the writer's handle rather than sleeping keeps the
                 // refinement from being blind to a game ending in the meantime.
-                match presence_writer::wait_for_exit_until(pid, stop, timeout)? {
+                match self.sensor.wait_for_writer_exit(pid, stop, timeout)? {
                     WaitOutcome::Stopped => break true,
                     WaitOutcome::TimedOut => {
                         refine_due = false;
                         if let Some(better) = self.refine(signal.as_ref()) {
                             signal = Some(better);
                             // The name on screen was the launcher's until now.
-                            self.report(signal.as_ref());
+                            self.report(&Session::Playing(signal.clone()));
                             self.remember(signal.as_ref());
                         }
                         continue;
@@ -264,7 +263,7 @@ impl Engine {
             if stop.is_set() {
                 return None;
             }
-            if let Some(pid) = presence_writer::running_pid(&self.writer_exe) {
+            if let Some(pid) = self.sensor.writer_pid() {
                 return Some(pid);
             }
             if stop.wait_timeout(self.config.detection.poll_interval) {
@@ -280,19 +279,19 @@ impl Engine {
         if grace.is_zero() {
             return None;
         }
-        let deadline = std::time::Instant::now() + grace;
+        let deadline = Instant::now() + grace;
         loop {
             // Wait the shorter of a poll and what is left, so the grace period
             // is honoured to the configured value rather than rounded up to a
             // whole number of polls.
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return None;
             }
             if stop.wait_timeout(self.config.detection.poll_interval.min(remaining)) {
                 return None;
             }
-            if let Some(pid) = presence_writer::running_pid(&self.writer_exe) {
+            if let Some(pid) = self.sensor.writer_pid() {
                 return Some(pid);
             }
         }
@@ -306,14 +305,11 @@ impl Engine {
     /// log jumps straight from the start to the stop, and telling "Windows was
     /// slow" from "we were slow" needs Steam's own logs. So say whether the
     /// game we identified was already gone when Windows finally let go.
-    fn log_writer_exit(&self, session_start: std::time::Instant, signal: Option<&GameSignal>) {
+    fn log_writer_exit(&self, session_start: Instant, signal: Option<&GameSignal>) {
         let elapsed = session_start.elapsed();
-        let named = signal.and_then(|signal| signal.process_id).map(|pid| {
-            let alive = Snapshot::take()
-                .ok()
-                .is_some_and(|snapshot| snapshot.by_pid(pid).is_some());
-            (pid, alive)
-        });
+        let named = signal
+            .and_then(|signal| signal.process_id)
+            .map(|pid| (pid, self.sensor.is_running(pid)));
         match named {
             Some((pid, true)) => tracing::debug!(
                 target: target::GAME,
@@ -339,21 +335,17 @@ impl Engine {
     /// Put a name on the game Windows just flagged, for the logs and the
     /// action placeholders. Detection does not depend on this working.
     fn identify(&self) -> Option<GameSignal> {
-        let known = match KnownGames::load() {
-            Ok(known) => known,
+        match self.sensor.candidates() {
+            Ok(candidates) => candidates.into_iter().next(),
             Err(error) => {
-                tracing::warn!(target: target::GAME, error = %format!("{error:#}"), "Cannot read Windows' known game list, so the game cannot be named");
-                return None;
+                tracing::warn!(
+                    target: target::GAME,
+                    error = %format!("{error:#}"),
+                    "The game cannot be named"
+                );
+                None
             }
-        };
-        let snapshot = match Snapshot::take() {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
-                tracing::warn!(target: target::GAME, error = %format!("{error:#}"), "Cannot list running processes, so the game cannot be named");
-                return None;
-            }
-        };
-        known.identify(&snapshot)
+        }
     }
 
     /// Ask the GPU which of the matched processes is really the game.
@@ -364,21 +356,17 @@ impl Engine {
     /// *not* the name in use is news, and needs no GPU to establish.
     /// Naming is a convenience: no answer is a fine answer.
     fn refine(&self, current: Option<&GameSignal>) -> Option<GameSignal> {
-        let known = match KnownGames::load() {
-            Ok(known) => known,
+        let candidates = match self.sensor.candidates() {
+            Ok(candidates) => candidates,
             Err(error) => {
-                tracing::debug!(target: target::GAME, error = %format!("{error:#}"), "Refinement skipped, cannot read the known game list");
+                tracing::debug!(
+                    target: target::GAME,
+                    error = %format!("{error:#}"),
+                    "Refinement skipped"
+                );
                 return None;
             }
         };
-        let snapshot = match Snapshot::take() {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
-                tracing::debug!(target: target::GAME, error = %format!("{error:#}"), "Refinement skipped, cannot list running processes");
-                return None;
-            }
-        };
-        let candidates = known.candidates(&snapshot);
         if candidates.len() < 2 {
             // One match left is not the same as nothing to say. Battlefield 6
             // does this every session: the EA anti-cheat *launcher* matches the
@@ -388,7 +376,7 @@ impl Engine {
             // exists. Measured 2026-09-15.
             let named_is_alive = current
                 .and_then(|signal| signal.process_id)
-                .is_some_and(|pid| snapshot.by_pid(pid).is_some());
+                .is_some_and(|pid| self.sensor.is_running(pid));
             let count = candidates.len();
             if let Some(survivor) = detect::lone_survivor(candidates, current, named_is_alive) {
                 tracing::info!(
@@ -408,10 +396,14 @@ impl Engine {
             return None;
         }
 
-        let load = match gpu::rendering_load(self.config.detection.gpu_sample) {
+        let load = match self.sensor.rendering_load(self.config.detection.gpu_sample) {
             Ok(load) => load,
             Err(error) => {
-                tracing::debug!(target: target::GAME, error = %format!("{error:#}"), "Cannot read the GPU counters, keeping the first match");
+                tracing::debug!(
+                    target: target::GAME,
+                    error = %format!("{error:#}"),
+                    "Cannot read the GPU counters, keeping the first match"
+                );
                 return None;
             }
         };
@@ -452,16 +444,10 @@ impl Engine {
         Some(best)
     }
 
-    /// Manual trigger, used by the `trigger start` command.
-    pub fn fire_start_manual(&self) {
-        actions::run_all(
-            &self.config.on_game_start,
-            &ActionContext::new("game_start", None),
-        );
-    }
-
     fn fire_start(&self, signal: Option<&GameSignal>) {
-        self.report(signal);
+        // A game Windows tracks but does not name is a session all the same;
+        // the tray shows it as one, with its own wording.
+        self.report(&Session::Playing(signal.cloned()));
         // Before the commands, so a crash between the two still leaves a
         // session to close.
         self.remember(signal);
@@ -488,11 +474,11 @@ impl Engine {
         );
     }
 
-    pub fn fire_stop(&self, signal: Option<&GameSignal>) -> Outcome {
+    fn fire_stop(&self, signal: Option<&GameSignal>) -> Outcome {
         // Before the commands, not after: those can take fifteen seconds, and
         // an icon still showing a game that has ended for that long is the
         // thing anyone would notice.
-        self.report(None);
+        self.report(&Session::Idle);
         // Deliberately no process id here. The name was captured when the
         // session started; by now that process is usually long gone, and a
         // satellite of the real game as often as not. Reporting the id would
@@ -513,3 +499,6 @@ impl Engine {
         )
     }
 }
+
+#[cfg(test)]
+mod tests;

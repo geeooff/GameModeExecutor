@@ -79,10 +79,12 @@ fn session() -> Session {
 /// Returns early when nothing actually changed, which matters because the
 /// engine reports on every refinement and most of those keep the same name.
 pub fn session_sink(window: isize) -> crate::engine::SessionSink {
-    Arc::new(move |signal: Option<&crate::detect::GameSignal>| {
-        let next = match signal {
-            None => Session::Idle,
-            Some(signal) => Session::Playing(signal.process_name.clone()),
+    Arc::new(move |session: &crate::engine::Session| {
+        let next = match session {
+            crate::engine::Session::Idle => Session::Idle,
+            crate::engine::Session::Playing(signal) => {
+                Session::Playing(signal.as_ref().and_then(|s| s.process_name.clone()))
+            }
         };
         {
             let mut held = SESSION
@@ -1011,16 +1013,24 @@ mod tests {
             process_path: None,
         };
 
-        sink(Some(&signal));
+        use crate::engine::Session as Engine;
+
+        sink(&Engine::Playing(Some(signal.clone())));
         assert_eq!(session(), Session::Playing(Some("bf6.exe".to_owned())));
         assert_eq!(current_state(), State::Active);
         assert!(tooltip().contains("bf6.exe"));
 
         // The same thing again changes nothing.
-        sink(Some(&signal));
+        sink(&Engine::Playing(Some(signal)));
         assert_eq!(session(), Session::Playing(Some("bf6.exe".to_owned())));
 
-        sink(None);
+        // A game Windows tracks but does not name is still a game.
+        sink(&Engine::Playing(None));
+        assert_eq!(session(), Session::Playing(None));
+        assert_eq!(current_state(), State::Active);
+        assert!(tooltip().contains("does not name"));
+
+        sink(&Engine::Idle);
         assert_eq!(session(), Session::Idle);
         assert_eq!(current_state(), State::Idle);
         assert!(tooltip().contains("no game"));

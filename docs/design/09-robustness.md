@@ -8,7 +8,7 @@ configuration-fault design is decided and waiting; two smaller items remain.
 - [ ] Stop timing the refinement; let the OS say when — below
 - [ ] `ShutdownBlockReasonCreate`, so Windows' shutdown screen says what is being restored rather than naming the process
 - [ ] Behaviour across two games launched back to back
-- [ ] Give the engine a seam, so its loop can be tested without a game — below
+- [x] Give the engine a seam, so its loop can be tested without a game — done 2026-09-17, below
 
 ## The session marker
 
@@ -152,9 +152,16 @@ pub trait Probe {
 }
 ```
 
-The real implementation is the five calls the engine makes today, moved. A
-scripted fake in the tests then drives whole sessions in milliseconds: a
-launcher that dies and leaves one candidate, a stop mid-game whose commands
-cannot be confirmed, a marker found at start. The actions can stay real —
-`cmd.exe /c exit N` is what the runner's own tests use. Cost: a trait, a
-generic parameter or a `Box<dyn Probe>` on `Engine`, and no behaviour change.
+**Built the same day, as `sensor::Sensor`** — five methods, `Windows` as the
+one real implementation, `Engine<S: Sensor>` generic so the dispatch is
+static. The engine lost every OS call and 40 lines; `engine/tests.rs` drives
+nineteen whole sessions through a scripted sensor with real `cmd.exe`
+commands, a real marker file and a real stop event. `engine.rs` went from
+0 % to 88 % line coverage, the library from 55 % to 64 %.
+
+It also found a defect the field never had: a game Windows tracks but does
+not name reached the tray as `None`, which was also the sink's word for "no
+game", so the icon stayed grey through such a session. The sink now carries
+a `Session` enum — `Idle` or `Playing(Option<GameSignal>)` — and the case
+has a test. The manual `trigger` command no longer builds an engine at all;
+it runs the commands, which is all it ever did.
