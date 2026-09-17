@@ -239,7 +239,7 @@ Per-user only — in Inno Setup that is `PrivilegesRequired=lowest` and
 
 Ruled out, so they are not reconsidered from scratch:
 
-| | |
+| Ruled out | Why |
 | --- | --- |
 | **NSIS** | The same ground as Inno Setup with a harsher syntax. Dropped by preference. |
 | **WiX** | The sane way to author an MSI, but a third party, and WiX v6+ carries an Open Source Maintenance Fee — free at zero revenue, a live question for commercial reuse. If MSI wins, it wins with the SDK. |

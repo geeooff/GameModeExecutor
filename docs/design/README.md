@@ -9,7 +9,7 @@ Work is organised in numbered **lots**. A lot is a deliverable with a stated
 "done when", taken in order, closed when it is verified against a real game
 session rather than when the code compiles. Each has its own page.
 
-| Lot | | Status |
+| Lot | Page | Status |
 | --- | --- | --- |
 | — | [Detection: why the Game Bar presence writer](00-detection.md) | the foundation |
 | 1 | [A console watcher that is correct and boring](01-console-watcher.md) | done |

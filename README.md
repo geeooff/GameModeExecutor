@@ -20,7 +20,7 @@ small icon in the notification area.
 
 ## Documentation
 
-| | |
+| Page | What it is for |
 | --- | --- |
 | [Getting started](docs/getting-started.md) | Running in five minutes. Start here. |
 | [Recipes](docs/recipes/) | Worked examples, one folder each with a ready-made `config.toml` — including fan profiles with FanControl, which needs one extra step because it requires administrator rights. |
