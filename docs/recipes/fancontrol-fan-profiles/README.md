@@ -18,7 +18,7 @@ like — the configuration file never has to know.
 
 In this folder:
 
-| File | |
+| File | What it is |
 | --- | --- |
 | [`config.toml`](config.toml) | the complete configuration, ready to copy — the same for everyone |
 | [`install-tasks.ps1`](install-tasks.ps1) | registers both tasks for you, asking which configuration plays which role |
@@ -151,8 +151,9 @@ skip the questions, or if it cannot find FanControl, say so:
 ```
 
 A name given this way that is not saved is refused too, with nothing
-registered. At the end it prints the commands to test what it registered. Run it again any time you rename a configuration: the tasks are
-simply re-registered.
+registered. At the end it prints the commands to test what it registered.
+Run it again any time you rename a configuration: the tasks are simply
+re-registered.
 
 ### Or by hand: import the templates
 

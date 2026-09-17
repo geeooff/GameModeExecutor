@@ -179,7 +179,7 @@ leaves your profile alone, and so does the next logon.
 
 ## Where things are
 
-| | |
+| What | Where |
 | --- | --- |
 | The program | wherever you put it. `%LOCALAPPDATA%\Programs\GameModeExecutor` is the Windows convention for a per-user install, and it stays writable, which `C:\Program Files` would not |
 | Configuration | `config.toml` next to the executable if there is one, otherwise `%APPDATA%\GameModeExecutor\config.toml` |

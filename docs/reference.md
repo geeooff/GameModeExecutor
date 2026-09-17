@@ -88,7 +88,7 @@ the previous one has been waited for; `parallel` starts them all at once and
 then waits. A command that fails to start is logged and never prevents the
 others: an event is a set of independent side effects, not a pipeline.
 
-| Field | Default | |
+| Field | Default | Meaning |
 | --- | --- | --- |
 | `name` | the program | the label used in the log |
 | `program` | required | path or name of the executable |
@@ -183,7 +183,7 @@ syntax — `RUST_LOG=game=debug` for the detection lines alone.
 
 ## Files the watcher keeps
 
-| | Where | |
+| File | Where | Nature |
 | --- | --- | --- |
 | Configuration | next to the executable, or `%APPDATA%\GameModeExecutor\config.toml` | yours; roams with the profile |
 | Log | `%LOCALAPPDATA%\GameModeExecutor\logs\` | disposable |

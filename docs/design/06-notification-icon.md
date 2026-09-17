@@ -71,7 +71,7 @@ be built**, not only when `WM_SETTINGCHANGE` arrives — because that message is
 not guaranteed. A tool that switches light and dark on a schedule may write the
 registry and broadcast nothing. Demonstrated on 2026-09-15:
 
-| | |
+| Case | What the log showed |
 | --- | --- |
 | registry written directly, no broadcast | **0 log lines** — the watcher hears nothing |
 | menu then opened | `icon refreshed theme=Light` — the drift is caught |

@@ -8,7 +8,7 @@ That is all this program does. Here is how to get there in about five minutes.
 It ships as the same program twice. They differ in one way: one has a black
 console window, the other has none.
 
-| | |
+| Executable | Role |
 | --- | --- |
 | **`gamemode-executorw.exe`** | The one that works. It starts by itself when you log on and never shows anything — no window, no icon. You never launch it yourself. |
 | **`gamemode-executor.exe`** | The one you talk to. Open it in a terminal to set things up, test, or check. It answers, then it is done. It does not keep watching. |
@@ -109,7 +109,7 @@ one per job, each with a `config.toml` you can copy straight over.
 Once it is running you get a small controller in the notification area, beside
 the clock. It is the only thing this program ever puts on screen.
 
-| | |
+| Icon | Meaning |
 | --- | --- |
 | **grey controller** | running, no game. What you will see almost all the time. |
 | **green controller** | a game is detected |
@@ -126,7 +126,7 @@ arrow next to the clock, and drag it onto the taskbar to keep it there.
 
 **Right-click it** for a short menu:
 
-| | |
+| Entry | What it does |
 | --- | --- |
 | **Edit configuration** | opens your `config.toml` in whatever you use for text files — Notepad if `.toml` is not associated with anything |
 | **Open log** | opens the log the same way |
