@@ -13,7 +13,7 @@
 //! runs its own message loop while the menu is open, so the window procedure is
 //! re-entered and `dispatch` is called again; a borrow held across it is a
 //! second `borrow_mut` and a panic. The first version did exactly that and a
-//! right-click killed the process. So every message is turned into a [`Plan`]
+//! right-click killed the process. So every message is turned into a `Plan`
 //! under a short borrow, and the plan is carried out with no borrow at all.
 
 use std::cell::RefCell;

@@ -80,6 +80,12 @@ function Invoke-Tests {
     Step "Clippy, warnings are errors"
     Run 'cargo' @('clippy', '--all-targets', '--', '-D', 'warnings')
 
+    # Doc comments are code too: a link to a private item or a stray [bracket]
+    # is a warning rustdoc would print to whoever reads the API.
+    Step "Doc comments build without warnings"
+    $env:RUSTDOCFLAGS = '-D warnings'
+    try { Run 'cargo' @('doc', '--no-deps', '--quiet') } finally { Remove-Item Env:\RUSTDOCFLAGS -ErrorAction SilentlyContinue }
+
     Step "Tests"
     Run 'cargo' @('test')
 

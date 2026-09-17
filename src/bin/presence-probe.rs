@@ -12,9 +12,12 @@
 //! administrator rights. `docs/design/00-detection.md` has what it measured.
 //!
 //! Usage:
-//!   presence-probe status      the current registration and the log path
-//!   presence-probe watch [s]   log when Windows' own presence writer runs
-//!   presence-probe activate    activate the class ourselves and time it
+//!
+//! ```text
+//! presence-probe status        the current registration and the log path
+//! presence-probe watch [secs]  log when Windows' own presence writer runs
+//! presence-probe activate      activate the class ourselves and time it
+//! ```
 
 #[cfg(not(windows))]
 compile_error!("GameModeExecutor only targets Windows");
