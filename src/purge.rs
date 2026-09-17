@@ -272,6 +272,14 @@ pub fn execute(plan: &Plan) -> Result<()> {
                 dir.display()
             ))?;
             println!("The executables will be deleted once this command has exited.");
+            // A folder cannot go while a shell sits in it, and the shell this
+            // was typed into usually does. Seen in the field on 2026-09-17.
+            if std::env::current_dir().is_ok_and(|here| here.starts_with(dir)) {
+                println!(
+                    "This window is inside {}; the folder itself stays until you leave it.",
+                    dir.display()
+                );
+            }
         }
         None => {}
     }
@@ -313,17 +321,22 @@ pub fn installed_product() -> Option<String> {
 }
 
 /// A command shell that survives this process and shows no window.
+///
+/// `CREATE_NO_WINDOW` alone: the shell gets a console of its own, hidden,
+/// which its children inherit. With `DETACHED_PROCESS` instead it would have
+/// none, and `ping` would open a visible one for itself -- seen in the
+/// field on 2026-09-17. Outliving this process needs no flag; Windows does
+/// not end children with their parent.
 fn detached(command: &str) -> Result<()> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
     // Raw, because std would escape the quotes around the paths as \" for
     // CommandLineToArgvW, and cmd.exe does not read those: `del` would then
     // look for a file that does not exist and say nothing.
     Command::new("cmd.exe")
         .raw_arg("/c")
         .raw_arg(command)
-        .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .context("cannot start the shell that finishes the removal")?;
     Ok(())
