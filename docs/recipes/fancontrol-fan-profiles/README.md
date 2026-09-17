@@ -22,6 +22,7 @@ In this folder:
 | --- | --- |
 | [`config.toml`](config.toml) | the complete configuration, ready to copy — the same for everyone |
 | [`install-tasks.ps1`](install-tasks.ps1) | registers both tasks for you, asking which configuration plays which role |
+| [`uninstall-tasks.ps1`](uninstall-tasks.ps1) | removes those two tasks again, and nothing else |
 | [`FanControl-Idle.xml`](FanControl-Idle.xml) | Task Scheduler definition for the *Idle* role |
 | [`FanControl-Game.xml`](FanControl-Game.xml) | the same for *Game* |
 
@@ -311,6 +312,28 @@ whenever a session ends, it settles correctly on its own.
 releasing its own "a game is running" signal, not this program —
 [How it works](../../how-it-works.md#the-wait-after-you-quit) explains it, and
 there is nothing to tune.
+
+## Removing the recipe
+
+From an elevated PowerShell, in this folder:
+
+```powershell
+.\uninstall-tasks.ps1
+```
+
+It removes the two tasks it knows — *FanControl Idle* and *FanControl Game* —
+and leaves everything else: FanControl and its configurations, the
+`\GameModeExecutor` folder in Task Scheduler with the watcher's own task in
+it, and any task it did not register, which it lists. FanControl keeps
+whichever configuration is active at that moment; pick the one you want in
+FanControl itself.
+
+Then edit `config.toml`: it still names the two tasks, and the watcher would
+report a failed command at the next game. Replace the commands with whatever
+you want run instead, or start over from another recipe.
+
+GameModeExecutor does not know which recipe you followed, so removing the
+program never touches these tasks; this script is how they go.
 
 ## Adapting this to another program
 
