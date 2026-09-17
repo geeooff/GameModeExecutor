@@ -32,6 +32,10 @@ struct Scripted {
     /// `rendering_load` fails, as it does on an account that may not read
     /// the counters.
     counters_unreadable: bool,
+    /// The session ends as the writer does: the stop is signalled in the
+    /// same instant `wait_for_writer_exit` reports the exit, as a logoff
+    /// does when Windows kills the writer before the watcher is told.
+    session_ends_with_writer: bool,
     stop: Arc<StopSignal>,
 }
 
@@ -45,6 +49,7 @@ impl Scripted {
             load: HashMap::new(),
             list_unreadable: false,
             counters_unreadable: false,
+            session_ends_with_writer: false,
             stop: Arc::clone(stop),
         }
     }
@@ -56,6 +61,11 @@ impl Scripted {
 
     fn counters_unreadable(mut self) -> Self {
         self.counters_unreadable = true;
+        self
+    }
+
+    fn session_ends_with_writer(mut self) -> Self {
+        self.session_ends_with_writer = true;
         self
     }
 
@@ -104,11 +114,15 @@ impl Sensor for Scripted {
         _stop: &StopSignal,
         _timeout: Option<Duration>,
     ) -> Result<WaitOutcome> {
-        Ok(self
+        let outcome = self
             .waits
             .borrow_mut()
             .pop_front()
-            .expect("the script ran out of waits"))
+            .expect("the script ran out of waits");
+        if self.session_ends_with_writer && outcome == WaitOutcome::WriterExited {
+            self.stop.signal();
+        }
+        Ok(outcome)
     }
 
     fn candidates(&self) -> Result<Vec<GameSignal>> {
@@ -442,7 +456,9 @@ fn a_writer_that_comes_back_within_the_grace_keeps_the_session_open() {
     let mut engine = Engine::new(config, sensor).reporting_to(sink);
     engine.run(&stop).unwrap();
 
-    // One session, not two: the blink was absorbed.
+    // One session, not two: the blink was absorbed. (The script runs out
+    // during the second grace, which signals the stop, so the session ends
+    // through the mid-game branch; both branches report the same edge.)
     assert_eq!(
         seen(&log),
         vec![Session::Playing(Some(game(10, "game.exe"))), Session::Idle]
@@ -519,6 +535,39 @@ fn a_stop_mid_game_with_only_fire_and_forget_commands_keeps_the_marker() {
     engine.run(&stop).unwrap();
 
     assert!(Marker::in_dir(&dir).pending().is_some());
+}
+
+#[test]
+fn a_writer_killed_by_the_session_ending_is_a_stop_mid_game() {
+    // Measured at logoff on 2026-09-17: Windows killed the writer 5 ms after
+    // asking the session to end, the wait reported the exit rather than the
+    // stop, and the ordinary path removed the marker after a command that
+    // had died unborn. A stop that is set by the time the writer is gone is
+    // the mid-game case, whichever of the two arrived first.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let sensor = Scripted::new(&stop)
+        .writer(&[Some(7)])
+        .waits(&[WaitOutcome::WriterExited])
+        .session_ends_with_writer()
+        .candidates(&[&[game(10, "game.exe")]]);
+    let dir = scratch();
+    let mut config = quick_config();
+    // A grace period, so the stop is also seen through it.
+    config.detection.stop_delay = Duration::from_millis(200);
+    config.general.stop_actions_on_exit = true;
+    config.on_game_stop = stop_event(vec![exit_with(1)]);
+    let (sink, log) = recorder();
+
+    let mut engine = Engine::new(config, sensor)
+        .reporting_to(sink)
+        .remembering(Marker::in_dir(&dir));
+    engine.run(&stop).unwrap();
+
+    assert_eq!(seen(&log).last(), Some(&Session::Idle));
+    let pending = Marker::in_dir(&dir)
+        .pending()
+        .expect("kept for the next start");
+    assert_eq!(pending.game.as_deref(), Some("game.exe"));
 }
 
 #[test]

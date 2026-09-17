@@ -216,7 +216,14 @@ impl<S: Sensor> Engine<S> {
                         );
                         pid = new_pid;
                     }
-                    None => break false,
+                    // The writer's exit and the watcher's stop can arrive
+                    // together. At logoff on 2026-09-17 Windows killed the
+                    // writer 5 ms after asking the session to end, the wait
+                    // reported the exit, and the ordinary path below removed
+                    // the marker after a command that had died unborn. A stop
+                    // that is set by now makes this the mid-game case,
+                    // whichever of the two came first.
+                    None => break stop.is_set(),
                 }
             };
 

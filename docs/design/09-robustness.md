@@ -28,6 +28,10 @@ depend on Windows' timing:
   command never confirms anything — deliberately conservative, because the
   failure this exists for is a process created and dying unseen, which is
   exactly what a fire-and-forget command cannot report.
+- The writer's exit and the watcher's stop can arrive **together**, and
+  then the same rule applies, whichever came first. A game that stopped on
+  its own and a stop signalled during the grace period look alike from the
+  loop; a stop that is set once the grace is over makes it the mid-game case.
 - `stop_actions_on_exit = false` removes the marker on exit instead, so the
   opt-out is not undone at logon. A crash never reaches that branch, so crash
   recovery does not depend on the setting.
@@ -51,6 +55,32 @@ stale one by whether the presence writer is running.
 Verified in the field the same night: `status` showed the marker present
 during a game and `none` after a normal stop; the recovery path was verified
 with a marker planted by hand.
+
+**The race, measured 2026-09-17.** A second real logoff with Skyrim running
+found the case the rule above did not cover. On the 16th the stop signal had
+reached the loop first and the mid-game branch kept the marker. This time
+Windows killed the presence writer **5 ms after** asking the session to end,
+`WaitForMultipleObjects` reported the writer's handle -- it sits before the
+stop event in the array, and wins when both are signalled -- and the loop took
+the ordinary path: the command failed with `STATUS_DLL_INIT_FAILED`, said so
+at `warn`, and the marker was removed regardless. Nothing ran at the next
+logon and the fans stayed on the gaming configuration.
+
+```
+09:32:20.337  Windows asked to end the session, so the watcher starts stopping now
+09:32:20.342  Windows released the presence writer while the identified game is still running
+09:32:20.343  Game no longer detected: SkyrimSE.exe
+09:32:20.447  WARN `FanControl - Idle` failed  status=exit code: 0xc0000142
+09:33:20.428  GameModeExecutor 0.1.0 (86d8d1ac) starting        ← no recovery line
+```
+
+The fix is one condition in the loop: after the grace period, a stop that is
+set makes the exit the mid-game case. `engine/tests.rs` scripts the race --
+the sensor signals the stop as it reports the writer's exit -- and the
+scenario failed on the old loop before it passed on the new one. The same
+morning's three ordinary sessions -- Skyrim, Battlefield 6 with its rename,
+and a *Quit* mid-game whose commands were confirmed and marker removed -- all
+behaved as documented.
 
 ## Configuration faults, shown where the program already lives
 
