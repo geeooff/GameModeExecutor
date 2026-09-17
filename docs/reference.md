@@ -193,7 +193,9 @@ syntax — `RUST_LOG=game=debug` for the detection lines alone.
 ## Building and releasing
 
 Requires the Rust toolchain, stable, edition 2024. The Windows SDK's `rc.exe`
-embeds the icon; without it the build warns and continues.
+embeds the icon and the version block each executable carries — the one the
+Properties dialog shows, with the commit in *File version*; without it the
+build warns and continues.
 
 ```powershell
 .\scripts\build.ps1            # test

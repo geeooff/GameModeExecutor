@@ -1,6 +1,7 @@
 [package]
 name = "game-mode-executor"
 version = "0.1.0"
+authors = ["Geoffrey Vancoetsem"]
 edition = "2024"
 # Let chains, stable since 1.88.
 rust-version = "1.88"

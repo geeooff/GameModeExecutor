@@ -186,6 +186,22 @@ function Invoke-Build {
         Write-Host ("    {0,-24} {1}" -f $name, $label[$subsystem])
     }
 
+    # build.rs writes a version block into each executable: the Properties
+    # dialog reads it, and Windows Installer's repair and upgrade rules need
+    # versioned files. A miss is only a warning at build time, so it is
+    # checked here instead.
+    Step "Version resources"
+    $version = Get-Version
+    foreach ($name in 'gamemode-executor.exe', 'gamemode-executorw.exe') {
+        $info = (Get-Item (Join-Path $root "target\release\$name")).VersionInfo
+        if ($info.ProductVersion -ne $version) { Fail "$name carries product version '$($info.ProductVersion)', expected $version" }
+        if ($info.FileVersionRaw -ne [version] "$version.0") { Fail "$name carries file version $($info.FileVersionRaw), expected $version.0" }
+        if ($info.OriginalFilename -ne $name) { Fail "$name says its original name is '$($info.OriginalFilename)'" }
+        if (-not $info.FileDescription) { Fail "$name has no file description" }
+        $flag = if ($info.IsPrivateBuild) { '  (private build: uncommitted changes)' } else { '' }
+        Write-Host ("    {0,-24} {1}{2}" -f $name, $info.FileVersion, $flag)
+    }
+
     # The release profile -- opt-level z, LTO, strip, panic = abort -- keeps
     # each binary near 1.1 MB. Losing it is silent: everything still builds and
     # runs, only twice as large and unwinding on panic, which the FATAL hook was

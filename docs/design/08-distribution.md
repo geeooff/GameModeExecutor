@@ -9,7 +9,7 @@ order it is taken:
 
 - [x] Create the public GitHub repository and push — done 2026-09-17, with approval
 - [x] The three measurements below, on a minimal package, before any table is written — done 2026-09-17
-- [ ] `VERSIONINFO` metadata in the executables, through the same `rc.exe` step that embeds the icon
+- [x] `VERSIONINFO` metadata in the executables, through the same `rc.exe` step that embeds the icon — done 2026-09-17, checked by the checklist
 - [ ] An MSI, per-user, into `%LOCALAPPDATA%\Programs\GameModeExecutor`, with the user's files outside its components
 - [ ] `gamemode-executor purge`, the same command in every mode — below
 - [ ] The whole delivery chain, unattended: pushing a `vX.Y.Z` tag makes CI run

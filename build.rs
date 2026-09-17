@@ -45,66 +45,159 @@ fn main() {
     println!("cargo:rustc-env=GIT_DOC_REF={doc_ref}");
     println!("cargo:rustc-env=GIT_COMMIT_DISPLAY={display}");
 
-    embed_icon();
+    embed_resources(&short, !dirty.is_empty());
 }
 
-/// The icon Explorer, the task bar and Alt-Tab show for the executables.
+/// The icon Explorer, the task bar and Alt-Tab show for the executables, and
+/// the version block the Properties dialog and Windows Installer read.
 ///
-/// Done with `rc.exe` from the Windows SDK and nothing else. An icon has to be
-/// a PE resource -- there is no way to set it from code -- and the SDK's
-/// resource compiler is the Microsoft tool for producing one. Anyone who can
+/// Done with `rc.exe` from the Windows SDK and nothing else. Both have to be
+/// PE resources -- there is no way to set them from code -- and the SDK's
+/// resource compiler is the Microsoft tool for producing them. Anyone who can
 /// build this already has it: it ships with the Build Tools that provide the
 /// MSVC linker.
+///
+/// One resource file per binary, because the version block names the file it
+/// is in: `OriginalFilename` and `FileDescription` differ between the console
+/// executable, the windowless one and the probe. `FileVersion` carries the
+/// commit, `ProductVersion` the plain version, and a tree with uncommitted
+/// changes is flagged as a private build, which is what Windows calls one.
 ///
 /// Like the commit stamp above, a miss is a warning rather than an error. An
 /// executable with no icon works perfectly; a build that refuses to run does
 /// not.
-fn embed_icon() {
-    let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets this");
+fn embed_resources(commit_short: &str, dirty: bool) {
+    let manifest =
+        std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets this"));
     // The "active" artwork, in its light-background variant: an executable icon
     // cannot follow the theme, and the darker green keeps its definition on the
     // white Explorer background Windows ships with.
-    let icon = std::path::Path::new(&manifest).join("assets/icons/gamemode-active-light.ico");
+    let icon = manifest.join("assets/icons/gamemode-active-light.ico");
+    let license = manifest.join("LICENSE");
     println!("cargo:rerun-if-changed={}", icon.display());
+    println!("cargo:rerun-if-changed={}", license.display());
     if !icon.exists() {
         println!(
-            "cargo:warning=no icon at {}, building without one",
+            "cargo:warning=no icon at {}, building without resources",
             icon.display()
         );
         return;
     }
-
     let Some(rc) = find_resource_compiler() else {
-        println!("cargo:warning=rc.exe not found, building without an icon");
+        println!("cargo:warning=rc.exe not found, building without resources");
         return;
     };
 
-    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("cargo sets this"));
-    let script = out.join("icon.rc");
-    let compiled = out.join("icon.res");
-
-    // Resource id 1: Windows shows the lowest-numbered icon group as the
-    // application icon, and 1 is the convention for it.
-    let contents = format!(
-        "1 ICON \"{}\"\n",
-        icon.display().to_string().replace('\\', "\\\\")
+    let version = std::env::var("CARGO_PKG_VERSION").expect("cargo sets this");
+    let numeric: Vec<&str> = version.split('.').collect();
+    let (major, minor, patch) = (
+        numeric.first().copied().unwrap_or("0"),
+        numeric.get(1).copied().unwrap_or("0"),
+        numeric.get(2).copied().unwrap_or("0"),
     );
-    if std::fs::write(&script, contents).is_err() {
-        println!("cargo:warning=cannot write the resource script, building without an icon");
-        return;
-    }
+    let author = std::env::var("CARGO_PKG_AUTHORS").unwrap_or_default();
+    let repository = std::env::var("CARGO_PKG_REPOSITORY").unwrap_or_default();
+    // The LICENSE file is the one place the copyright line is written; the
+    // resource repeats it rather than keeping a second copy.
+    let copyright = std::fs::read_to_string(&license)
+        .ok()
+        .and_then(|text| {
+            text.lines()
+                .find(|line| line.starts_with("Copyright"))
+                .map(str::to_owned)
+        })
+        .unwrap_or_default();
+    let flags = if dirty { "0x8" } else { "0x0" }; // VS_FF_PRIVATEBUILD
+    let private = if dirty {
+        "      VALUE \"PrivateBuild\", \"Built from a tree with uncommitted changes\\0\"\n"
+    } else {
+        ""
+    };
 
-    let status = Command::new(&rc)
-        .args(["/nologo", "/fo"])
-        .arg(&compiled)
-        .arg(&script)
-        .status();
-    match status {
-        Ok(status) if status.success() => {
-            // Bins only: the library has no resources to carry.
-            println!("cargo:rustc-link-arg-bins={}", compiled.display());
+    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("cargo sets this"));
+    let binaries = [
+        ("gamemode-executor", "GameModeExecutor command line"),
+        ("gamemode-executorw", "GameModeExecutor watcher"),
+        (
+            "presence-probe",
+            "GameModeExecutor presence writer probe (development tool)",
+        ),
+    ];
+    for (name, description) in binaries {
+        let script = out.join(format!("{name}.rc"));
+        let compiled = out.join(format!("{name}.res"));
+        // Resource id 1: Windows shows the lowest-numbered icon group as the
+        // application icon, and 1 is the convention for it. The numeric
+        // constants are rc.exe's own, spelled out so no header is needed:
+        // FILEOS 0x40004 is VOS_NT_WINDOWS32, FILETYPE 1 is VFT_APP, and the
+        // string block is en-US in Unicode.
+        let contents = format!(
+            concat!(
+                "1 ICON \"{icon}\"\n",
+                "1 VERSIONINFO\n",
+                "FILEVERSION {major},{minor},{patch},0\n",
+                "PRODUCTVERSION {major},{minor},{patch},0\n",
+                "FILEFLAGSMASK 0x3f\n",
+                "FILEFLAGS {flags}\n",
+                "FILEOS 0x40004\n",
+                "FILETYPE 0x1\n",
+                "FILESUBTYPE 0x0\n",
+                "BEGIN\n",
+                "  BLOCK \"StringFileInfo\"\n",
+                "  BEGIN\n",
+                "    BLOCK \"040904b0\"\n",
+                "    BEGIN\n",
+                "      VALUE \"CompanyName\", \"{author}\\0\"\n",
+                "      VALUE \"FileDescription\", \"{description}\\0\"\n",
+                "      VALUE \"FileVersion\", \"{version} ({commit})\\0\"\n",
+                "      VALUE \"InternalName\", \"{name}\\0\"\n",
+                "      VALUE \"LegalCopyright\", \"{copyright}. MIT License.\\0\"\n",
+                "      VALUE \"OriginalFilename\", \"{name}.exe\\0\"\n",
+                "      VALUE \"ProductName\", \"GameModeExecutor\\0\"\n",
+                "      VALUE \"ProductVersion\", \"{version}\\0\"\n",
+                "      VALUE \"Comments\", \"{repository}\\0\"\n",
+                "{private}",
+                "    END\n",
+                "  END\n",
+                "  BLOCK \"VarFileInfo\"\n",
+                "  BEGIN\n",
+                "    VALUE \"Translation\", 0x409, 1200\n",
+                "  END\n",
+                "END\n",
+            ),
+            icon = icon.display().to_string().replace('\\', "\\\\"),
+            major = major,
+            minor = minor,
+            patch = patch,
+            flags = flags,
+            author = author,
+            description = description,
+            version = version,
+            commit = commit_short,
+            name = name,
+            copyright = copyright,
+            repository = repository,
+            private = private,
+        );
+        if std::fs::write(&script, contents).is_err() {
+            println!(
+                "cargo:warning=cannot write the resource script for {name}, building it without resources"
+            );
+            continue;
         }
-        _ => println!("cargo:warning=rc.exe failed, building without an icon"),
+        let status = Command::new(&rc)
+            .args(["/nologo", "/fo"])
+            .arg(&compiled)
+            .arg(&script)
+            .status();
+        match status {
+            Ok(status) if status.success() => {
+                // This binary only: the library has no resources to carry and
+                // each executable describes itself.
+                println!("cargo:rustc-link-arg-bin={name}={}", compiled.display());
+            }
+            _ => println!("cargo:warning=rc.exe failed for {name}, building it without resources"),
+        }
     }
 }
 
