@@ -53,7 +53,9 @@ example, and you will be asked for the real ones.
 Create them in FanControl's interface if you have not already — set the curves
 you want, then **Save configuration as…**. They land in the `Configurations`
 folder next to `FanControl.exe` — for the installer,
-`C:\Program Files (x86)\FanControl\Configurations`, service or not.
+`C:\Program Files (x86)\FanControl\Configurations`, service or not. A fresh
+FanControl has one configuration already, `userConfig`; that is your everyday
+one until you rename it, and it is fine to use it as such.
 
 ## 2. Find where FanControl actually lives
 
@@ -122,16 +124,20 @@ asks which one plays each role:
 ```
 FanControl     : C:\Program Files (x86)\FanControl
 Configurations : Benchmark, Game, Quiet
+Active now     : Quiet
 
 Configuration for Idle -- applied when no game is running
-  name: Quiet
+  name [Quiet]:
 
 Configuration for Game -- applied while a game is running
   name [Game]:
 ```
 
-A configuration named after the role is offered as the default. To skip the
-questions, or if it cannot find FanControl, say so:
+The defaults in brackets are taken with Enter. For *Idle* it is the
+configuration FanControl is applying right now — nobody runs this in the
+middle of a game, so that is the everyday one; for *Game*, a configuration
+named `Game` if you saved one. To skip the questions, or if it cannot find
+FanControl, say so:
 
 ```powershell
 .\install-tasks.ps1 -IdleConfiguration Quiet -GameConfiguration Game

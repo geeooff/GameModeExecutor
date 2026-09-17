@@ -78,12 +78,33 @@ if ($available) {
     Write-Host "Configurations : none saved yet in $folder" -ForegroundColor Yellow
 }
 
-function Choose-Configuration([string] $Role, [string] $Meaning, [string] $Given) {
+# FanControl notes which configuration it is applying in Configurations\CACHE
+# -- JSON, "CurrentConfigFileName": "Quiet.json", as observed on 2026-09-17.
+# Nobody runs this script in the middle of a game, so the one active now is
+# almost always the everyday one: the natural default for Idle, and no
+# default at all for Game.
+$active = $null
+$cache = Join-Path $folder 'CACHE'
+if (Test-Path $cache) {
+    try {
+        $active = (Get-Content $cache -Raw | ConvertFrom-Json).CurrentConfigFileName -replace '\.json$', ''
+    } catch {
+        $active = $null
+    }
+}
+if ($active) {
+    Write-Host "Active now     : $active" -ForegroundColor Cyan
+}
+
+function Choose-Configuration([string] $Role, [string] $Meaning, [string] $Given, [string] $Fallback) {
     $name = $Given
     if (-not $name) {
-        # One named after the role is the obvious default; anything else is a
-        # question, not a guess.
+        # One named after the role is the obvious default, then whatever the
+        # caller suggests; anything else is a question, not a guess.
         $default = $available | Where-Object { $_ -ieq $Role } | Select-Object -First 1
+        if (-not $default -and $Fallback) {
+            $default = $available | Where-Object { $_ -ieq $Fallback } | Select-Object -First 1
+        }
         $hint = if ($default) { " [$default]" } else { '' }
         Write-Host ""
         Write-Host "Configuration for $Role -- $Meaning" -ForegroundColor Cyan
@@ -106,7 +127,7 @@ function Choose-Configuration([string] $Role, [string] $Meaning, [string] $Given
     return $name
 }
 
-$IdleConfiguration = Choose-Configuration -Role 'Idle' -Meaning 'applied when no game is running' -Given $IdleConfiguration
+$IdleConfiguration = Choose-Configuration -Role 'Idle' -Meaning 'applied when no game is running' -Given $IdleConfiguration -Fallback $active
 $GameConfiguration = Choose-Configuration -Role 'Game' -Meaning 'applied while a game is running' -Given $GameConfiguration
 
 Write-Host ""
