@@ -24,9 +24,21 @@ pub const TASK_NAME: &str = "GameModeExecutor\\Watcher";
 /// binary, which is the one the user types and therefore the one running now.
 const WATCHER_EXE: &str = "gamemode-executorw.exe";
 
-/// Create (or replace) a logon task that starts the watcher with no console.
-/// Runs only while the user is logged on, so no password and no elevation.
-pub fn install(config_path: &Path, delay: Duration) -> Result<()> {
+/// Register the logon task that starts the watcher with no console, then
+/// start it, so the icon appears now rather than at the next logon. Runs
+/// only while the user is logged on, so no password and no elevation.
+///
+/// A task that is already there is kept unless `force`: the installer calls
+/// this on every install and upgrade, and must not undo a delay or a path
+/// the user chose. Decided 2026-09-17, on the first install from the package.
+pub fn install(config_path: &Path, delay: Duration, force: bool) -> Result<()> {
+    if exists() && !force {
+        println!(
+            "Scheduled task `{TASK_NAME}` already exists and is kept (use --force to replace it)."
+        );
+        start()?;
+        return Ok(());
+    }
     let here = std::env::current_exe().context("cannot locate the running executable")?;
     let exe = here.with_file_name(WATCHER_EXE);
     if !exe.exists() {
@@ -67,6 +79,14 @@ pub fn install(config_path: &Path, delay: Duration) -> Result<()> {
     println!("  program : {}", exe.display());
     println!("  config  : {}", config_path.display());
     println!("  delay   : {delay:?} after logon, no execution time limit");
+    start()
+}
+
+/// Run the task now. A watcher already running keeps the single-instance
+/// mutex, so a second start exits at once and nothing doubles.
+fn start() -> Result<()> {
+    run_schtasks(&["/Run", "/TN", TASK_NAME])?;
+    println!("The watcher is starting; its icon appears in the notification area.");
     Ok(())
 }
 

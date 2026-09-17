@@ -116,31 +116,20 @@ gpu_sample = "1s"
 [on_game_start]
 mode = "series"
 
-# FanControl requires administrator elevation, so it cannot be started
-# directly by this unelevated watcher (error 740). Go through a scheduled task
-# registered once with "run with highest privileges" - see "Programs that
-# require administrator rights" in docs/reference.md.
-[[on_game_start.actions]]
-name = "FanControl - Game"
-program = "schtasks.exe"
-args = ["/Run", "/TN", 'GameModeExecutor\FanControl Game']
-wait = true
-timeout = "15s"
-
-# A program that needs no elevation can be run directly:
+# Nothing runs until you say so: as written, this file makes the watcher
+# detect and log sessions and do nothing else, which is a fine way to see it
+# work first. To *hear* it work, uncomment the two commands below -- a rising
+# beep when a game starts, a falling one when it ends -- then look at
+# docs/recipes/ for real ones: fan profiles, a power plan, or your own.
 #[[on_game_start.actions]]
-#name = "power plan - high performance"
-#program = "powercfg.exe"
-#args = ["/setactive", "SCHEME_MIN"]
-#wait = true
-#timeout = "10s"
+#name = "beep"
+#program = "powershell.exe"
+#args = ["-NoProfile", "-Command", "[console]::Beep(880,120); [console]::Beep(1320,180)"]
 
 [on_game_stop]
 mode = "series"
 
-[[on_game_stop.actions]]
-name = "FanControl - Idle"
-program = "schtasks.exe"
-args = ["/Run", "/TN", 'GameModeExecutor\FanControl Idle']
-wait = true
-timeout = "15s"
+#[[on_game_stop.actions]]
+#name = "beep"
+#program = "powershell.exe"
+#args = ["-NoProfile", "-Command", "[console]::Beep(1320,120); [console]::Beep(880,180)"]

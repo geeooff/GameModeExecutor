@@ -22,20 +22,20 @@ The release page offers two files that hold the same two executables.
 
 **The installer, `GameModeExecutor-<version>.msi`.** Run it. It asks for no
 administrator rights and installs for you alone, into
-`%LOCALAPPDATA%\Programs\GameModeExecutor`. That is the whole install: no
-window to click through, and *Programs and Features* lists it afterwards. A
-newer release installs over it the same way and leaves your configuration
-where it is. Skip to [Three steps](#three-steps).
+`%LOCALAPPDATA%\Programs\GameModeExecutor`. It also writes a starter
+configuration if you have none, registers the logon task, and starts the
+watcher: the confirmation that it worked is the **grey controller icon**
+that appears in the notification area, beside the clock. No window to click
+through, and *Programs and Features* lists it afterwards. A newer release
+installs over it the same way and leaves your configuration and your task
+where they are. Skip to [Say what to run](#say-what-to-run).
 
 **The zip, `GameModeExecutor-<version>.zip`,** for anyone who would rather
 not run an installer: unzip it and keep it somewhere. Two things make the
 choice of somewhere worth a moment's thought.
 
 **It has to stay put.** The logon task records the full path to the executable,
-so moving the folder afterwards means running `install-task` again.
-
-**It needs to be a folder you can write to**, because your `config.toml` sits
-next to the executable.
+so moving the folder afterwards means running `install-task --force` again.
 
 The tidiest place, and the Windows convention for a program installed for one
 user, is:
@@ -52,16 +52,15 @@ avoid:
 | `C:\Program Files` | Needs administrator rights to write, and then your own configuration sits in a folder you cannot edit. This program is built to never ask for those rights. |
 | A OneDrive or Dropbox folder | Synced folders move files, lock them mid-sync, and can turn them into online-only placeholders. For something that starts at logon, that is a bad bet. |
 
-## Three steps
+## Say what to run
 
-### 1. Write down what you want to run
+The starter configuration runs nothing: as installed, the watcher detects
+games, names them and logs them, and that is all — which is a fine way to see
+it work before deciding what it should do. Right-click the icon and choose
+**Edit configuration**, or open `%APPDATA%\GameModeExecutor\config.toml`
+yourself. (From the zip, `gamemode-executor init` writes that file first.)
 
-```bash
-gamemode-executor init
-```
-
-That writes a starter `config.toml` into `%APPDATA%\GameModeExecutor` and tells
-you where. Open it in any text editor. The part that matters looks like this:
+The part that matters looks like this:
 
 ```toml
 [[on_game_start.actions]]
@@ -75,7 +74,9 @@ program = "powercfg.exe"
 args = ["/setactive", "SCHEME_BALANCED"]
 ```
 
-One block per command. Add as many as you like to either event.
+One block per command. Add as many as you like to either event. The starter
+file carries two commands that beep, commented out: uncomment them to *hear*
+a game being detected before you write anything real.
 
 Write paths between **single quotes** — that way Windows backslashes need no
 doubling:
@@ -84,7 +85,7 @@ doubling:
 program = 'C:\Program Files\Something\tool.exe'
 ```
 
-### 2. Check it
+## Check it
 
 ```bash
 gamemode-executor validate
@@ -100,14 +101,15 @@ gamemode-executor trigger start
 gamemode-executor trigger stop
 ```
 
-### 3. Turn it on
+The watcher reads the file when it starts, so after editing it, restart it:
+**Quit** from the icon's menu, then
 
 ```bash
 gamemode-executor install-task
 ```
 
-This registers a task that starts the watcher every time you log on. No
-administrator rights, no password, no window.
+which starts it again — and, from the zip, registers the task that starts it
+at every logon, once. No administrator rights, no password, no window.
 
 **That is the end of the setup.** Play. The commands fire by themselves.
 

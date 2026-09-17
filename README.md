@@ -45,13 +45,17 @@ with no console, started at logon by a task it registers for you.
 
 From the [latest release](https://github.com/Geeooff/GameModeExecutor/releases/latest),
 take the **`.msi`** and run it: per user, no administrator prompt, into
-`%LOCALAPPDATA%\Programs\GameModeExecutor`. The **`.zip`** holds the same
-executables for anyone who would rather unpack them by hand. Then:
+`%LOCALAPPDATA%\Programs\GameModeExecutor`. It writes a starter
+configuration, registers the logon task and starts the watcher — the icon
+appearing beside the clock is the confirmation. Right-click it, *Edit
+configuration*, and say what to run.
+
+The **`.zip`** holds the same executables for anyone who would rather unpack
+them by hand; then:
 
 ```powershell
-gamemode-executor init          # write a starter config.toml
-gamemode-executor validate      # check it
-gamemode-executor install-task  # start the watcher at every logon
+gamemode-executor init          # write the starter config.toml
+gamemode-executor install-task  # start the watcher now and at every logon
 ```
 
 To remove it, *Programs and Features* takes the executables away and leaves

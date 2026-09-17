@@ -18,7 +18,7 @@ order it is taken:
   by hand. Written 2026-09-17 (`release.yml`, `scripts/release-notes.ps1`);
   its first run is the first tag
 - [x] The documentation: *Getting started* and the README point at the release rather than at `cargo build`, the reference gains `purge`, *How it works* gains removal — 2026-09-17
-- [ ] Verified in the field: the MSI on two machines, one real upgrade, one purge round trip
+- [ ] Verified in the field: the MSI on two machines, one real upgrade, one purge round trip — the maintainer's machine done 2026-09-17, below
 
 **Done when** a tag alone produces a release a stranger can install from, and
 the two artefacts on it were built by the workflow from that tag's commit.
@@ -58,8 +58,8 @@ tasks, all of it — and nothing removes any of it without being asked.
 - **Upgrades never purge.** An upgrade replaces the executables and nothing
   else. For the MSI that is a constraint on the package, not a courtesy:
   `config.toml`, the log and the marker are user data, not components, so no
-  repair, upgrade or uninstall can touch them. The installer writes no
-  configuration; `init` does, when asked.
+  repair, upgrade or uninstall can touch them. The installer runs `init` at
+  the end, and `init` writes only where there is no file.
 - **Uninstalling does not purge either.** The MSI's uninstall removes what
   the MSI installed — the executables — which is what Windows applications
   ordinarily do. The zip has no uninstaller; the user deletes the folder.
@@ -125,6 +125,37 @@ was typed into sat inside it, which the command now says. And one thing left
 behind by the rule: a log dated 2026-09-09 in `%APPDATA%\GameModeExecutor\logs`,
 from a layout no release ever shipped. The purge does not learn layouts
 nobody else has; the file was deleted by hand.
+
+## What the first install taught
+
+The maintainer purged the hand-installed copy, ran the package and followed
+*Getting started* as a stranger would, on 2026-09-17. It installed and
+worked, and four remarks came back, all taken the same evening:
+
+- **Nothing said it had worked.** A per-user package with no UI ends in
+  silence. Rather than a dialog — the design record says why the program
+  has none — the install now ends by starting the watcher, and the icon
+  appearing beside the clock is the confirmation.
+- **The package should write a configuration, only where there is none.**
+  Two custom actions, both the program's own commands: `init`, then
+  `install-task`, each keeping what exists unless `--force`, which the
+  package never passes. Type 1042 — an executable from the File table,
+  deferred, impersonated, as a per-user package must — sequenced after
+  `InstallFiles` and conditioned on `NOT Installed`, so they run on an
+  install and on an upgrade and never on a repair or removal. Measured
+  with a package of a separate test family beside the real one: both ran,
+  both kept what was there, the watcher was untouched. `init` used to fail
+  when the file existed, which would have failed every upgrade.
+- **The starter configuration named FanControl.** It now names nothing:
+  two commands that beep, commented out, and a pointer to the recipes. That
+  needed a configuration with no commands to be valid, which it was not;
+  the watcher then detects, names and logs sessions and runs nothing, which
+  is the right first hour. The zip no longer ships a `config.toml` either;
+  `init` writes the same file the installer does, so both ways in leave
+  the same machine.
+- **After `install-task`, nothing said how to start it.** It starts the
+  task now, and says the icon is coming.
+- **The purge, first run:** it did what it listed; the two fixes are above.
 
 ## Versioning
 

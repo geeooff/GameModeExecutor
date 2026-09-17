@@ -77,11 +77,15 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
-    /// Register a per-user logon task that starts the watcher hidden.
+    /// Register a per-user logon task that starts the watcher hidden, and
+    /// start it now. A task already registered is kept.
     InstallTask {
         /// Delay after logon, e.g. `15s` or `1m`.
         #[arg(long, default_value = "15s")]
         delay: String,
+        /// Replace a task that is already registered.
+        #[arg(long)]
+        force: bool,
     },
     /// Remove the logon task.
     UninstallTask,
@@ -115,11 +119,11 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Some(Commands::Init { force }) => return cmd_init(cli.config.as_deref(), force),
-        Some(Commands::InstallTask { delay }) => {
+        Some(Commands::InstallTask { delay, force }) => {
             let delay = humantime::parse_duration(&delay)
                 .with_context(|| format!("cannot read `{delay}` as a delay"))?;
             let path = resolve_config_path(cli.config.clone())?;
-            return task::install(&path, delay);
+            return task::install(&path, delay, force);
         }
         Some(Commands::UninstallTask) => return task::uninstall(),
         Some(Commands::Check { path, pid }) => return cmd_check(path.as_deref(), pid),
@@ -420,11 +424,14 @@ fn cmd_init(explicit: Option<&std::path::Path>, force: bool) -> Result<()> {
             .context("cannot determine %APPDATA%")?
             .join(config::CONFIG_FILE_NAME),
     };
+    // Kept rather than refused: the installer runs this on every install and
+    // upgrade, and a configuration someone edited must survive both.
     if path.exists() && !force {
-        anyhow::bail!(
-            "`{}` already exists (use --force to overwrite)",
+        println!(
+            "`{}` already exists and is kept (use --force to overwrite it).",
             path.display()
         );
+        return Ok(());
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)

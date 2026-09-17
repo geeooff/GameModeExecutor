@@ -191,11 +191,11 @@ impl Config {
         if self.detection.poll_interval.is_zero() {
             anyhow::bail!("detection.poll_interval must be greater than zero");
         }
-        if self.on_game_start.actions.is_empty() && self.on_game_stop.actions.is_empty() {
-            anyhow::bail!(
-                "no actions configured: add [[on_game_start.actions]] or [[on_game_stop.actions]]"
-            );
-        }
+        // No commands at all is a valid configuration -- the one `init`
+        // writes. The watcher then detects, names and logs sessions and runs
+        // nothing, which is how someone sees it work before deciding what it
+        // should run. Decided 2026-09-17, on the first install from the
+        // package.
         for action in self
             .on_game_start
             .actions
@@ -286,8 +286,8 @@ mod tests {
         assert_eq!(config.detection.poll_interval, Duration::from_secs(2));
         assert_eq!(config.detection.stop_delay, Duration::from_secs(2));
         assert_eq!(config.general.log_level, "info");
-        // A config with no actions at all does nothing, so it is rejected.
-        assert!(config.validate().is_err());
+        // No actions at all is valid: the watcher observes and runs nothing.
+        assert!(config.validate().is_ok());
     }
 
     #[test]

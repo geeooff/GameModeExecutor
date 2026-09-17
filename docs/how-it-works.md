@@ -117,7 +117,10 @@ rather than doubling up your commands.
 
 ## What starts it, and why not a service
 
-A **per-user scheduled task**, triggered at logon, fifteen seconds in.
+A **per-user scheduled task**, triggered at logon, fifteen seconds in. The
+installer registers it and starts it once the files are in place, which is
+why the icon appears as the install ends; from the zip, `install-task` does
+the same by hand.
 
 A Windows service was considered and dropped. Services run before anyone logs
 on, in a separate session, where they cannot see the desktop the game is on —

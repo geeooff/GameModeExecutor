@@ -275,10 +275,8 @@ function Invoke-Release {
     Copy-Item (Join-Path $root 'target\release\gamemode-executor.exe')  $stage
     Copy-Item (Join-Path $root 'target\release\gamemode-executorw.exe') $stage
     Copy-Item (Join-Path $root 'LICENSE') $stage
-    # The FanControl recipe's configuration is the shipped default: it is the
-    # case this program was built for, and it is inert until its tasks exist.
-    Copy-Item (Join-Path $root 'docs\recipes\fancontrol-fan-profiles\config.toml') `
-              (Join-Path $stage 'config.toml')
+    # No configuration in the zip: `init` writes the starter one where the
+    # installer would, so both ways in leave the same machine behind.
     # The docs ship as they are, rather than being rewritten for the bundle.
     # One copy means the bundle cannot describe a version that no longer exists.
     Copy-Item (Join-Path $root 'docs') $stage -Recurse
@@ -301,22 +299,18 @@ Runs the programs you configure when a game starts, and others when it stops.
 There is no list of games to maintain: detection is Windows' own.
 
 Nothing to install. Keep this folder where you put it -- the scheduled task
-will remember this path.
+will remember this path. Then, from a terminal in this folder:
+
+    gamemode-executor init            writes a starter configuration
+    gamemode-executor install-task    starts the watcher now and at every logon
+
+The starter configuration runs nothing; the icon that appears shows the
+watcher is working. What to run is yours to write -- docs\recipes\ has
+worked examples, one folder each.
 
 START HERE
     docs\getting-started.md, next to this file -- or the documentation link
     above, which is the same page at the exact commit this was built from.
-
-THE RECIPE THIS BUNDLE IS SET UP FOR
-    docs\recipes\fancontrol-fan-profiles\
-    Quiet fans outside games, a game profile while playing, with FanControl.
-    config.toml here is already that recipe. It does nothing until you
-    register its two scheduled tasks -- that folder has a script for it.
-
-    You need two FanControl configurations saved on this machine -- one for
-    everyday use, one for games, named however you like. The script asks
-    which is which. They are not shipped and cannot be: a fan curve depends
-    on the machine's own hardware.
 
 THE TWO EXECUTABLES
     gamemode-executor.exe    the one you talk to. Every command. It answers,

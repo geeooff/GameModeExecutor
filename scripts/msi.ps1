@@ -1,10 +1,15 @@
 # Builds the Windows Installer package from a staged release folder.
 #
-# Per-user, no elevation, no UI, no custom actions: the two executables and
-# the license go to %LOCALAPPDATA%\Programs\GameModeExecutor, and nothing
-# else is touched. The user's configuration, log, marker and scheduled
-# tasks are not components, so no repair, upgrade or uninstall reaches
-# them. Written with nothing but Windows Installer's own COM automation and
+# Per-user, no elevation, no UI: the two executables and the license go to
+# %LOCALAPPDATA%\Programs\GameModeExecutor. The user's configuration, log,
+# marker and scheduled tasks are not components, so no repair, upgrade or
+# uninstall reaches them. Two custom actions, both the program's own
+# commands and both idempotent, finish an install or upgrade: `init`, which
+# writes a starter configuration only where there is none, and
+# `install-task`, which registers the logon task only where there is none
+# and then starts the watcher -- the icon appearing is the confirmation.
+#
+# Written with nothing but Windows Installer's own COM automation and
 # makecab, so a stock runner can build it -- docs/design/08-distribution.md
 # records the measurements behind every choice here.
 #
@@ -17,13 +22,18 @@ param(
     [Parameter(Mandatory)] [string] $Out,      # the .msi to write
     [string] $Commit = 'unknown',
     [string] $DocumentationUrl = 'https://github.com/Geeooff/GameModeExecutor',
-    [string] $Icon = ''                        # .ico for Programs and Features
+    [string] $Icon = '',                       # .ico for Programs and Features
+    # Tests only: a package that is not the real product. It gets its own
+    # upgrade and product codes and a name that says so, and can be installed
+    # beside the real one without either seeing the other.
+    [string] $Family = ''
 )
 $ErrorActionPreference = 'Stop'
 
 # Fixed for the life of the product: every version shares it, which is how
 # a newer package finds the older installation it replaces.
 $UpgradeCode = '{8C4E0B2D-3F6A-4E7B-9A1C-5D2E8F7B6A30}'
+$ProductName = 'GameModeExecutor'
 $Namespace   = [guid] '{2B7D6F1E-9C4A-4D3B-8E5F-1A6C9D0B7E42}'
 $Author      = 'Geoffrey Vancoetsem'
 $Repository  = 'https://github.com/Geeooff/GameModeExecutor'
@@ -44,8 +54,15 @@ function New-NameGuid([string] $Name) {
     return '{' + ([guid] [byte[]] $bytes).ToString().ToUpperInvariant() + '}'
 }
 
-$ProductCode = New-NameGuid "product/$Version"
-$PackageCode = New-NameGuid "package/$Version/$Commit"
+if ($Family) {
+    $UpgradeCode = New-NameGuid "upgrade/$Family"
+    $ProductName = "GameModeExecutor ($Family)"
+}
+# The real product's names stay exactly what they were before families
+# existed, so its codes do not move.
+$scope = if ($Family) { "$Family/" } else { '' }
+$ProductCode = New-NameGuid "product/$scope$Version"
+$PackageCode = New-NameGuid "package/$scope$Version/$Commit"
 
 # --- the files ---------------------------------------------------------------
 # Keys are Windows Installer identifiers (no hyphens), and the cabinet entries
@@ -128,6 +145,7 @@ try {
         AdvtExecuteSequence    = 'Action, Condition, Sequence'
         Upgrade                = 'UpgradeCode, VersionMin, VersionMax, Language, Attributes, Remove, ActionProperty'
         LaunchCondition        = 'Condition, Description'
+        CustomAction           = 'Action, Type, Source, Target, ExtendedType'
         Icon                   = 'Name, Data'
         _Validation            = 'Table, Column, Nullable, MinValue, MaxValue, KeyTable, KeyColumn, Category, Set, Description'
         _Streams               = 'Name, Data'
@@ -165,6 +183,7 @@ try {
     }
     Exec-Sql "CREATE TABLE ``Upgrade`` (``UpgradeCode`` CHAR(38) NOT NULL, ``VersionMin`` CHAR(20), ``VersionMax`` CHAR(20), ``Language`` CHAR(255), ``Attributes`` LONG NOT NULL, ``Remove`` CHAR(255), ``ActionProperty`` CHAR(72) NOT NULL PRIMARY KEY ``UpgradeCode``, ``VersionMin``, ``VersionMax``, ``Language``, ``Attributes``)"
     Exec-Sql "CREATE TABLE ``LaunchCondition`` (``Condition`` CHAR(255) NOT NULL, ``Description`` CHAR(255) NOT NULL LOCALIZABLE PRIMARY KEY ``Condition``)"
+    Exec-Sql "CREATE TABLE ``CustomAction`` (``Action`` CHAR(72) NOT NULL, ``Type`` SHORT NOT NULL, ``Source`` CHAR(72), ``Target`` CHAR(255), ``ExtendedType`` LONG PRIMARY KEY ``Action``)"
     Exec-Sql "CREATE TABLE ``Icon`` (``Name`` CHAR(72) NOT NULL, ``Data`` OBJECT NOT NULL PRIMARY KEY ``Name``)"
     Exec-Sql "CREATE TABLE ``_Validation`` (``Table`` CHAR(32) NOT NULL, ``Column`` CHAR(32) NOT NULL, ``Nullable`` CHAR(4) NOT NULL, ``MinValue`` LONG, ``MaxValue`` LONG, ``KeyTable`` CHAR(255), ``KeyColumn`` SHORT, ``Category`` CHAR(32), ``Set`` CHAR(255), ``Description`` CHAR(255) PRIMARY KEY ``Table``, ``Column``)"
 
@@ -182,7 +201,7 @@ try {
     $properties = [ordered] @{
         ProductCode            = $ProductCode
         UpgradeCode            = $UpgradeCode
-        ProductName            = 'GameModeExecutor'
+        ProductName            = $ProductName
         ProductVersion         = $Version
         ProductLanguage        = '1033'
         Manufacturer           = $Author
@@ -240,6 +259,13 @@ try {
     Insert 'Upgrade' @($UpgradeCode, $Version, $null, $null, 2, $null, 'NEWERVERSIONDETECTED')  # 2: detect only; min exclusive
     Insert 'LaunchCondition' @('NOT NEWERVERSIONDETECTED', 'A newer version of GameModeExecutor is already installed.')
 
+    # 1042 = 18 (run an executable from the File table) + 1024 (deferred,
+    # in the install script, after the files are on disk). Impersonated, as
+    # deferred actions are by default, so they act as the user -- which is
+    # the only way a per-user package may run anything.
+    Insert 'CustomAction' @('InitConfig', 1042, 'gamemode_executor.exe', 'init', $null)
+    Insert 'CustomAction' @('RegisterTask', 1042, 'gamemode_executor.exe', 'install-task', $null)
+
     $sequences = @{
         InstallExecuteSequence = @(
             @('FindRelatedProducts', 25), @('LaunchConditions', 100), @('ValidateProductID', 700),
@@ -248,6 +274,7 @@ try {
             @('RemoveExistingProducts', 1510),
             @('ProcessComponents', 1600), @('UnpublishFeatures', 1800),
             @('RemoveFiles', 3500), @('InstallFiles', 4000),
+            @('InitConfig', 4100), @('RegisterTask', 4200),
             @('RegisterUser', 6000), @('RegisterProduct', 6100),
             @('PublishFeatures', 6300), @('PublishProduct', 6400),
             @('InstallFinalize', 6600)
@@ -269,8 +296,14 @@ try {
             @('PublishFeatures', 6300), @('PublishProduct', 6400), @('InstallFinalize', 6600)
         )
     }
+    # The custom actions run on an install and on an upgrade -- a new product
+    # code is not Installed -- and never on a repair or an uninstall.
+    $conditions = @{ InitConfig = 'NOT Installed'; RegisterTask = 'NOT Installed' }
     foreach ($t in $sequences.Keys) {
-        foreach ($row in $sequences[$t]) { Insert $t @($row[0], $null, [int] $row[1]) }
+        foreach ($row in $sequences[$t]) {
+            $condition = if ($conditions.ContainsKey($row[0])) { $conditions[$row[0]] } else { $null }
+            Insert $t @($row[0], $condition, [int] $row[1])
+        }
     }
 
     # The column specifications ICE03 checks against, for the tables above
@@ -296,6 +329,11 @@ AdvtExecuteSequence | Action | N |  |  |  |  | Identifier |  | Name of action to
 AdvtExecuteSequence | Condition | Y |  |  |  |  | Condition |  | Optional expression which skips the action if evaluates to expFalse.If the expression syntax is invalid, the engine will terminate, returning iesBadActionData.
 AdvtExecuteSequence | Sequence | Y | -4 | 32767 |  |  |  |  | Number that determines the sort order in which the actions are to be executed.  Leave blank to suppress action.
 Component | Attributes | N |  |  |  |  |  |  | Remote execution option, one of irsEnum
+CustomAction | Action | N |  |  |  |  | Identifier |  | Primary key, name of action, normally appears in sequence table unless private use.
+CustomAction | ExtendedType | Y | 0 | 2147483647 |  |  |  |  | The numeric custom action type info flags.
+CustomAction | Source | Y |  |  |  |  | CustomSource |  | The table reference of the source of the code.
+CustomAction | Target | Y |  |  |  |  | Formatted |  | Excecution parameter, depends on the type of custom action
+CustomAction | Type | N | 1 | 32767 |  |  |  |  | The numeric custom action type, consisting of source location, code type, entry, option flags.
 Component | Component | N |  |  |  |  | Identifier |  | Primary key used to identify a particular component record.
 Component | ComponentId | Y |  |  |  |  | Guid |  | A string GUID unique to this component, version, and language.
 Component | Condition | Y |  |  |  |  | Condition |  | A conditional statement that will disable this component if the specified condition evaluates to the 'True' state. If a component is disabled, it will not be installed, regardless of the 'Action' state associated with the component.

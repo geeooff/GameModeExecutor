@@ -31,8 +31,8 @@ All belong to `gamemode-executor.exe`. `gamemode-executorw.exe` takes only
 | `check <path>` | Ask whether Windows knows a given executable as a game. |
 | `trigger start\|stop` | Run one set of actions immediately, ignoring detection. Handy to test your commands. |
 | `validate` | Parse and check the configuration. The command to script against: it returns 3 or 4 without starting anything. |
-| `init [--force]` | Write a starter configuration file. |
-| `install-task [--delay HHHH:MM]` | Register a per-user logon task that runs `gamemode-executorw.exe`, with no window. The configuration path is stored absolute. |
+| `init [--force]` | Write the starter configuration file into `%APPDATA%\GameModeExecutor`. One that is already there is kept unless `--force`. The installer runs this. |
+| `install-task [--delay 15s] [--force]` | Register a per-user logon task that runs `gamemode-executorw.exe` with no window, then start it now. A task already registered is kept unless `--force`. The configuration path is stored absolute. The installer runs this too. |
 | `uninstall-task` | Remove that task. |
 | `purge [--yes]` | Remove every trace of the program: the logon task, the configuration, the log, the session marker, the executables. It lists what it will remove and asks; `--yes` is for scripts. Refuses while a game is running. See [Removing it](how-it-works.md#removing-it). |
 
