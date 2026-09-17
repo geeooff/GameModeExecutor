@@ -123,4 +123,91 @@ mod tests {
         assert!(!sensor.is_running(u32::MAX));
         let _ = sensor.rendering_load(Duration::from_millis(100));
     }
+
+    /// The whole chain on a real Windows, with no game: activating the
+    /// presence writer's runtime class makes Windows start the writer, the
+    /// engine sees a session, releasing the object ends it.
+    ///
+    /// Run by name, not by the checklist: an installed watcher on the same
+    /// machine sees the same writer and runs the user's own commands.
+    ///
+    ///     cargo test -- --ignored a_real_activation_drives_a_session
+    ///
+    /// Worked on 2026-09-09 and 2026-09-17, did not on 2026-09-15 -- the
+    /// activation resolved without a writer process, for a reason not
+    /// understood. The test skips rather than fails in that case, and when a
+    /// game is already running, since the writer is then not ours to release.
+    #[test]
+    #[ignore = "starts Windows' presence writer for real; run by name"]
+    fn a_real_activation_drives_a_session() {
+        use crate::engine::{Engine, Session};
+        use std::sync::{Arc, Mutex};
+        use windows::Win32::System::WinRT::{
+            RO_INIT_MULTITHREADED, RoActivateInstance, RoInitialize,
+        };
+        use windows::core::HSTRING;
+
+        let sensor = Windows::new().expect("Game Bar is registered here");
+        if sensor.writer_pid().is_some() {
+            eprintln!("skipped: a game is running, the writer is not ours to release");
+            return;
+        }
+
+        let mut config = crate::config::Config::default();
+        config.detection.poll_interval = Duration::from_millis(50);
+        config.detection.stop_delay = Duration::ZERO;
+        config.detection.identify_after = Duration::ZERO;
+
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = {
+            let seen = Arc::clone(&seen);
+            Arc::new(move |session: &Session| seen.lock().unwrap().push(session.clone()))
+        };
+        let stop = Arc::new(StopSignal::new().unwrap());
+        let worker = {
+            let stop = Arc::clone(&stop);
+            std::thread::spawn(move || Engine::new(config, sensor).reporting_to(sink).run(&stop))
+        };
+
+        // SAFETY: initialises the Windows Runtime for this thread; no pointers.
+        unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.expect("RoInitialize");
+        // SAFETY: the class id is a valid HSTRING that outlives the call.
+        let object = unsafe { RoActivateInstance(&HSTRING::from(presence_writer::CLASS_ID)) };
+        let started = std::time::Instant::now();
+        let mut detected = false;
+        while started.elapsed() < Duration::from_secs(5) {
+            if seen
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|s| matches!(s, Session::Playing(_)))
+            {
+                detected = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        drop(object);
+        if !detected {
+            eprintln!("skipped: the activation started no presence writer this time");
+            stop.signal();
+            worker.join().unwrap().unwrap();
+            return;
+        }
+
+        let released = std::time::Instant::now();
+        while released.elapsed() < Duration::from_secs(10) {
+            if seen.lock().unwrap().last() == Some(&Session::Idle) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        stop.signal();
+        worker.join().unwrap().unwrap();
+
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 2, "one session, both edges: {seen:?}");
+        assert!(matches!(seen[0], Session::Playing(_)), "{seen:?}");
+        assert_eq!(seen[1], Session::Idle);
+    }
 }

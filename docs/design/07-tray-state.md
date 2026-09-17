@@ -38,9 +38,13 @@ that long ago is precisely what someone would notice.
 ## The sessions that closed it
 
 `presence-probe activate` was the hope for testing without a game: activating
-the runtime class ought to make Windows start a presence writer. It does not —
-the activation resolves in-process — so the last mile waited for a real
-session.
+the runtime class ought to make Windows start a presence writer. On
+2026-09-15 it did not — the activation resolved without a writer process —
+so the last mile waited for a real session. On 2026-09-17 it did, as it had
+on 2026-09-09, and drove the installed watcher through a full unnamed session
+in six seconds; why it did not on the 15th is not understood. It is now an
+on-demand test, `a_real_activation_drives_a_session`, and the one that
+exercises the unnamed-game case the field never produced.
 
 ```
 16:15:54.699  Game detected: Starfield.exe   matched_by="package family"

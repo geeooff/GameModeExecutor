@@ -95,7 +95,10 @@ function Invoke-Tests {
     # machine is a real Windows client. GitHub sets CI=true on its runners.
     if (-not $env:CI) {
         Step "Tests that need a Windows client"
-        Run 'cargo' @('test', '--', '--ignored')
+        # One ignored test is left out on purpose: it starts Windows' presence
+        # writer for real, and an installed watcher on this machine would run
+        # the user's own commands in reaction. It is run by name when wanted.
+        Run 'cargo' @('test', '--', '--ignored', '--skip', 'a_real_activation_drives_a_session')
     }
 
     Step "Shipped configurations parse"

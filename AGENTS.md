@@ -95,11 +95,19 @@ Run `test` before every commit and read its result — a `FAILED` scrolling
 past a `git commit` in the same block has happened. `release` requires a clean
 tree because the binaries carry the commit they were built from.
 
-Two tests read this machine's registry — the Known Game List and the Game Bar
-registration — which a GitHub-hosted Windows Server runner does not have. They
-are `#[ignore]`d with that reason and the script runs them when `CI` is not
-set. CI must stay green on a stock runner: a test that needs a real Windows
-client, a GPU or a game says so with `#[ignore]`.
+Three tests read this machine's registry — the Known Game List, the Game Bar
+registration, the real sensor — which a GitHub-hosted Windows Server runner
+does not have. They are `#[ignore]`d with that reason and the script runs
+them when `CI` is not set. CI must stay green on a stock runner: a test that
+needs a real Windows client, a GPU or a game says so with `#[ignore]`.
+
+One more is run only by name, because it starts Windows' presence writer for
+real and an installed watcher on the same machine reacts by running the
+user's commands. It is the whole chain, end to end, with no game:
+
+```powershell
+cargo test -- --ignored a_real_activation_drives_a_session
+```
 
 Verifying a change means running it as the user does: deploy the two
 executables to the install folder, restart the logon task
