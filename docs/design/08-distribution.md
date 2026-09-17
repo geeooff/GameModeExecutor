@@ -145,7 +145,10 @@ worked, and four remarks came back, all taken the same evening:
   install and on an upgrade and never on a repair or removal. Measured
   with a package of a separate test family beside the real one: both ran,
   both kept what was there, the watcher was untouched. `init` used to fail
-  when the file existed, which would have failed every upgrade.
+  when the file existed, which would have failed every upgrade. And no
+  window: watched on 2026-09-18, each action's process ran in the user's
+  own session with a console host that had no title and no window —
+  Windows Installer starts executable actions with a hidden console.
 - **The starter configuration named FanControl.** It now names nothing:
   two commands that beep, commented out, and a pointer to the recipes. That
   needed a configuration with no commands to be valid, which it was not;
