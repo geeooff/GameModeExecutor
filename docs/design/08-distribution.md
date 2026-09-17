@@ -215,7 +215,13 @@ worked, and four remarks came back, all taken the same evening:
   runs; not on the removal an upgrade performs, so a delay or a
   configuration path chosen with `install-task` survives the upgrade as
   before. `purge` still removes the task itself, first, and the package's
-  action then finds none to remove.
+  action then finds none to remove. Measured the same night at 01:54: the
+  uninstall logged *Watcher stopped, as asked* then *Logon task removed*
+  133 ms later, the task was gone from Task Scheduler with the recipe's
+  tasks left beside where it had been, no dialog; the reinstall a minute
+  later logged *Logon task registered* with the user, the program, the
+  configuration path and the 15 s delay — the first time that line, rather
+  than *kept*, had been seen from the package.
 - **The package's own metadata.** Explorer's Details tab showed *Title:
   Installation Database* — the phrase the SDK suggests, which tells a tool
   what the file is and a person nothing. The summary now names the product
