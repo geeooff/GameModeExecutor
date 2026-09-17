@@ -211,7 +211,7 @@ impl Config {
 }
 
 /// Where the configuration file lives when `--config` is not given: next to the
-/// executable first (portable install), then in the roaming profile.
+/// executable first (a hand-installed copy), then in the roaming profile.
 pub fn candidate_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Ok(exe) = std::env::current_exe()

@@ -1,16 +1,17 @@
 # Lot 8 — Distribution
 
 **Status: proposed.** Partly done: `scripts/build.ps1` runs the whole checklist
-and produces the portable bundle in `dist/`, and `.vscode/tasks.json` drives
+and produces the zip archive in `dist/`, and `.vscode/tasks.json` drives
 it. The script was written first on purpose — a release that cannot be made by
 hand is not one CI can make either. What is left needs a public repository:
 
 - Create the public GitHub repository and push — **with explicit approval**
 - The whole delivery chain, unattended: pushing a `vX.Y.Z` tag makes CI run
-  the checklist, build the **MSI** and the **portable zip**, and publish a
+  the checklist, build the **MSI** and the **zip archive**, and publish a
   GitHub Release carrying both with their SHA-256 — nothing built or uploaded
   by hand
 - An installer, per-user, into `%LOCALAPPDATA%\Programs\GameModeExecutor`
+- `gamemode-executor purge`, the same command in every mode — below
 - `VERSIONINFO` metadata in the executables, through the same `rc.exe` step that embeds the icon
 - The install section of the documentation pointing at a release rather than at `cargo build`
 
@@ -19,6 +20,71 @@ the two artefacts on it were built by the workflow from that tag's commit.
 Decided 2026-09-17: two artefacts, MSI and zip, not one or the other — the
 installer for the ordinary case, the zip for the person who wants no
 installer at all.
+
+## The zip is not a portable build
+
+A portable program lives entirely in its own folder. Windows Terminal is the
+reference: a file named `.portable` next to the executable switches it to
+that mode, and its settings then stay in the folder instead of going under
+the profile. This program writes to standard places however it was
+installed — the session marker under `%LOCALAPPDATA%`, the configuration in
+the roaming profile unless it sits next to the executables, the log wherever
+the configuration says, and scheduled tasks. Calling the archive *portable*
+promised something it does not do, so the word was retired from the
+repository on 2026-09-17: the archive is the **zip**, and a copy unpacked
+from it is **hand-installed**.
+
+A portable mode proper — everything in one folder, nothing elsewhere, and
+therefore no logon task — would be a lot of its own. It is not numbered; it
+waits for someone to need it.
+
+## Three ways in, one way out
+
+| Mode | Who owns the executables | Where the data lives |
+| --- | --- | --- |
+| MSI | Windows Installer | the standard places above |
+| Zip | the user | the standard places above |
+| Portable, if it comes | the user | the program's folder and nowhere else |
+
+**Decided 2026-09-17: whichever the mode, the program removes every trace of
+itself on request** — configuration, executables, logs, marker, scheduled
+tasks, all of it — and nothing removes any of it without being asked.
+
+- **Upgrades never purge.** An upgrade replaces the executables and nothing
+  else. For the MSI that is a constraint on the package, not a courtesy:
+  `config.toml`, the log and the marker are user data, not components, so no
+  repair, upgrade or uninstall can touch them. The installer writes no
+  configuration; `init` does, when asked.
+- **Uninstalling does not purge either.** The MSI's uninstall removes what
+  the MSI installed — the executables — which is what Windows applications
+  ordinarily do. The zip has no uninstaller; the user deletes the folder.
+- **The purge is a command, `gamemode-executor purge`, not a script.** The
+  program already knows every location — where the configuration was found,
+  where the log is written, the local folder, the task names — and a script
+  would carry a second copy of that knowledge, which drifts. It runs
+  **before** the uninstall, in every mode. The shape proposed: refuse while
+  a game session is open, because leaving a machine on its gaming
+  configuration with nothing left to restore it is the one thing this must
+  not do; stop the watcher; remove the scheduled tasks, its own and the ones
+  the recipes had the user register; remove `%LOCALAPPDATA%\GameModeExecutor`
+  and `%APPDATA%\GameModeExecutor`, the configuration wherever it was found,
+  the log wherever it was written; and last the executables — a process
+  cannot delete itself, so a hand-installed copy hands that step to a
+  detached shell that waits for it to exit, and an MSI install runs
+  `msiexec /x` so Windows Installer's registration goes too. It lists what
+  it is about to remove and asks once; `--yes` is for scripts.
+- **A prompt at MSI uninstall time** — *also remove the configuration, logs
+  and tasks?* — is the obvious UX, and exactly where a hand-authored MSI gets
+  expensive: a dialog is the Dialog, Control and ControlEvent tables plus a
+  custom action that calls `purge`. The lot measures that cost against the
+  alternative, no dialog and the documented command, and decides with the
+  number in hand.
+
+**To measure, with the installer:** whether an unelevated process can delete
+a task registered with highest privileges — the recipes' tasks — and, if
+not, how the purge says which ones it left and what to do; the self-removal
+of a hand-installed folder from a detached shell; and the cost of the
+uninstall-time prompt, in tables.
 
 ## Versioning
 
@@ -206,8 +272,8 @@ verify, run the new installer silently, restart. One owner of the installation.
 Per-user MSI: `msiexec /i new.msi /passive`, no UAC. Inno:
 `setup.exe /SILENT /SUPPRESSMSGBOXES` — VS Code's model exactly.
 
-The **portable** bundle is the opposite case: nothing else owns the files, so
-there the updater swaps them itself. `MsiEnumRelatedProducts` on the package's
+The **zip** is the opposite case: nothing else owns the files, so there the
+updater swaps them itself. `MsiEnumRelatedProducts` on the package's
 UpgradeCode tells the two apart.
 
 Two things this settles for the updater, whenever it comes:

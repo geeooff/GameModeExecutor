@@ -301,8 +301,8 @@ const ID_QUIT: usize = 4;
 
 /// One icon per state and taskbar theme, compiled in.
 ///
-/// Embedded rather than loaded from disk so a portable copy is one folder with
-/// nothing to lose. It costs about 190 KB across the six, which is the price of
+/// Embedded rather than loaded from disk so a hand-installed copy is one folder
+/// with nothing to lose. It costs about 190 KB across the six, which is the price of
 /// never having to find a file at runtime.
 const ICONS: [(State, Theme, &[u8]); 6] = [
     (

@@ -48,7 +48,7 @@ Until a release exists, build from source with the stable Rust toolchain:
 .\scripts\build.ps1 release
 ```
 
-That runs the checks, builds, and leaves a portable zip in `dist\`. Unzip it
+That runs the checks, builds, and leaves a zip archive in `dist\`. Unzip it
 in `%LOCALAPPDATA%\Programs\GameModeExecutor`, then:
 
 ```powershell

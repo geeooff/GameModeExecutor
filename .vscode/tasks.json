@@ -52,7 +52,7 @@
     },
     {
       "label": "Release (zip)",
-      "detail": "everything Build does, then the portable bundle in dist\\",
+      "detail": "everything Build does, then the zip archive in dist\\",
       "type": "shell",
       "command": "pwsh",
       "args": [

@@ -38,7 +38,7 @@ All belong to `gamemode-executor.exe`. `gamemode-executorw.exe` takes only
 Global options: `--config <PATH>`, `--log-level <LEVEL>`, `--version`.
 
 Without `--config`, the file is looked up next to the executable first
-(`config.toml`, portable install), then in
+(`config.toml`, a hand-installed copy), then in
 `%APPDATA%\GameModeExecutor\config.toml`.
 
 ## Configuration
@@ -198,7 +198,7 @@ embeds the icon; without it the build warns and continues.
 ```powershell
 .\scripts\build.ps1            # test
 .\scripts\build.ps1 build      # test, then a release build
-.\scripts\build.ps1 release    # test, build, and the portable zip in dist\
+.\scripts\build.ps1 release    # test, build, and the zip archive in dist\
 ```
 
 Each mode runs everything the one before it does. `test` is more than
@@ -219,7 +219,7 @@ getting that backwards is invisible until someone sees a black window at logon.
 `release` refuses a dirty tree, checks the commit stamped into the binaries is
 the commit being built, stages the bundle, zips it into `dist\`, and refuses to
 finish if the archive names the building account or if a task template has
-lost the placeholders that make it portable.
+lost the placeholders that make it reusable.
 
 **From VS Code:** `Ctrl+Shift+B` builds, and *Terminal → Run Task* offers the
 same three plus two for driving an installed watcher — restart it, or follow

@@ -34,7 +34,9 @@ with nothing on screen before anything was drawn on them.
 
 The numbering moved twice while the lots were being taken — logging became
 Lot 4 and the tray icon lot was split in two. The pages and the commit
-messages both use the final numbers.
+messages both use the final numbers. One lot is deliberately unnumbered: a
+portable mode proper, everything in one folder — see
+[Lot 8](08-distribution.md) for why the zip is not that — waits for a need.
 
 **Standing rule:** any lot that changes what the user sees updates
 `getting-started.md` and `how-it-works.md` in the same commit. Documentation

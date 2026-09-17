@@ -204,7 +204,7 @@ function Invoke-Build {
 function Invoke-Release {
     $version = Get-Version
     $stage = Join-Path $root "dist\GameModeExecutor-$version"
-    $zip = Join-Path $root "dist\GameModeExecutor-$version-portable.zip"
+    $zip = Join-Path $root "dist\GameModeExecutor-$version.zip"
 
     Step "Staging $version"
     if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
@@ -226,7 +226,7 @@ function Invoke-Release {
     $stamp = & (Join-Path $stage 'gamemode-executor.exe') --version
 
     Set-Content -Path (Join-Path $stage 'README.txt') -Encoding UTF8 -Value @"
-GameModeExecutor $version - portable
+GameModeExecutor $version - zip archive
 
 $($stamp -join "`r`n")
 
@@ -300,7 +300,7 @@ https://github.com/Geeooff/GameModeExecutor
     Write-Host "    clean, and the task templates still have their placeholders"
 
     Write-Host ""
-    Write-Host "dist\GameModeExecutor-$version-portable.zip  ($([math]::Round((Get-Item $zip).Length / 1KB)) KB)" -ForegroundColor Green
+    Write-Host "dist\GameModeExecutor-$version.zip  ($([math]::Round((Get-Item $zip).Length / 1KB)) KB)" -ForegroundColor Green
 }
 
 # --- go ---------------------------------------------------------------------

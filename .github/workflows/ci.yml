@@ -24,7 +24,7 @@ jobs:
       # The same checklist a developer runs: fmt, clippy -D warnings, tests,
       # every shipped config.toml validated, every documentation link
       # resolved, release build, PE subsystem check, commit stamp check, and
-      # the portable zip. A release nobody can make by hand is not one CI can
+      # the zip archive. A release nobody can make by hand is not one CI can
       # make either, so there is one script and CI calls it.
       - name: Test, build and package
         shell: pwsh
@@ -32,5 +32,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: GameModeExecutor-portable
+          name: GameModeExecutor-zip
           path: dist/*.zip
