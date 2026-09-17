@@ -13,7 +13,7 @@ jobs:
   release-bundle:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -30,7 +30,7 @@ jobs:
         shell: pwsh
         run: .\scripts\build.ps1 release
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: GameModeExecutor-zip
           path: dist/*.zip
