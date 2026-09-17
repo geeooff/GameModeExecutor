@@ -68,15 +68,35 @@ Write-Host "FanControl     : $FanControlDir" -ForegroundColor Cyan
 # --- 3. Which configuration plays which role ---------------------------------
 # Configurations cannot be shipped: a fan curve depends on the machine's
 # hardware, so someone else's would be useless at best. What can be done is
-# list the ones you saved, and ask.
+# list the ones you saved, and ask -- and take nothing but one of those. A
+# task pointing at a configuration that does not exist would sit there doing
+# nothing, with no way to tell why.
 $folder = Join-Path $FanControlDir 'Configurations'
-$available = @(Get-ChildItem $folder -Filter *.json -ErrorAction SilentlyContinue |
-               ForEach-Object { $_.BaseName })
-if ($available) {
-    Write-Host "Configurations : $($available -join ', ')" -ForegroundColor Cyan
-} else {
-    Write-Host "Configurations : none saved yet in $folder" -ForegroundColor Yellow
+
+# Read from disk every time it is needed rather than once: FanControl is
+# usually open in the meantime, and a configuration saved there while this
+# script waits for an answer should be on the list.
+function Get-SavedConfigurations {
+    return @(Get-ChildItem $folder -Filter *.json -ErrorAction SilentlyContinue |
+             ForEach-Object { $_.BaseName } | Sort-Object)
 }
+
+function Show-Configurations([string[]] $List) {
+    Write-Host "Configurations :" -ForegroundColor Cyan
+    for ($i = 0; $i -lt $List.Count; $i++) {
+        Write-Host ("  {0,2}) {1}" -f ($i + 1), $List[$i])
+    }
+}
+
+# What is on screen, kept in a table so the function below can update it.
+$listing = @{ Shown = Get-SavedConfigurations }
+if (-not $listing.Shown) {
+    Write-Host "No configuration is saved in $folder yet." -ForegroundColor Red
+    Write-Host "Save the ones you want in FanControl first (Save configuration as...), then run this again."
+    Write-Host "Nothing was changed."
+    Leave 1
+}
+Show-Configurations $listing.Shown
 
 # FanControl notes which configuration it is applying in Configurations\CACHE
 # -- JSON, "CurrentConfigFileName": "Quiet.json", as observed on 2026-09-17.
@@ -96,39 +116,64 @@ if ($active) {
     Write-Host "Active now     : $active" -ForegroundColor Cyan
 }
 
+# A number from the list, or a name as saved -- case does not matter, and a
+# trailing .json is tolerated. Returns the name with its casing on disk,
+# since FanControl may compare it exactly, or nothing for anything else.
+function Resolve-Configuration([string] $Answer, [string[]] $List) {
+    $answer = $Answer.Trim() -replace '\.json$', ''
+    if ($answer -match '^\d+$' -and [int] $answer -ge 1 -and [int] $answer -le $List.Count) {
+        return $List[[int] $answer - 1]
+    }
+    return $List | Where-Object { $_ -ieq $answer } | Select-Object -First 1
+}
+
 function Choose-Configuration([string] $Role, [string] $Meaning, [string] $Given, [string] $Fallback) {
-    $name = $Given
-    if (-not $name) {
-        # One named after the role is the obvious default, then whatever the
-        # caller suggests; anything else is a question, not a guess.
-        $default = $available | Where-Object { $_ -ieq $Role } | Select-Object -First 1
-        if (-not $default -and $Fallback) {
-            $default = $available | Where-Object { $_ -ieq $Fallback } | Select-Object -First 1
-        }
-        $hint = if ($default) { " [$default]" } else { '' }
-        Write-Host ""
-        Write-Host "Configuration for $Role -- $Meaning" -ForegroundColor Cyan
-        $name = Read-Host "  name$hint"
-        if (-not $name) { $name = $default }
-        if (-not $name) {
-            Write-Host "No configuration named for $Role. Nothing was changed." -ForegroundColor Red
-            Write-Host "Run again with -${Role}Configuration <name>, or answer the question."
+    if ($Given) {
+        $list = Get-SavedConfigurations
+        $chosen = Resolve-Configuration $Given $list
+        if (-not $chosen) {
+            Write-Host "'$Given' is not a saved configuration. Saved: $($list -join ', ')." -ForegroundColor Red
+            Write-Host "Nothing was changed."
             Leave 1
         }
+        return $chosen
     }
-    $name = $name.Trim() -replace '\.json$', ''
-    # Use the casing on disk: FanControl may compare the name exactly.
-    $onDisk = $available | Where-Object { $_ -ieq $name } | Select-Object -First 1
-    if ($onDisk) {
-        return $onDisk
+    Write-Host ""
+    Write-Host "Configuration for $Role -- $Meaning" -ForegroundColor Cyan
+    while ($true) {
+        $list = Get-SavedConfigurations
+        if (Compare-Object $list $listing.Shown) {
+            Write-Host "  (the saved configurations changed)" -ForegroundColor Yellow
+            Show-Configurations $list
+            $listing.Shown = $list
+        }
+        # One named after the role is the obvious default, then whatever the
+        # caller suggests; anything else is a question, not a guess.
+        $default = $list | Where-Object { $_ -ieq $Role } | Select-Object -First 1
+        if (-not $default -and $Fallback) {
+            $default = $list | Where-Object { $_ -ieq $Fallback } | Select-Object -First 1
+        }
+        $hint = if ($default) { " [$default]" } else { '' }
+        $answer = Read-Host "  number or name$hint"
+        # Resolved against the folder as it is now, not as it was when the
+        # question was asked: the answer may well be a configuration saved in
+        # FanControl while the question waited.
+        $list = Get-SavedConfigurations
+        if (-not $answer -and $default -and ($list -contains $default)) { return $default }
+        $chosen = Resolve-Configuration $answer $list
+        if ($chosen) { return $chosen }
+        Write-Host "  '$answer' is not one of the saved configurations; give a number from the list, or a name as saved." -ForegroundColor Yellow
     }
-    Write-Host "  '$name.json' is not in $folder yet." -ForegroundColor Yellow
-    Write-Host "  Registered anyway; the task does nothing until that configuration is saved in FanControl."
-    return $name
 }
 
 $IdleConfiguration = Choose-Configuration -Role 'Idle' -Meaning 'applied when no game is running' -Given $IdleConfiguration -Fallback $active
 $GameConfiguration = Choose-Configuration -Role 'Game' -Meaning 'applied while a game is running' -Given $GameConfiguration
+if ($IdleConfiguration -ieq $GameConfiguration) {
+    Write-Host ""
+    Write-Host "Idle and Game would both apply '$IdleConfiguration', so nothing would ever change." -ForegroundColor Red
+    Write-Host "Nothing was changed."
+    Leave 1
+}
 
 Write-Host ""
 Write-Host "Idle           : $IdleConfiguration.json" -ForegroundColor Cyan

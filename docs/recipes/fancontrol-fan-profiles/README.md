@@ -123,29 +123,35 @@ asks which one plays each role:
 
 ```
 FanControl     : C:\Program Files (x86)\FanControl
-Configurations : Benchmark, Game, Quiet
+Configurations :
+   1) Benchmark
+   2) Game
+   3) Quiet
 Active now     : Quiet
 
 Configuration for Idle -- applied when no game is running
-  name [Quiet]:
+  number or name [Quiet]:
 
 Configuration for Game -- applied while a game is running
-  name [Game]:
+  number or name [Game]:
 ```
 
-The defaults in brackets are taken with Enter. For *Idle* it is the
-configuration FanControl is applying right now — nobody runs this in the
-middle of a game, so that is the everyday one; for *Game*, a configuration
-named `Game` if you saved one. To skip the questions, or if it cannot find
-FanControl, say so:
+Answer with a number from the list or a name as saved; the defaults in
+brackets are taken with Enter. For *Idle* the default is the configuration
+FanControl is applying right now — nobody runs this in the middle of a game,
+so that is the everyday one; for *Game*, a configuration named `Game` if you
+saved one. Anything that is not a saved configuration is refused and asked
+again, and the list is read afresh each time, so you can switch to FanControl,
+save the configuration you are missing, and come back to type its name. To
+skip the questions, or if it cannot find FanControl, say so:
 
 ```powershell
 .\install-tasks.ps1 -IdleConfiguration Quiet -GameConfiguration Game
 .\install-tasks.ps1 -FanControlDir "D:\Tools\FanControl"
 ```
 
-It warns if a configuration you named is not saved yet, and prints the
-commands to test what it registered. Run it again any time you rename a configuration: the tasks are
+A name given this way that is not saved is refused too, with nothing
+registered. At the end it prints the commands to test what it registered. Run it again any time you rename a configuration: the tasks are
 simply re-registered.
 
 ### Or by hand: import the templates
