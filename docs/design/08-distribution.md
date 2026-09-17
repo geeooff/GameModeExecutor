@@ -187,8 +187,12 @@ worked, and four remarks came back, all taken the same evening:
   file system's doing, and 80 processes writing at once on 2026-09-18 left
   80 whole lines. Whether an immediate action of a per-user package runs
   in the interactive session, where `EnumWindows` can see the window, was
-  inferred from the deferred ones — which had — and is settled by the
-  first uninstall of a package that carries it.
+  inferred from the deferred ones — which had — and measured on the first
+  uninstall of a package that carries it, 2026-09-18 01:27: *Stopped* from
+  the watcher, *Watcher stopped, as asked* 252 ms later from the action,
+  no dialog, and no *Windows asked to end the session* line — the Restart
+  Manager never had to ask. The reinstall fifty seconds later found the
+  configuration and the task where they were and started the watcher.
 
 ## Versioning
 
