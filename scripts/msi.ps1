@@ -309,11 +309,14 @@ try {
     # The setup actions run on an install and on an upgrade -- a new product
     # code is not Installed -- and never on a repair or an uninstall. The
     # watcher is stopped on an uninstall and on an upgrade, where its files
-    # are about to go; a fresh install has none to stop.
+    # are about to go; a fresh install has none to stop. Not when this
+    # product is the old one being removed by an upgrade: the new package
+    # stopped the watcher before it got here, and the first upgrade
+    # (2026-09-18) logged a second, empty stop for nothing.
     $conditions = @{
         InitConfig   = 'NOT Installed'
         RegisterTask = 'NOT Installed'
-        StopWatcher  = 'REMOVE="ALL" OR PREVIOUSVERSIONS'
+        StopWatcher  = '(REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE) OR PREVIOUSVERSIONS'
     }
     foreach ($t in $sequences.Keys) {
         foreach ($row in $sequences[$t]) {

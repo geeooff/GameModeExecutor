@@ -191,8 +191,19 @@ worked, and four remarks came back, all taken the same evening:
   uninstall of a package that carries it, 2026-09-18 01:27: *Stopped* from
   the watcher, *Watcher stopped, as asked* 252 ms later from the action,
   no *Windows asked to end the session* line — the Restart Manager never
-  had to ask — and, from the maintainer's own eyes this time, no dialog. The reinstall fifty seconds later found the
-  configuration and the task where they were and started the watcher.
+  had to ask — and, from the maintainer's own eyes this time, no dialog.
+  The reinstall fifty seconds later found the configuration and the task
+  where they were and started the watcher.
+- **The first upgrade of the real package,** 01:31 the same night, with a
+  0.1.1 built from the same binaries: *Stopped*, *Watcher stopped, as
+  asked*, then the old product's own stop action reporting *No watcher
+  was running* as `RemoveExistingProducts` ran its removal, then the
+  configuration and the task kept and the watcher started — 700 ms from
+  stop to start, the icon gone and back too fast to be seen, one product
+  listed afterwards. No dialog. The second stop was a wasted run and a
+  confusing line, so the action is now skipped in a product being removed
+  by an upgrade (`UPGRADINGPRODUCTCODE`); a package with that condition
+  has yet to be upgraded from, which the next release will do.
 
 ## Versioning
 
