@@ -93,7 +93,9 @@ deleted.
 
 Run `test` before every commit and read its result — a `FAILED` scrolling
 past a `git commit` in the same block has happened. `release` requires a clean
-tree because the binaries carry the commit they were built from.
+tree because the binaries carry the commit they were built from, and
+`--version` links to that commit's `docs/getting-started.md`: build a release
+from the commit that carries the final documentation, never before it.
 
 Three tests read this machine's registry — the Known Game List, the Game Bar
 registration, the real sensor — which a GitHub-hosted Windows Server runner

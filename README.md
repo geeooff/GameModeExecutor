@@ -51,7 +51,7 @@ Until a release exists, build from source with the stable Rust toolchain:
 That runs the checks, builds, and leaves a portable zip in `dist\`. Unzip it
 in `%LOCALAPPDATA%\Programs\GameModeExecutor`, then:
 
-```bash
+```powershell
 gamemode-executor init          # write a starter config.toml
 gamemode-executor validate      # check it
 gamemode-executor install-task  # start the watcher at every logon

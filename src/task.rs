@@ -154,7 +154,7 @@ fn absolute(path: &Path) -> Result<std::path::PathBuf> {
     };
     // `join` concatenates, it does not normalise: a path typed with forward
     // slashes keeps them, and the result is a command line reading
-    // `C:\Repositories\GameModeExecutor\.local/config.toml`. Windows accepts
+    // `C:\GameModeExecutor\.local/config.toml`. Windows accepts
     // it, a person reading the task's properties should not have to.
     // Re-collecting the components emits the platform separator throughout and
     // drops any `.` along the way.

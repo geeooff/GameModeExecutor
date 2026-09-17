@@ -1,2 +1,5 @@
 * text=auto eol=lf
 *.exe binary
+*.ico binary
+# Task Scheduler exports: UTF-16 with a BOM and CRLF, kept byte for byte.
+*.xml -text

@@ -33,8 +33,8 @@ round: the icon hangs off a window and a message loop, and those were proved
 with nothing on screen before anything was drawn on them.
 
 The numbering moved twice while the lots were being taken — logging became
-Lot 4 and the tray icon lot was split in two. Commit messages older than those
-changes use the numbers of their day.
+Lot 4 and the tray icon lot was split in two. The pages and the commit
+messages both use the final numbers.
 
 **Standing rule:** any lot that changes what the user sees updates
 `getting-started.md` and `how-it-works.md` in the same commit. Documentation
