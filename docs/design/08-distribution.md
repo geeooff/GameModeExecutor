@@ -144,6 +144,19 @@ record of what it was weighed against. How the MSI is authored — the SDK
 tools, given what is said of WiX below — is confirmed when the lot starts
 and the tables are actually written, not before.
 
+**To measure first, before a single table is written.** Everything above
+about per-user MSI comes from Microsoft's documentation, not from this
+project; a minimal package settles it in an afternoon:
+
+1. A per-user MSI installs from an unelevated account **with no prompt**.
+2. A second MSI with a higher version, run `/passive` by an unelevated
+   process, replaces the files **with no prompt**, and *Programs and
+   Features* shows the new version.
+3. Uninstalling asks nothing and leaves the user's scheduled task alone.
+
+Three yeses close the choice. One no says exactly what to weigh against
+Inno Setup.
+
 Both candidates can offer per-user *or* per-machine from one installer, but
 **this program has no per-machine story**: the logon task, the configuration
 and the log are all per-user. A per-machine install would still leave every
