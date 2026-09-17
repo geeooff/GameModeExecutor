@@ -6,10 +6,59 @@ it. The script was written first on purpose — a release that cannot be made by
 hand is not one CI can make either. What is left needs a public repository:
 
 - Create the public GitHub repository and push — **with explicit approval**
-- A release workflow on a `v*` tag that runs the same script and attaches its output
+- The whole delivery chain, unattended: pushing a `vX.Y.Z` tag makes CI run
+  the checklist, build the **MSI** and the **portable zip**, and publish a
+  GitHub Release carrying both with their SHA-256 — nothing built or uploaded
+  by hand
 - An installer, per-user, into `%LOCALAPPDATA%\Programs\GameModeExecutor`
 - `VERSIONINFO` metadata in the executables, through the same `rc.exe` step that embeds the icon
 - The install section of the documentation pointing at a release rather than at `cargo build`
+
+**Done when** a tag alone produces a release a stranger can install from, and
+the two artefacts on it were built by the workflow from that tag's commit.
+Decided 2026-09-17: two artefacts, MSI and zip, not one or the other — the
+installer for the ordinary case, the zip for the person who wants no
+installer at all.
+
+## Versioning
+
+Decided 2026-09-17, when the question came up before publication: why the
+version had sat at 0.1.0 through eleven lots, and whether the first public
+release should be 1.0.0.
+
+**A version is a property of a release, not of a commit.** Its job is to tell
+someone holding an earlier version what changed; through development nobody
+held any, and `--version` already names every build to the commit. So nothing
+was bumped because nothing was released — SemVer's own reading of major
+version zero, *initial development, anything may change*. Not an omission.
+
+**The public API of an application is its user-facing contract**, and that is
+what the major number protects here: the schema of `config.toml`, the
+commands and their exit codes, the names of the scheduled tasks, where the
+marker and the log live, and the `info` lines of the log.
+
+**The rules, from the first release on:**
+
+- The repository going public is not a release. It stays 0.1.0.
+- The first GitHub Release is **0.1.0** and comes with this lot — a release
+  *is* the delivery chain.
+- **1.0.0 when three things are true:** the installer exists (this lot), an
+  invalid configuration shows in the icon ([Lot 9](09-robustness.md)), and
+  the `config.toml` schema is declared stable. Not before: `1.0.0` next to a
+  design record that says *partly done* would contradict itself, and the
+  SemVer argument for it — *if it is in production it is 1.0* — carries
+  little weight with two machines.
+- Patch for a fix that leaves the contract alone; minor for a feature, and,
+  while in 0.x, for a contract change said in the release notes; major
+  reserved for 1.0.0 and then for any break of the contract.
+- **The bump happens in the release commit**, the one the `vX.Y.Z` tag names
+  and the workflow builds. Between releases the number does not move; the
+  commit stamp tells builds apart. One place to change, `Cargo.toml` — the
+  zip's name derives from it, and the version written into the README's
+  status line goes when this lot lands, so there is no second place.
+- Tags are `vX.Y.Z`, created by the release step, never by hand during
+  development. The `lot-N` tags that had accumulated pointed at a history the
+  rewrite replaced and were deleted before publication.
 
 ## The commit is compiled into the binaries
 
@@ -73,7 +122,7 @@ here for an entirely separate reason. The documented constraints on such a
 package — no elevated custom actions, no writes to global folders, no GAC, no
 services — are ones this program already meets.
 
-### Two candidates, decided when the lot is taken
+### Two candidates, and the one named
 
 | | Inno Setup | MSI, Windows SDK only |
 | --- | --- | --- |
@@ -89,6 +138,11 @@ services — are ones this program already meets.
 What keeps the SDK route affordable is the file count: hand-authoring MSI
 tables scales badly with files and well without them, and this package has
 under ten.
+
+**Named 2026-09-17: the installer is an MSI.** The comparison stays as the
+record of what it was weighed against. How the MSI is authored — the SDK
+tools, given what is said of WiX below — is confirmed when the lot starts
+and the tables are actually written, not before.
 
 Both candidates can offer per-user *or* per-machine from one installer, but
 **this program has no per-machine story**: the logon task, the configuration
