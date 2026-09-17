@@ -1,19 +1,23 @@
 # Lot 8 — Distribution
 
-**Status: proposed.** Partly done: `scripts/build.ps1` runs the whole checklist
-and produces the zip archive in `dist/`, and `.vscode/tasks.json` drives
-it. The script was written first on purpose — a release that cannot be made by
-hand is not one CI can make either. What is left needs a public repository:
+**Status: in progress since 2026-09-17.** Already there: `scripts/build.ps1`
+runs the whole checklist and produces the zip archive in `dist/`,
+`.vscode/tasks.json` drives it, and the repository is public with CI green
+on a stock runner. The script was written first on purpose — a release that
+cannot be made by hand is not one CI can make either. What is left, in the
+order it is taken:
 
-- Create the public GitHub repository and push — **with explicit approval**
-- The whole delivery chain, unattended: pushing a `vX.Y.Z` tag makes CI run
+- [x] Create the public GitHub repository and push — done 2026-09-17, with approval
+- [ ] The three measurements below, on a minimal package, before any table is written
+- [ ] `VERSIONINFO` metadata in the executables, through the same `rc.exe` step that embeds the icon
+- [ ] An MSI, per-user, into `%LOCALAPPDATA%\Programs\GameModeExecutor`, with the user's files outside its components
+- [ ] `gamemode-executor purge`, the same command in every mode — below
+- [ ] The whole delivery chain, unattended: pushing a `vX.Y.Z` tag makes CI run
   the checklist, build the **MSI** and the **zip archive**, and publish a
   GitHub Release carrying both with their SHA-256 — nothing built or uploaded
   by hand
-- An installer, per-user, into `%LOCALAPPDATA%\Programs\GameModeExecutor`
-- `gamemode-executor purge`, the same command in every mode — below
-- `VERSIONINFO` metadata in the executables, through the same `rc.exe` step that embeds the icon
-- The install section of the documentation pointing at a release rather than at `cargo build`
+- [ ] The documentation: *Getting started* and the README point at the release rather than at `cargo build`, the reference gains `purge`, *How it works* gains removal
+- [ ] Verified in the field: the MSI on two machines, one real upgrade, one purge round trip
 
 **Done when** a tag alone produces a release a stranger can install from, and
 the two artefacts on it were built by the workflow from that tag's commit.
@@ -283,29 +287,9 @@ The **zip** is the opposite case: nothing else owns the files, so there the
 updater swaps them itself. `MsiEnumRelatedProducts` on the package's
 UpgradeCode tells the two apart.
 
-Two things this settles for the updater, whenever it comes:
-
-- *The running executable.* The watcher holds its own `.exe`; MSI's Restart
-  Manager would show a files-in-use dialog even under `/passive`. So: refuse to
-  update while a game is on, then launch the installer *and quit*, with
-  `msiexec … & schtasks /Run Watcher` in a detached `cmd` to relaunch — no
-  custom action.
-- *The "no network" non-goal.* An automatic release check breaks it. The
-  compatible shape is a **Check for updates…** entry that connects only when
-  clicked, or an explicit opt-in — never a silent poll. Over **WinHTTP**, a
-  Microsoft library using the system certificate store. The download verified
-  against a SHA-256 published with the release, which guards against
-  corruption and not against a compromised account.
-
-**GitHub allows and provides for the check, with no key.** Either the REST
-API — `GET /repos/{owner}/{repo}/releases/latest`, 60 requests an hour per IP
-unauthenticated, `User-Agent` mandatory — or no API at all:
-`github.com/{owner}/{repo}/releases/latest` answers 302 with the tag in
-`Location`, and `…/releases/latest/download/{asset}` serves the latest asset,
-via a redirect that changes host to `objects.githubusercontent.com`. The second
-suffices: a `HEAD`, a `Location`, a tag compared with `build_info::VERSION`,
-nothing to parse. A token would only matter for a private repository, and
-embedding one in a public executable would be a fault.
+The updater itself — the menu entry, the check against GitHub, the
+download, the relaunch — is [Lot 13](13-updating.md), decided on 2026-09-17
+to be a lot of its own. What stays here is what it demands of the package.
 
 **Does it decide Inno against MSI?** No. Both need the same updater. It adds
 two cheap requirements to MSI — `VERSIONINFO`, wanted anyway, and the early

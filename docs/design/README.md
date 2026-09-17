@@ -19,11 +19,12 @@ session rather than when the code compiles. Each has its own page.
 | 5 | [A Windows program with no window](05-windowless-watcher.md) | done |
 | 6 | [Notification area icon](06-notification-icon.md) | done |
 | 7 | [Icon, tooltip and menu as one state](07-tray-state.md) | done |
-| 8 | [Distribution](08-distribution.md) | proposed |
+| 8 | [Distribution](08-distribution.md) | in progress |
 | 9 | [Robustness](09-robustness.md) | partly done |
 | 10 | [Configuration window](10-configuration-window.md) | proposed |
 | 11 | [Documentation for the people who use it](11-user-documentation.md) | done |
 | 12 | [Editing the configuration without breaking it](12-editing-on-a-copy.md) | proposed |
+| 13 | [Updating](13-updating.md) | proposed |
 
 **Dependency order:** 1 → 2 → 4 → 5 → 6 → 7, with 3 independent and 7 needing
 both 3 and 6. Logging sits before the icon deliberately — the icon logs too,
