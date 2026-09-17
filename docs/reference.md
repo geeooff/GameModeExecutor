@@ -34,6 +34,7 @@ All belong to `gamemode-executor.exe`. `gamemode-executorw.exe` takes only
 | `init [--force]` | Write a starter configuration file. |
 | `install-task [--delay HHHH:MM]` | Register a per-user logon task that runs `gamemode-executorw.exe`, with no window. The configuration path is stored absolute. |
 | `uninstall-task` | Remove that task. |
+| `purge [--yes]` | Remove every trace of the program: the logon task, the configuration, the log, the session marker, the executables. It lists what it will remove and asks; `--yes` is for scripts. Refuses while a game is running. See [Removing it](how-it-works.md#removing-it). |
 
 Global options: `--config <PATH>`, `--log-level <LEVEL>`, `--version`.
 
@@ -200,7 +201,7 @@ build warns and continues.
 ```powershell
 .\scripts\build.ps1            # test
 .\scripts\build.ps1 build      # test, then a release build
-.\scripts\build.ps1 release    # test, build, and the zip archive in dist\
+.\scripts\build.ps1 release    # test, build, the zip archive and the installer in dist\
 ```
 
 Each mode runs everything the one before it does. `test` is more than
@@ -219,9 +220,14 @@ header**: a console program and a windowless one cannot be the same file, and
 getting that backwards is invisible until someone sees a black window at logon.
 
 `release` refuses a dirty tree, checks the commit stamped into the binaries is
-the commit being built, stages the bundle, zips it into `dist\`, and refuses to
-finish if the archive names the building account or if a task template has
-lost the placeholders that make it reusable.
+the commit being built, checks the version block each executable carries,
+stages the bundle, zips it into `dist\`, builds the Windows Installer package
+next to it and runs the SDK's every ICE over that package — a warning fails
+the build — and refuses to finish if the archive names the building account
+or if a task template has lost the placeholders that make it reusable. The
+package is written by `scripts\msi.ps1` from Windows Installer's own
+automation; nothing but the SDK is needed, and the validation tools are
+unpacked from the SDK on first use.
 
 **From VS Code:** `Ctrl+Shift+B` builds, and *Terminal → Run Task* offers the
 same three plus two for driving an installed watcher — restart it, or follow

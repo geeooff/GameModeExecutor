@@ -10,7 +10,9 @@ use game_mode_executor::config::{self, Config};
 use game_mode_executor::detect::known_games::KnownGames;
 use game_mode_executor::detect::presence_writer;
 use game_mode_executor::detect::process::Snapshot;
-use game_mode_executor::{actions, build_info, detect, exit, logging, marker, service, task};
+use game_mode_executor::{
+    actions, build_info, detect, exit, logging, marker, purge, service, task,
+};
 
 /// Default config file shipped with the program, also used by `init`.
 const EXAMPLE_CONFIG: &str = include_str!("../config.example.toml");
@@ -83,6 +85,14 @@ enum Commands {
     },
     /// Remove the logon task.
     UninstallTask,
+    /// Remove every trace of the program: the logon task, the configuration,
+    /// the log, the session marker, and the executables themselves. Refuses
+    /// while a game is running. Shows what it will remove and asks first.
+    Purge {
+        /// Do not ask; for scripts.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -113,6 +123,7 @@ fn run() -> Result<()> {
         }
         Some(Commands::UninstallTask) => return task::uninstall(),
         Some(Commands::Check { path, pid }) => return cmd_check(path.as_deref(), pid),
+        Some(Commands::Purge { yes }) => return cmd_purge(cli.config.clone(), yes),
         _ => {}
     }
 
@@ -144,6 +155,45 @@ fn run() -> Result<()> {
         }
         _ => cmd_run(config, &path, &level),
     }
+}
+
+/// Everything the program left on this machine, removed on request.
+///
+/// The configuration is read for the log's location and nothing else, so a
+/// broken one does not stop the purge -- a broken configuration is a fine
+/// reason to want one.
+fn cmd_purge(explicit_config: Option<PathBuf>, yes: bool) -> Result<()> {
+    let path = resolve_config_path(explicit_config)?;
+    let config = Config::load(&path).ok();
+
+    // The one refusal: a purge mid-game would leave the gaming configuration
+    // on with nothing left to restore it.
+    if let Ok(exe) = presence_writer::registered_exe()
+        && presence_writer::running_pid(&exe).is_some()
+    {
+        anyhow::bail!("a game is running; quit it first, so its stop commands can run");
+    }
+
+    let plan = purge::Plan::compute(&purge::discover(config.as_ref(), &path));
+    if plan.is_empty() {
+        println!("Nothing of GameModeExecutor was found on this machine.");
+        return Ok(());
+    }
+    println!("This will:");
+    for line in plan.describe() {
+        println!("  - {line}");
+    }
+    if !yes {
+        print!("Type yes to continue: ");
+        std::io::Write::flush(&mut std::io::stdout())?;
+        let mut answer = String::new();
+        std::io::stdin().read_line(&mut answer)?;
+        if answer.trim() != "yes" {
+            println!("Nothing was changed.");
+            return Ok(());
+        }
+    }
+    purge::execute(&plan)
 }
 
 fn cmd_run(config: Config, config_path: &std::path::Path, level: &str) -> Result<()> {

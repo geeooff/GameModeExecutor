@@ -38,6 +38,9 @@ windows = { version = "0.62", features = [
     # CreateEventW and CreateMutexW take SECURITY_ATTRIBUTES, even as None.
     "Win32_Security",
     "Win32_Storage_Packaging_Appx",
+    # MsiEnumRelatedProducts: whether the installer owns the executables, which
+    # decides how `purge` removes them.
+    "Win32_System_ApplicationInstallationAndServicing",
     # WNDCLASSEXW names HBRUSH, HICON and HCURSOR, so the window class needs Gdi
     # even though this program never draws anything.
     "Win32_Graphics_Gdi",

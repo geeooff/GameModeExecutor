@@ -191,6 +191,16 @@ fn current_user() -> Option<String> {
     }
 }
 
+/// Whether the logon task is registered. `schtasks /Query` exits non-zero
+/// for a task that does not exist, which is the whole answer.
+pub fn exists() -> bool {
+    Command::new("schtasks")
+        .args(["/Query", "/TN", TASK_NAME])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
 fn run_schtasks(args: &[&str]) -> Result<()> {
     let output = Command::new("schtasks")
         .args(args)

@@ -10,8 +10,8 @@ order it is taken:
 - [x] Create the public GitHub repository and push — done 2026-09-17, with approval
 - [x] The three measurements below, on a minimal package, before any table is written — done 2026-09-17
 - [x] `VERSIONINFO` metadata in the executables, through the same `rc.exe` step that embeds the icon — done 2026-09-17, checked by the checklist
-- [ ] An MSI, per-user, into `%LOCALAPPDATA%\Programs\GameModeExecutor`, with the user's files outside its components
-- [ ] `gamemode-executor purge`, the same command in every mode — below
+- [x] An MSI, per-user, into `%LOCALAPPDATA%\Programs\GameModeExecutor`, with the user's files outside its components — built 2026-09-17, ICE clean, the round trip measured below
+- [x] `gamemode-executor purge`, the same command in every mode — built 2026-09-17, below
 - [ ] The whole delivery chain, unattended: pushing a `vX.Y.Z` tag makes CI run
   the checklist, build the **MSI** and the **zip archive**, and publish a
   GitHub Release carrying both with their SHA-256 — nothing built or uploaded
@@ -92,10 +92,21 @@ tasks, all of it — and nothing removes any of it without being asked.
   alternative, no dialog and the documented command, and decides with the
   number in hand.
 
-**To measure, with the installer:** the self-removal of a hand-installed
-folder from a detached shell, and the cost of the uninstall-time prompt, in
-tables. The watcher's own task is registered with `LeastPrivilege`, so the
-purge needs no elevation to remove it.
+**Built 2026-09-17, `src/purge.rs`.** The plan is computed from a `Layout`
+that says what exists, separately from discovering the machine, so seven
+tests drive it on scratch folders — including the hand-installed case,
+where a detached `cmd.exe` deletes the executables after a pause and the
+test waits it out. One thing that cost an hour: `std::process::Command`
+escapes the quotes around paths as `\"` for `CommandLineToArgvW`, which
+`cmd.exe` does not read, so `del` looked for a file that did not exist and
+said nothing; the command line is passed raw. The installed case is told
+apart by `MsiEnumRelatedProducts` on the upgrade code, and a test checks
+the Rust constant against the one `scripts/msi.ps1` writes. The watcher is
+stopped with `WM_CLOSE` on its session window, found by `EnumWindows`
+because `FindWindow` cannot see a class another process registered, and
+the single-instance mutex says when it has gone. Still to measure in the
+field: the purge itself on a real installation, and the cost of an
+uninstall-time prompt, in tables — not built, and not missed so far.
 
 ## Versioning
 

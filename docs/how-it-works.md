@@ -166,6 +166,35 @@ leaves your profile alone, and so does the next logon.
 
 `gamemode-executor status` shows whether that file is there, and where.
 
+## Removing it
+
+Uninstalling from *Programs and Features* removes what the installer put
+there — the executables — and nothing else, as Windows applications ordinarily
+do: your configuration, the log, the session marker and the logon task stay,
+so that installing again finds everything as you left it. Upgrading never
+touches them either.
+
+When you want every trace gone, ask for it:
+
+```
+gamemode-executor purge
+```
+
+It lists what it is about to remove and waits for a `yes`: the logon task,
+the configuration wherever it found it, the log wherever it was written, the
+session marker, its two profile folders once they are empty, and last the
+executables — through Windows Installer when they were installed from the
+package, or by deleting them once the command has exited when they were
+unpacked from the zip. It refuses while a game is running, because a purge
+then would leave your gaming configuration on with nothing left to restore
+it; and it stops the running watcher first, the way *Quit* does.
+
+It removes only what it recognises as its own. A scheduled task it did not
+register — the ones a recipe had you create, say — stays, and so does the
+`\GameModeExecutor` folder in Task Scheduler around it; a folder that holds
+anything else stays too. The recipes carry their own way out for what they
+added.
+
 ## What it does not do
 
 - **No network.** It never connects to anything, and there is no telemetry.
