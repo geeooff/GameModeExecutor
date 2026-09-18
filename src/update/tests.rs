@@ -328,7 +328,7 @@ fn a_copy_is_installed_only_when_the_package_owns_its_folder() {
 
 #[test]
 fn the_context_of_this_process_names_a_repository_and_a_folder() {
-    let context = Context::of_this_process(None).unwrap();
+    let context = Context::of_this_process(None, None).unwrap();
     assert!(context.repository.starts_with("https://github.com/"));
     assert!(context.updates_dir.ends_with("updates"));
     assert!(context.install_dir.is_dir());
@@ -366,7 +366,56 @@ fn scratch_context() -> Context {
         updates_dir: dir.join("updates"),
         install_dir: dir.join("program"),
         stop: None,
+        wake: None,
     }
+}
+
+#[test]
+fn every_outcome_leaves_one_notice_and_a_click_leaves_none() {
+    let (mut m, now) = machine();
+    assert_eq!(m.take_notice(), None);
+    m.apply(Event::CheckAsked, now);
+    assert_eq!(m.take_notice(), None, "asking is not an outcome");
+
+    m.apply(Event::CheckDone(Ok(Verdict::UpToDate)), now);
+    let notice = m.take_notice().expect("a verdict is told");
+    assert_eq!(notice.title, "Up to date");
+    assert_eq!(notice.text, "0.1.0 is the latest version.");
+    assert_eq!(m.take_notice(), None, "told once");
+
+    m.apply(Event::CheckAsked, now);
+    m.apply(
+        Event::CheckDone(Ok(Verdict::Available(release(Version(0, 2, 0))))),
+        now,
+    );
+    let notice = m.take_notice().unwrap();
+    assert_eq!(notice.title, "Update available");
+    assert!(notice.text.starts_with("0.2.0 is available."));
+
+    m.apply(Event::InstallAsked, now);
+    assert_eq!(m.take_notice(), None);
+    m.apply(Event::DownloadDone(Ok(())), now);
+    assert_eq!(m.take_notice().unwrap().title, "Installing 0.2.0");
+    m.apply(Event::InstallFailed(Fault::Installer { code: 1618 }), now);
+    let notice = m.take_notice().unwrap();
+    assert_eq!(notice.title, "Update failed");
+    assert_eq!(
+        notice.text,
+        "Windows Installer exited with 1618. See the log."
+    );
+
+    let (mut m, now) = machine();
+    m.apply(Event::CheckAsked, now);
+    m.apply(
+        Event::CheckDone(Err(Fault::NoConnection { code: 12007 })),
+        now,
+    );
+    let notice = m.take_notice().unwrap();
+    assert_eq!(notice.title, "Could not check for updates");
+    assert_eq!(
+        notice.text,
+        "no connection (WinHTTP error 12007). See the log."
+    );
 }
 
 #[test]

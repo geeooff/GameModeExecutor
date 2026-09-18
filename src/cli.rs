@@ -213,7 +213,7 @@ pub fn run(cli: Cli, console: bool) -> Result<()> {
 fn update_command(check_only: bool) -> Result<()> {
     use crate::update::{Context, Launched, Verdict, Version, check_now, install_now, wait_for};
 
-    let context = Context::of_this_process(None)?;
+    let context = Context::of_this_process(None, None)?;
     let release = match check_now(&context) {
         Ok(Verdict::UpToDate) => {
             println!("{} is the latest version.", Version::running());

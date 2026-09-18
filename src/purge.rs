@@ -75,7 +75,8 @@ pub struct Plan {
 
 /// The files a hand-installed copy is made of, beyond the executables:
 /// what the zip unpacks next to them.
-const BUNDLE_FILES: [&str; 2] = ["LICENSE", "README.txt"];
+/// `LICENSE` without an extension is what zips before 2026-09-18 carried.
+const BUNDLE_FILES: [&str; 3] = ["LICENSE", "LICENSE.txt", "README.txt"];
 const EXECUTABLES: [&str; 2] = ["gamemode-executor.exe", "gamemode-executorw.exe"];
 
 impl Plan {

@@ -238,6 +238,11 @@ release is honest; the program has no code signature, and the design record
 says why. A file it downloads carries no mark of the web, so Windows'
 SmartScreen never sees it: the program vouches for it, through the hash.
 
+The notification that answers *Check for updates* is the one time the
+program shows anything beyond its icon: a menu closes when you click in it,
+so the answer has to reach you somewhere. It is silent, it respects your
+quiet hours, and it only ever answers something you clicked.
+
 ## What it does not do
 
 - **No network it did not ask you about.** It connects to exactly one

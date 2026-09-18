@@ -147,7 +147,7 @@ arrow next to the clock, and drag it onto the taskbar to keep it there.
 | **Edit configuration** | opens your `config.toml` in whatever you use for text files — Notepad if `.toml` is not associated with anything |
 | **Open log** | opens the log the same way |
 | **Documentation** | opens this page for **the exact build you are running**, not for whatever the project looks like today |
-| **Check for updates** | asks GitHub whether a newer release exists — the only time this program ever connects to anything, and only when you click. The answer appears in the menu the next time you open it: *0.1.0 is the latest version*, or **Download and install 0.2.0** beside a **What changed in 0.2.0** that opens the release page |
+| **Check for updates** | asks GitHub whether a newer release exists — the only time this program ever connects to anything, and only when you click. The menu closes, as menus do; the answer arrives as a silent notification a second later, and waits in the menu too: *0.1.0 is the latest version*, or **Download and install 0.2.0** beside a **What changed in 0.2.0** that opens the release page |
 | **Quit** | stops the watcher, running the stop commands on the way out so you are not left on a gaming profile |
 
 Quitting only stops it until the next time you log on. To stop it for good, see
@@ -155,13 +155,14 @@ Quitting only stops it until the next time you log on. To stop it for good, see
 
 ## Updating
 
-Right-click the icon, **Check for updates**, then open the menu again. If a
+Right-click the icon, **Check for updates**. The menu closes and a
+notification answers a second later; the answer waits in the menu too. If a
 newer release exists, **Download and install** fetches it, checks it against
 the checksums the release publishes, and installs it — in the middle of a
 game if you like: the running watcher hands the game over to the new one,
 which picks it up where it was without touching your commands. The icon
-disappears for about a second and comes back; the menu then says what
-happened, and so does the log, under `update`.
+disappears for about a second and comes back; a notification and the menu
+say what happened, and so does the log, under `update`.
 
 The same from a terminal:
 

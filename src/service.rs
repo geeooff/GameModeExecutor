@@ -109,7 +109,10 @@ pub fn serve(
 
     // The updater: reads what the last update left behind and gives the
     // menu its section. It never connects on its own.
-    match update::Context::of_this_process(Some(Arc::clone(&stop))) {
+    match update::Context::of_this_process(
+        Some(Arc::clone(&stop)),
+        Some(tray::update_sink(window_id)),
+    ) {
         Ok(context) => update::start(context),
         Err(error) => tracing::warn!(
             target: logging::target::UPDATE,

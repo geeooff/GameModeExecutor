@@ -47,12 +47,29 @@ pub fn settle(context: &Context) -> Option<Fault> {
             None
         }
         Some(version) => {
-            let why = result
+            let note = result
                 .as_deref()
                 .map(str::trim)
                 .filter(|text| !text.is_empty())
-                .map(str::to_owned)
-                .unwrap_or_else(|| "the update did not take".to_owned());
+                .map(str::to_owned);
+            // The shell's note first; Windows Installer's own verdict next,
+            // read from the log it wrote -- which can say the update took
+            // even though this is another version: measured on 2026-09-18,
+            // when the version installed was one that did not know this
+            // file, and a build reinstalled by hand read it afterwards.
+            let why = match (note, installer_status(&dir.join(INSTALL_LOG))) {
+                (Some(note), _) => note,
+                (None, Some(0)) => {
+                    tracing::info!(
+                        target: target::UPDATE,
+                        "The update to {version} was installed, and this is {running} by other means"
+                    );
+                    tidy(context, true);
+                    return None;
+                }
+                (None, Some(code)) => format!("Windows Installer {code}"),
+                (None, None) => "the update did not take".to_owned(),
+            };
             tracing::warn!(
                 target: target::UPDATE,
                 log = %dir.join(INSTALL_LOG).display(),
@@ -63,6 +80,31 @@ pub fn settle(context: &Context) -> Option<Fault> {
     };
     tidy(context, verdict.is_none());
     verdict
+}
+
+/// Windows Installer's own verdict on the log it wrote: the number after
+/// `Installation success or error status:` on its last line. The log is
+/// UTF-16 with a byte-order mark, as `msiexec /l*v` writes it.
+fn installer_status(log: &Path) -> Option<i32> {
+    let bytes = std::fs::read(log).ok()?;
+    let text = if bytes.starts_with(&[0xFF, 0xFE]) {
+        let units: Vec<u16> = bytes[2..]
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| u16::from_le_bytes(*pair))
+            .collect();
+        String::from_utf16_lossy(&units)
+    } else {
+        String::from_utf8_lossy(&bytes).into_owned()
+    };
+    const MARK: &str = "Installation success or error status: ";
+    let after = &text[text.rfind(MARK)? + MARK.len()..];
+    after
+        .split(|c: char| !c.is_ascii_digit())
+        .next()?
+        .parse()
+        .ok()
 }
 
 /// Empty the updates folder of everything but the installer's log, and
@@ -243,6 +285,7 @@ mod tests {
             updates_dir: dir.join("updates"),
             install_dir: dir.join("program"),
             stop: None,
+            wake: None,
         }
     }
 
@@ -304,6 +347,61 @@ mod tests {
         );
         assert!(!context.updates_dir.join(PENDING).exists(), "said once");
         assert_eq!(settle(&context), None, "and not again");
+    }
+
+    /// A log the way `msiexec /l*v` writes one: UTF-16, a byte-order mark,
+    /// and the verdict on the last line.
+    fn installer_log(dir: &Path, status: i32) {
+        let text = format!(
+            "MSI (s) (64:B8) [13:33:31:127]: Product: GameModeExecutor -- Installation completed.\r\n\
+             MSI (s) (64:B8) [13:33:31:127]: Windows Installer installed the product. Product Version: 0.1.0. \
+             Installation success or error status: {status}.\r\n"
+        );
+        let mut bytes = vec![0xFF, 0xFE];
+        for unit in text.encode_utf16() {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+        std::fs::write(dir.join(INSTALL_LOG), bytes).unwrap();
+    }
+
+    #[test]
+    fn the_installer_log_is_read_for_its_verdict() {
+        let dir = scratch();
+        installer_log(&dir, 0);
+        assert_eq!(installer_status(&dir.join(INSTALL_LOG)), Some(0));
+        installer_log(&dir, 1603);
+        assert_eq!(installer_status(&dir.join(INSTALL_LOG)), Some(1603));
+        std::fs::write(dir.join(INSTALL_LOG), "no verdict here").unwrap();
+        assert_eq!(installer_status(&dir.join(INSTALL_LOG)), None);
+        assert_eq!(installer_status(&dir.join("absent.log")), None);
+    }
+
+    #[test]
+    fn a_pending_version_the_installer_reports_installed_is_not_a_failure() {
+        // The field case of 2026-09-18: the version installed did not know
+        // pending.txt, and a build reinstalled by hand read it afterwards.
+        let dir = scratch();
+        let context = context(Kind::Installer, &dir);
+        std::fs::create_dir_all(&context.updates_dir).unwrap();
+        std::fs::write(context.updates_dir.join(PENDING), "99.0.0").unwrap();
+        installer_log(&context.updates_dir, 0);
+        assert_eq!(settle(&context), None);
+        assert!(!context.updates_dir.join(PENDING).exists());
+    }
+
+    #[test]
+    fn a_pending_version_with_an_installer_error_names_its_code() {
+        let dir = scratch();
+        let context = context(Kind::Installer, &dir);
+        std::fs::create_dir_all(&context.updates_dir).unwrap();
+        std::fs::write(context.updates_dir.join(PENDING), "99.0.0").unwrap();
+        installer_log(&context.updates_dir, 1603);
+        assert_eq!(
+            settle(&context),
+            Some(Fault::Setup(
+                "Update to 99.0.0 failed: Windows Installer 1603".to_owned()
+            ))
+        );
     }
 
     #[test]

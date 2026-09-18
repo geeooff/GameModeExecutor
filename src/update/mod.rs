@@ -215,12 +215,24 @@ impl Item {
 
 const CHECK: &str = "Check for updates";
 
+/// What to tell the user once, when the outcome of something they asked
+/// for arrives: a title and a sentence for a notification. The menu closes
+/// on a click, as every Windows menu does, so the answer has to reach them
+/// somewhere else -- and it stays in the menu too.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Notice {
+    pub title: String,
+    pub text: String,
+}
+
 /// The state machine. Pure: it applies events and renders items, and
 /// tells the caller what to go and do.
 #[derive(Debug)]
 pub struct Machine {
     phase: Phase,
     running: Version,
+    /// Set by an outcome, taken by whoever shows it.
+    notice: Option<Notice>,
 }
 
 impl Machine {
@@ -228,11 +240,24 @@ impl Machine {
         Self {
             phase: Phase::Idle,
             running,
+            notice: None,
         }
     }
 
     pub fn phase(&self) -> &Phase {
         &self.phase
+    }
+
+    /// The notice the last outcome left, once.
+    pub fn take_notice(&mut self) -> Option<Notice> {
+        self.notice.take()
+    }
+
+    fn say(&mut self, title: impl Into<String>, text: impl Into<String>) {
+        self.notice = Some(Notice {
+            title: title.into(),
+            text: text.into(),
+        });
     }
 
     /// Whether the phase is busy: a check, a download or an install in
@@ -252,16 +277,37 @@ impl Machine {
             }
             (Event::CheckDone(result), Phase::Checking) => {
                 self.phase = match result {
-                    Ok(Verdict::UpToDate) => Phase::UpToDate {
-                        version: self.running,
-                        at: now,
-                    },
-                    Ok(Verdict::Available(release)) => Phase::Available { release },
-                    Err(fault) => Phase::Failed {
-                        fault,
-                        during: "check",
-                        at: Some(now),
-                    },
+                    Ok(Verdict::UpToDate) => {
+                        self.say(
+                            "Up to date",
+                            format!("{} is the latest version.", self.running),
+                        );
+                        Phase::UpToDate {
+                            version: self.running,
+                            at: now,
+                        }
+                    }
+                    Ok(Verdict::Available(release)) => {
+                        self.say(
+                            "Update available",
+                            format!(
+                                "{} is available. Right-click the icon to download and install it.",
+                                release.version
+                            ),
+                        );
+                        Phase::Available { release }
+                    }
+                    Err(fault) => {
+                        self.say(
+                            "Could not check for updates",
+                            format!("{fault}. See the log."),
+                        );
+                        Phase::Failed {
+                            fault,
+                            during: "check",
+                            at: Some(now),
+                        }
+                    }
                 };
                 None
             }
@@ -282,12 +328,17 @@ impl Machine {
             }
             (Event::DownloadDone(Ok(())), Phase::Downloading { release, .. }) => {
                 let release = release.clone();
+                self.say(
+                    format!("Installing {}", release.version),
+                    "The icon disappears for a moment and comes back on the new version.",
+                );
                 self.phase = Phase::Installing {
                     release: release.clone(),
                 };
                 Some(Effect::Install(release))
             }
             (Event::DownloadDone(Err(fault)), Phase::Downloading { .. }) => {
+                self.say("Update failed", format!("{fault}. See the log."));
                 self.phase = Phase::Failed {
                     fault,
                     during: "download",
@@ -296,6 +347,7 @@ impl Machine {
                 None
             }
             (Event::InstallFailed(fault), Phase::Installing { .. }) => {
+                self.say("Update failed", format!("{fault}. See the log."));
                 self.phase = Phase::Failed {
                     fault,
                     during: "install",
@@ -304,6 +356,7 @@ impl Machine {
                 None
             }
             (Event::FoundAtStart(fault), Phase::Idle) => {
+                self.say("The last update failed", format!("{fault}. See the log."));
                 self.phase = Phase::Failed {
                     fault,
                     during: "install",
@@ -387,6 +440,11 @@ pub struct Context {
     /// The running watcher's stop, when there is one: the zip path stops
     /// this process itself, with a handover, once its shell is started.
     pub stop: Option<Arc<StopSignal>>,
+    /// Called after an outcome changed the phase, from the worker thread:
+    /// the tray's way to learn there is a notice to show. A callback rather
+    /// than a window handle, for the reason the engine reports sessions
+    /// through one -- this module has no business knowing what is drawn.
+    pub wake: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl Context {
@@ -398,7 +456,10 @@ impl Context {
     /// has the package must update its own files, not the package's --
     /// otherwise its `msiexec` would upgrade the other copy and leave
     /// itself as it was.
-    pub fn of_this_process(stop: Option<Arc<StopSignal>>) -> Result<Self> {
+    pub fn of_this_process(
+        stop: Option<Arc<StopSignal>>,
+        wake: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) -> Result<Self> {
         let exe = std::env::current_exe()?;
         let install_dir = exe
             .parent()
@@ -418,6 +479,7 @@ impl Context {
             updates_dir,
             install_dir,
             stop,
+            wake,
         })
     }
 }
@@ -474,13 +536,29 @@ pub fn view() -> Vec<Item> {
     with_state(|state| state.machine.view(Instant::now())).unwrap_or_default()
 }
 
-/// Apply an event and run what it asks for, on a worker thread.
+/// The notice the last outcome left, once; the tray shows it.
+pub fn take_notice() -> Option<Notice> {
+    with_state(|state| state.machine.take_notice()).flatten()
+}
+
+/// Apply an event, run what it asks for on a worker thread, and wake the
+/// tray if the outcome left a notice.
 fn apply(event: Event) {
-    let effect = with_state(|state| {
+    let (effect, wake) = with_state(|state| {
         let effect = state.machine.apply(event, Instant::now());
-        effect.map(|effect| (effect, Arc::clone(&state.context)))
+        let context = Arc::clone(&state.context);
+        let wake = state
+            .machine
+            .notice
+            .is_some()
+            .then(|| context.wake.clone())
+            .flatten();
+        (effect.map(|effect| (effect, context)), wake)
     })
-    .flatten();
+    .unwrap_or((None, None));
+    if let Some(wake) = wake {
+        wake();
+    }
     if let Some((effect, context)) = effect {
         std::thread::spawn(move || run(effect, &context));
     }

@@ -223,6 +223,17 @@ worked, and four remarks came back, all taken the same evening:
   later logged *Logon task registered* with the user, the program, the
   configuration path and the 15 s delay — the first time that line, rather
   than *kept*, had been seen from the package.
+- **The same four files in both, decided 2026-09-18** on the maintainer's
+  remark that the package carried the license and two executables while
+  the zip carried a readme and the whole documentation tree besides. Now
+  both carry `gamemode-executor.exe`, `gamemode-executorw.exe`,
+  `LICENSE.txt` and `README.txt` — `.txt` both, because the people who open
+  them are not on GitHub; the repository keeps `LICENSE` without an
+  extension, as GitHub expects, and the staging step renames it. The readme
+  is one text for both ways in, and links the documentation and the recipes
+  *for this exact commit* instead of shipping a copy that could describe a
+  version no longer running. `purge` still knows the old zip's `LICENSE`
+  and its `docs\` tree.
 - **The package's own metadata.** Explorer's Details tab showed *Title:
   Installation Database* — the phrase the SDK suggests, which tells a tool
   what the file is and a person nothing. The summary now names the product

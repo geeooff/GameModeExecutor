@@ -153,12 +153,12 @@ impl<S: Sensor> Engine<S> {
                 Some(game) => tracing::info!(
                     target: target::GAME,
                     since = pending.since.as_deref(),
-                    "The last watcher left a session open with {game} still running, so it                      resumes where it was"
+                    "The last watcher left a session open with {game} still running, so it resumes where it was"
                 ),
                 None => tracing::info!(
                     target: target::GAME,
                     since = pending.since.as_deref(),
-                    "The last watcher left a session open with a game still running, so it                      resumes where it was"
+                    "The last watcher left a session open with a game still running, so it resumes where it was"
                 ),
             }
             self.report(&Session::Playing(signal.clone()));

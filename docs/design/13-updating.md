@@ -12,7 +12,8 @@ maintainer on 2026-09-18, against `v0.1.0`, before a line was written.
 - [x] The package: `StopForUpgrade` hands over, `StopForRemoval` restores — 2026-09-18
 - [x] The zip copy updates itself the same way, through the after-exit shell — 2026-09-18, the script tested for its shape
 - [x] The documentation: *Getting started*, *How it works*, the reference, the README's word on the network — 2026-09-18
-- [ ] Measured: the four requests through WinHTTP, offline and behind a proxy; a self-launched upgrade with the session resumed; the failure path restarting the old watcher; `/qn` on screen
+- [x] Measured on the maintainer's machine, 2026-09-18 13:03–13:33, both paths against the real `v0.1.0`: the handover mid-game and the resume, the check, the download and its verification, the install from the zip and from the package, the watcher back on the new version — below
+- [ ] Measured: offline and behind a proxy, as seen from the menu; the failure path restarting the old watcher; `/qn` on screen
 - [ ] Verified in the field across a real release pair
 
 **Goal.** A user who wants the newer version gets it from the notification
@@ -191,6 +192,25 @@ rest; it is disabled while a download or an install is running, where a
 new check would mean nothing. The tooltip and the icon do not change: the
 updater says nothing through the icon.
 
+**The menu closes on the click, and the answer is a notification.** Seen
+on the first field run: choosing *Check for updates* closes the menu, as
+choosing anything in a Windows menu does, and the verdict then waits in a
+menu nobody has reopened. Keeping a popup menu open through a click has
+no supported path — `TrackPopupMenuEx` returns when the choice is made —
+and closing one after a delay would be a menu doing what no other menu
+does. So the outcome of what the user clicked reaches them the way
+Windows reports finished background work: a notification from the icon
+(`NIF_INFO`), silent (`NIIF_NOSOUND`), held back during quiet hours,
+shown as a toast and kept in the notification centre. *Up to date*,
+*Update available — right-click the icon to download and install it*,
+*Installing 0.2.0*, or the fault and *See the log*. Only ever to answer a
+click, never for anything the program did on its own; and the same
+answer stays in the menu. The object owns it: `Machine` leaves a `Notice`
+on each outcome, the worker wakes the window's thread through a callback
+the tray handed in, and the tray takes the notice and draws it — no rule
+in the tray. The earlier line of this page, *no balloon*, was written
+before a person had clicked; corrected 2026-09-18.
+
 **Two expiries, not one.** `UpToDate` and `Failed` are claims about *now*
 and expire after an hour. `Available` does not expire: a release does not
 un-release, and someone who said "later" should find the offer where they
@@ -271,6 +291,40 @@ opens nothing new, since whoever can edit the configuration can already
 name any executable in it. Run by hand or on a `workflow_dispatch`, never
 in `test`, because it calls an external host. Kept in reserve until a fork
 asks for it.
+
+## What the first field run taught, 2026-09-18
+
+Both paths, the same afternoon, against the real `v0.1.0`, from a `0.0.9`
+build of the branch. The zip first, with the package uninstalled so the
+task pointed at the unpacked copy; then the package.
+
+- **The handover works in the field, mid-game, on both.** Starfield on,
+  `stop --handover`, `install-task`: *Stopping for an update; the game
+  session is handed to the next watcher*, then twenty seconds later *The
+  last watcher left a session open with Starfield.exe still running, so it
+  resumes where it was* — no command ran, the fans stayed where they were,
+  the icon came back green with the name.
+- **The zip path**: *Update available: 0.1.0* with the zip's hash, 1.7 MB
+  downloaded and verified, *Installing*, the watcher stopped itself, and
+  one second later *GameModeExecutor 0.1.0 starting* — from the same folder,
+  through the task kept as it was. The archive was expanded over the folder
+  with the executables kept as `.old`.
+- **The package path**: the same lines with the installer's hash and
+  1.5 MB, then the package's own actions: *Watcher stopped, as asked* —
+  plain, since `0.1.0`'s package does not know `--handover` — configuration
+  kept, task kept, the new watcher up 0.9 s after the download.
+- **A false failure, and a better verdict.** The `0.1.0` installed does not
+  know `pending.txt`, so it never consumed it; the `0.0.9` package installed
+  next read *0.1.0 pending* and reported the update failed. It had not: the
+  installer's own log ended with *Installation success or error status:
+  0*. `settle` now reads that verdict — UTF-16 with a byte-order mark, as
+  `msiexec /l*v` writes it — and says *installed, and this is 0.0.9 by other
+  means* at `info`, or names the installer's error code when there is one,
+  before falling back to *did not take*.
+- **The menu closed on the click** — above.
+- **A word swallowed in the resume line**: the source carried a run of
+  spaces where a line continuation had been meant, and the log showed it.
+  Fixed; the pitfall was the editing tool, not the code.
 
 ## Faults, and what the log says
 

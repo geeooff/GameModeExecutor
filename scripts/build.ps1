@@ -274,43 +274,48 @@ function Invoke-Release {
 
     Copy-Item (Join-Path $root 'target\release\gamemode-executor.exe')  $stage
     Copy-Item (Join-Path $root 'target\release\gamemode-executorw.exe') $stage
-    Copy-Item (Join-Path $root 'LICENSE') $stage
-    # No configuration in the zip: `init` writes the starter one where the
-    # installer would, so both ways in leave the same machine behind.
-    # The docs ship as they are, rather than being rewritten for the bundle.
-    # One copy means the bundle cannot describe a version that no longer exists.
-    Copy-Item (Join-Path $root 'docs') $stage -Recurse
+    # The same four files in the zip and in the package, decided 2026-09-18:
+    # the two executables, the license and a readme, both as .txt because
+    # the people who open them are not on GitHub. No configuration -- `init`
+    # writes the starter one where the installer would -- and no copy of the
+    # documentation: the readme links the pages for this exact commit, which
+    # cannot describe a version that no longer exists.
+    Copy-Item (Join-Path $root 'LICENSE') (Join-Path $stage 'LICENSE.txt')
 
     # Asked of the binary rather than of git, so the readme cannot claim a
     # commit different from the one actually compiled in.
     $stamp = & (Join-Path $stage 'gamemode-executor.exe') --version
+    $docLink = ($stamp | Select-String -Pattern '^documentation:\s+(\S+)').Matches[0].Groups[1].Value
+    $recipesLink = $docLink -replace '/blob/([^/]+)/docs/getting-started\.md$', '/tree/$1/docs/recipes'
 
     Set-Content -Path (Join-Path $stage 'README.txt') -Encoding UTF8 -Value @"
-GameModeExecutor $version - zip archive
+GameModeExecutor $version
 
 $($stamp -join "`r`n")
-
-The documentation link above names the exact commit these executables were
-built from, so it describes this build and not whatever the project looks like
-by the time you follow it.
-
 
 Runs the programs you configure when a game starts, and others when it stops.
 There is no list of games to maintain: detection is Windows' own.
 
-Nothing to install. Keep this folder where you put it -- the scheduled task
-will remember this path. Then, from a terminal in this folder:
+The documentation link above names the exact commit these executables were
+built from, so it describes this build and not whatever the project looks like
+by the time you follow it. Start there.
 
-    gamemode-executor init            writes a starter configuration
-    gamemode-executor install-task    starts the watcher now and at every logon
+INSTALLED FROM THE .MSI
+    Nothing to do. The installer wrote a starter configuration if you had
+    none, registered the logon task and started the watcher: the icon beside
+    the clock is the confirmation. Right-click it, Edit configuration.
 
-The starter configuration runs nothing; the icon that appears shows the
-watcher is working. What to run is yours to write -- docs\recipes\ has
-worked examples, one folder each.
+UNPACKED FROM THE .ZIP
+    Keep this folder where you put it -- the logon task remembers the path.
+    Then, from a terminal in this folder:
 
-START HERE
-    docs\getting-started.md, next to this file -- or the documentation link
-    above, which is the same page at the exact commit this was built from.
+        gamemode-executor init            writes a starter configuration
+        gamemode-executor install-task    starts the watcher now and at every logon
+
+WHAT TO RUN
+    The starter configuration runs nothing; the icon that appears shows the
+    watcher is working. Worked examples, one folder each, for this build:
+    $recipesLink
 
 THE TWO EXECUTABLES
     gamemode-executor.exe    the one you talk to. Every command. It answers,
@@ -318,12 +323,15 @@ THE TWO EXECUTABLES
     gamemode-executorw.exe   the one that works. No window, ever. It starts
                              itself at logon. You never launch it yourself.
 
-QUICK CHECK
-    .\gamemode-executor.exe validate
-    .\gamemode-executor.exe status
-    .\gamemode-executor.exe install-task     (start it at every logon)
+UPDATING
+    Right-click the icon, Check for updates. Nothing is checked unless you
+    ask. From a terminal: gamemode-executor update
 
-MIT licensed. Full documentation and source:
+QUICK CHECK
+    gamemode-executor validate
+    gamemode-executor status
+
+MIT licensed, see LICENSE.txt. Source and full documentation:
 https://github.com/Geeooff/GameModeExecutor
 "@
 
@@ -358,9 +366,12 @@ https://github.com/Geeooff/GameModeExecutor
     # A personal path baked into a public artefact is the kind of thing nobody
     # looks for until it is already published.
     Step "Nothing local leaked"
+    # The account as a path or as a logon name, not the bare word: the license
+    # carries the author's name, and an account named after its owner matched
+    # it the first time the license shipped as a .txt (2026-09-18).
     $text = Get-ChildItem $stage -Recurse -File -Include *.toml, *.xml, *.ps1, *.txt, *.md
-    $leaks = $text | Select-String -Pattern ([regex]::Escape($env:USERNAME)),
-                                            ([regex]::Escape($env:USERDOMAIN)) -List
+    $leaks = $text | Select-String -Pattern ([regex]::Escape("\Users\$env:USERNAME")),
+                                            ([regex]::Escape("$env:USERDOMAIN\$env:USERNAME")) -List
     if ($leaks) {
         $leaks | ForEach-Object { Write-Host "    $($_.Filename): $($_.Line.Trim())" -ForegroundColor Red }
         Fail "the bundle names this machine's account"
@@ -369,7 +380,7 @@ https://github.com/Geeooff/GameModeExecutor
     # The opposite mistake, and the likelier one: a template whose placeholders
     # were filled in on the way past, so it carries one machine's paths to
     # every other.
-    foreach ($template in Get-ChildItem (Join-Path $stage 'docs') -Recurse -Filter 'FanControl-*.xml') {
+    foreach ($template in Get-ChildItem (Join-Path $root 'docs') -Recurse -Filter 'FanControl-*.xml') {
         $content = [System.IO.File]::ReadAllText($template.FullName, [System.Text.Encoding]::Unicode)
         foreach ($placeholder in '__FANCONTROL_DIR__', '__DOMAIN__\__USERNAME__', '__CONFIGURATION__') {
             if ($content -notlike "*$placeholder*") {

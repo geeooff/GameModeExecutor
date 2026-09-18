@@ -1,6 +1,7 @@
 # Builds the Windows Installer package from a staged release folder.
 #
-# Per-user, no elevation, no UI: the two executables and the license go to
+# Per-user, no elevation, no UI: the two executables, the license and the
+# readme -- the same four files the zip carries -- go to
 # %LOCALAPPDATA%\Programs\GameModeExecutor. The user's configuration, log,
 # marker and scheduled tasks are not components, so no repair, upgrade or
 # uninstall reaches them. Four custom actions, all the program's own
@@ -23,7 +24,7 @@
 # the package code from the version and the commit, each component from its
 # file name. Two builds of the same commit give the same package.
 param(
-    [Parameter(Mandatory)] [string] $Stage,    # holds the executables and LICENSE
+    [Parameter(Mandatory)] [string] $Stage,    # holds the executables, LICENSE.txt and README.txt
     [Parameter(Mandatory)] [string] $Version,  # x.y.z, from Cargo.toml
     [Parameter(Mandatory)] [string] $Out,      # the .msi to write
     [string] $Commit = 'unknown',
@@ -76,7 +77,8 @@ $PackageCode = New-NameGuid "package/$scope$Version/$Commit"
 $files = @(
     @{ Key = 'gamemode_executor.exe';  Name = 'gamemode-executor.exe';  Short = 'GAMEMO~1.EXE' },
     @{ Key = 'gamemode_executorw.exe'; Name = 'gamemode-executorw.exe'; Short = 'GAMEMO~2.EXE' },
-    @{ Key = 'LICENSE';                Name = 'LICENSE';                Short = 'LICENSE' }
+    @{ Key = 'LICENSE.txt';            Name = 'LICENSE.txt';            Short = 'LICENSE.TXT' },
+    @{ Key = 'README.txt';             Name = 'README.txt';             Short = 'README.TXT' }
 )
 foreach ($f in $files) {
     $f.Path = Join-Path $Stage $f.Name
