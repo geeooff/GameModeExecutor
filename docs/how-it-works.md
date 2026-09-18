@@ -266,6 +266,7 @@ quiet hours, and it only ever answers something you clicked.
 | Configuration | `config.toml` next to the executable if there is one, otherwise `%APPDATA%\GameModeExecutor\config.toml` |
 | Log | `%LOCALAPPDATA%\GameModeExecutor\logs\gamemode-executor.log`, one file, local timestamps |
 | Scheduled tasks | a `GameModeExecutor` folder in Task Scheduler, holding `Watcher` and anything a recipe added |
+| A release being installed | `%LOCALAPPDATA%\GameModeExecutor\updates\`, emptied once the new version has started |
 
 **Roaming for the configuration, Local for the log**, and the split is
 deliberate. Windows carries `%APPDATA%` between machines on a roaming profile

@@ -17,8 +17,9 @@
 //! `install-task`. `docs/design/13-updating.md` has the whole shape and
 //! the measurements behind it.
 //!
-//! **Never a silent poll.** `perform(Action::Check)` is the only thing that
-//! opens a connection, and only the menu and the `update` command call it.
+//! **Never a silent poll.** [`check_now`] is the only thing that opens a
+//! connection, and it runs for a click on the menu or for the `update`
+//! command in a console -- never on the program's own initiative.
 
 pub mod feed;
 pub mod hash;

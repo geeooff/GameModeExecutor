@@ -4,14 +4,14 @@
 # readme -- the same four files the zip carries -- go to
 # %LOCALAPPDATA%\Programs\GameModeExecutor. The user's configuration, log,
 # marker and scheduled tasks are not components, so no repair, upgrade or
-# uninstall reaches them. Four custom actions, all the program's own
+# uninstall reaches them. Five custom actions, all the program's own
 # commands and all idempotent, run through the windowless executable:
-# `stop` before an uninstall or upgrade touches the files, so the Restart
-# Manager never has to ask -- with `--handover` on an upgrade, so a game
-# session in progress is resumed by the new watcher rather than closed and
-# reopened; `init`, which writes a starter configuration
-# only where there is none, and `install-task`, which registers the logon
-# task only where there is none and then starts the watcher -- the icon
+# `stop --handover` before an upgrade touches the files and plain `stop`
+# before an uninstall does, so the Restart Manager never has to ask and a
+# game session in progress is resumed by the new watcher rather than
+# closed and reopened; `init`, which writes a starter configuration only
+# where there is none, and `install-task`, which registers the logon task
+# only where there is none and then starts the watcher -- the icon
 # appearing is the confirmation -- to finish an install or upgrade; and
 # `uninstall-task` on an uninstall, since the task is the package's to take
 # down.

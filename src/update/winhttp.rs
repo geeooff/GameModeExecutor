@@ -47,7 +47,7 @@ pub struct WinHttp {
 impl WinHttp {
     pub fn new() -> Self {
         Self {
-            agent: format!("GameModeExecutor/{}", crate::build_info::VERSION),
+            agent: format!("GameModeExecutor/{}", crate::build_info::PACKAGE_VERSION),
             secure_only: true,
             proxy: WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
             timeouts: TIMEOUTS_MS,
