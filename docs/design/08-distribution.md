@@ -1,11 +1,12 @@
 # Lot 8 — Distribution
 
-**Status: in progress since 2026-09-17.** Already there: `scripts/build.ps1`
-runs the whole checklist and produces the zip archive in `dist/`,
-`.vscode/tasks.json` drives it, and the repository is public with CI green
-on a stock runner. The script was written first on purpose — a release that
-cannot be made by hand is not one CI can make either. What is left, in the
-order it is taken:
+**Status: done 2026-09-18.** `v0.1.0` was published that night by the
+workflow alone, from the tag's commit, with the installer, the zip and their
+checksums — which is the "done when" below. The lot was taken 2026-09-17/18
+in the order listed; `scripts/build.ps1` was written first on purpose, since
+a release that cannot be made by hand is not one CI can make either. One
+field check is still outstanding and is recorded when it happens: the first
+install on a second machine.
 
 - [x] Create the public GitHub repository and push — done 2026-09-17, with approval
 - [x] The three measurements below, on a minimal package, before any table is written — done 2026-09-17
@@ -16,9 +17,9 @@ order it is taken:
   the checklist, build the **MSI** and the **zip archive**, and publish a
   GitHub Release carrying both with their SHA-256 — nothing built or uploaded
   by hand. Written 2026-09-17 (`release.yml`, `scripts/release-notes.ps1`);
-  its first run is the first tag
+  first run 2026-09-18 on the `v0.1.0` tag, green, three assets published
 - [x] The documentation: *Getting started* and the README point at the release rather than at `cargo build`, the reference gains `purge`, *How it works* gains removal — 2026-09-17
-- [ ] Verified in the field: the MSI on two machines, one real upgrade, one purge round trip — the maintainer's machine done 2026-09-17, below
+- [ ] Verified in the field: the MSI on two machines, one real upgrade, one purge round trip — the maintainer's machine done 2026-09-17/18, below: install, upgrade, uninstall, purge; the second machine's first install still to come
 
 **Done when** a tag alone produces a release a stranger can install from, and
 the two artefacts on it were built by the workflow from that tag's commit.
@@ -366,23 +367,34 @@ unelevated shell, `/passive`, with a verbose log each time:
 | Upgrade to 0.2.0 | exit 0 in 6 s, no prompt; file replaced, the old product gone, one product left at 0.2.0 | `Nested installation UAC elevation tracks that of parent (is not elevated)` — `RemoveExistingProducts` at 1510 removed 0.1.0 first |
 | Uninstall | exit 0 in 6 s, no prompt; folder gone, registration gone; the neighbouring folders, the watcher's install and its scheduled tasks untouched | `Removal completed successfully` |
 
-Two things the documentation had not made plain. **The summary stream's
-"elevated privileges not required" bit (WordCount bit 3) is the whole
-mechanism**: with it set, Windows Installer treats the package as per-user
-outright, redirects `ProgramFilesFolder` to `%LOCALAPPDATA%\Programs`, and
-logs `MSIINSTALLPERUSER property is not valid for UAC compliant package.
-Ignoring` — so `ALLUSERS=2` and `MSIINSTALLPERUSER=1`, the dual-purpose
-recipe, are not needed for a program with no per-machine story, and the
-package is simpler without them. And **no SDK tool is needed to build the
-database**: the COM automation creates tables, inserts rows and embeds the
-cabinet, which means the release script can produce the MSI on a stock
-runner the same way it produces the zip. `MsiDb`, `MsiFiler` and `Orca`
-remain what they are, tools to inspect one. What the probe did not do and
-the real package must: carry versioned files with `VERSIONINFO`, and pass
-ICE validation (`MsiVal2`, from the SDK).
+Two things the documentation had not made plain. The first this page got
+wrong on the probe and corrected on the real package the same day, so both
+readings stay here. **The probe's reading:** the summary stream's "elevated
+privileges not required" bit (WordCount bit 3) looked like the whole
+mechanism — with it set, Windows Installer ran without a prompt, put the
+file under `%LOCALAPPDATA%\Programs`, and logged `MSIINSTALLPERUSER property
+is not valid for UAC compliant package. Ignoring`, which read as "the
+dual-purpose properties are not needed". **The real package's reading,
+measured 2026-09-17 on an administrator account running unelevated:** it
+takes all three. The bit lets the install run without a prompt; `ALLUSERS=2`
+with `MSIINSTALLPERUSER=1` is what resolves the install to per-user and
+redirects `ProgramFilesFolder`. With the bit alone the folder stayed at
+`C:\Program Files (x86)`; with `ALLUSERS=2` alone the install turned
+per-machine for an administrator and failed unelevated, 1603. The log's
+"Ignoring" line is misleading: the property still decides how `ALLUSERS=2`
+resolves. The probe had passed because its one file was small enough to be
+looked for in the wrong folder without anyone noticing. And **no SDK tool is
+needed to build the database**: the COM automation creates tables, inserts
+rows and embeds the cabinet, which means the release script can produce the
+MSI on a stock runner the same way it produces the zip — it did, on
+2026-09-18. `MsiDb`, `MsiFiler` and `Orca` remain what they are, tools to
+inspect one. What the probe did not do and the real package does: carry
+versioned files with `VERSIONINFO`, and pass ICE validation (`MsiVal2`, from
+the SDK, 102 evaluators, none tolerated).
 
 The choice is closed: **MSI, authored from PowerShell through Windows
-Installer's automation, per-user by the summary bit.**
+Installer's automation, per-user by the summary bit and the two
+properties together.**
 
 Both candidates can offer per-user *or* per-machine from one installer, but
 **this program has no per-machine story**: the logon task, the configuration

@@ -81,11 +81,14 @@ powercfg /getactivescheme
 gamemode-executor trigger stop
 ```
 
-When both work:
+When both work, restart the watcher so it reads the file:
 
 ```bash
+gamemode-executor stop
 gamemode-executor install-task
 ```
+
+From the zip, the second line also registers the logon task, the first time.
 
 ## Worth knowing
 

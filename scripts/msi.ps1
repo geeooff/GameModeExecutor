@@ -3,11 +3,15 @@
 # Per-user, no elevation, no UI: the two executables and the license go to
 # %LOCALAPPDATA%\Programs\GameModeExecutor. The user's configuration, log,
 # marker and scheduled tasks are not components, so no repair, upgrade or
-# uninstall reaches them. Two custom actions, both the program's own
-# commands and both idempotent, finish an install or upgrade: `init`, which
-# writes a starter configuration only where there is none, and
-# `install-task`, which registers the logon task only where there is none
-# and then starts the watcher -- the icon appearing is the confirmation.
+# uninstall reaches them. Four custom actions, all the program's own
+# commands and all idempotent, run through the windowless executable:
+# `stop` before an uninstall or upgrade touches the files, so the Restart
+# Manager never has to ask; `init`, which writes a starter configuration
+# only where there is none, and `install-task`, which registers the logon
+# task only where there is none and then starts the watcher -- the icon
+# appearing is the confirmation -- to finish an install or upgrade; and
+# `uninstall-task` on an uninstall, since the task is the package's to take
+# down.
 #
 # Written with nothing but Windows Installer's own COM automation and
 # makecab, so a stock runner can build it -- docs/design/08-distribution.md

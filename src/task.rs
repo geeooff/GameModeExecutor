@@ -20,8 +20,9 @@ pub const TASK_FOLDER: &str = "GameModeExecutor";
 /// the folder's name, so it reads as `GameModeExecutor \ Watcher` in the tree.
 pub const TASK_NAME: &str = "GameModeExecutor\\Watcher";
 
-/// The windowless twin this task is meant to run. Sits beside the console
-/// binary, which is the one the user types and therefore the one running now.
+/// The windowless twin this task is meant to run. Sits beside whichever
+/// binary is running this command: the console one a person typed, or the
+/// twin itself when the installer runs it.
 const WATCHER_EXE: &str = "gamemode-executorw.exe";
 
 /// What `install` did about the task.
@@ -344,10 +345,11 @@ mod tests {
         assert!(xml.contains(&format!(r"<URI>\{TASK_NAME}</URI>")), "{xml}");
     }
 
-    /// The task must run the windowless binary with no subcommand. `run` and
-    /// `--hidden` belong to the console binary, and passing either here would
-    /// make the task fail at every logon with an argument error nobody sees,
-    /// because there is no console to see it in.
+    /// The task runs the windowless binary with the configuration and nothing
+    /// else. `run` is the default command and `--hidden` is a leftover kept
+    /// for tasks registered before the twin existed; a definition that
+    /// names neither keeps working whatever later versions do with them,
+    /// and a task that fails at logon fails where nobody sees it.
     #[test]
     fn the_task_passes_only_the_configuration() {
         let xml = definition(

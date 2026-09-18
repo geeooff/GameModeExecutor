@@ -19,7 +19,7 @@ session rather than when the code compiles. Each has its own page.
 | 5 | [A Windows program with no window](05-windowless-watcher.md) | done |
 | 6 | [Notification area icon](06-notification-icon.md) | done |
 | 7 | [Icon, tooltip and menu as one state](07-tray-state.md) | done |
-| 8 | [Distribution](08-distribution.md) | in progress |
+| 8 | [Distribution](08-distribution.md) | done |
 | 9 | [Robustness](09-robustness.md) | partly done |
 | 10 | [Configuration window](10-configuration-window.md) | proposed |
 | 11 | [Documentation for the people who use it](11-user-documentation.md) | done |
@@ -55,7 +55,7 @@ Recorded so they stop coming back.
 - **No allow-list of game executables, and no heuristics that guess at what a
   game is.** Detection is Windows' verdict, read from Windows.
 - **No telemetry, no network access.** A future update check must be manual or
-  opt-in, or this stops being true — see [Lot 8](08-distribution.md).
+  opt-in, or this stops being true — see [Lot 13](13-updating.md).
 - **No elevation.** The watcher runs as the user, on purpose. Programs that
   need administrator rights are reached through a scheduled task, never by
   elevating the watcher — see [Lot 1](01-console-watcher.md).
