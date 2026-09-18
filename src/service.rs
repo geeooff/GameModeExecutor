@@ -17,7 +17,9 @@
 //! `stop` is *Quit* from outside: `WM_CLOSE` on the session window, then a
 //! wait on the single-instance mutex, which the watcher releases only after
 //! its last log line. `purge` and the installer both use it, so the files
-//! are never pulled from under a running watcher.
+//! are never pulled from under a running watcher. With `StopReason::Handover`
+//! the session window gets `WM_HANDOVER` instead, and a game session that
+//! is open stays open for the watcher that follows.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -25,7 +27,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 
 use crate::config::{self, Config};
-use crate::win::{SessionWindow, SingleInstance, StopSignal};
+use crate::win::{SessionWindow, SingleInstance, StopReason, StopSignal};
 use crate::{engine, logging, sensor, tray, win};
 
 /// Ceiling on how long `WM_ENDSESSION` holds the shutdown while the stop
@@ -163,14 +165,16 @@ pub enum Stopped {
     NotRunning,
 }
 
-/// Ask the running watcher to quit the way its menu does and wait for it to
-/// have gone. Mid-game that runs the stop commands, as *Quit* would. No
-/// watcher is not an error: the caller wanted none running, and none is.
+/// Ask the running watcher to stop and wait for it to have gone. With
+/// `Restore` that is *Quit*: mid-game the stop commands run. With
+/// `Handover` an open session is left in the marker for the watcher that
+/// follows. No watcher is not an error: the caller wanted none running, and
+/// none is.
 ///
 /// A watcher that is still starting holds the mutex before it has a window,
 /// so the close is retried until the mutex is free. Logged at `info` under
 /// `setup`, whether a person or the installer asked.
-pub fn stop() -> Result<Stopped> {
+pub fn stop(reason: StopReason) -> Result<Stopped> {
     if !SingleInstance::is_held(INSTANCE) {
         tracing::info!(target: logging::target::SETUP, "No watcher was running");
         return Ok(Stopped::NotRunning);
@@ -178,13 +182,20 @@ pub fn stop() -> Result<Stopped> {
     let asked = Instant::now();
     loop {
         // May find no window yet, or none any more: the mutex is the verdict.
-        let _ = win::close_session_window();
+        let _ = win::close_session_window(reason);
         if !SingleInstance::is_held(INSTANCE) {
-            tracing::info!(
-                target: logging::target::SETUP,
-                waited = ?asked.elapsed(),
-                "Watcher stopped, as asked"
-            );
+            match reason {
+                StopReason::Restore => tracing::info!(
+                    target: logging::target::SETUP,
+                    waited = ?asked.elapsed(),
+                    "Watcher stopped, as asked"
+                ),
+                StopReason::Handover => tracing::info!(
+                    target: logging::target::SETUP,
+                    waited = ?asked.elapsed(),
+                    "Watcher stopped, as asked; a game session that was open waits for the next one"
+                ),
+            }
             return Ok(Stopped::Stopped);
         }
         anyhow::ensure!(

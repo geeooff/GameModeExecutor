@@ -38,6 +38,16 @@ depend on Windows' timing:
 - At start, before watching, a marker present means the last session never
   closed: one `info` line naming the game, the stop commands, the marker
   removed. Logoff, shutdown, crash and power cut are one case.
+- **Since 2026-09-18, the writer is looked for first.** A marker present
+  with the presence writer still running means the game never ended: the
+  last watcher handed the session over — `stop --handover`, which an update
+  or an upgrade uses because a watcher follows within the second — or died
+  under it. Then nothing runs, neither stop nor start, and the session is
+  resumed from the marker: name, icon, the wait on the writer's handle. The
+  stop commands run at the end of the game as they always did. Without this
+  an update mid-game switched the configuration off and on again two
+  seconds apart. Three scenarios in `engine/tests.rs`; the design is in
+  [Lot 13](13-updating.md).
 
 **Where it lives, and why not in `logs\`.** A logs folder is disposable by
 nature and gets emptied without a second thought, which would take a pending

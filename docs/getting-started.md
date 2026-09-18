@@ -111,7 +111,9 @@ gamemode-executor install-task
 
 The first is **Quit** from the icon's menu, typed. The second starts it again
 — and, from the zip, registers the task that starts it at every logon, once.
-No administrator rights, no password, no window.
+No administrator rights, no password, no window. Doing this while a game is
+running? `stop --handover` instead of `stop`: the game session is left to the
+new watcher, which takes it up where it was without running anything.
 
 **That is the end of the setup.** Play. The commands fire by themselves.
 

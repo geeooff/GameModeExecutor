@@ -231,7 +231,7 @@ pub fn discover(config: Option<&config::Config>, config_path: &Path) -> Layout {
 /// the caller prints nothing after this returns.
 pub fn execute(plan: &Plan) -> Result<()> {
     if plan.stop_watcher {
-        service::stop()?;
+        service::stop(win::StopReason::Restore)?;
         println!("Watcher stopped.");
     }
     if plan.remove_task {

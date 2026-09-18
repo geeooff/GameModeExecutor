@@ -101,7 +101,14 @@ pub enum Command {
     /// Stop the running watcher, the way Quit in its menu does: mid-game,
     /// the stop commands run on the way out. None running is not an error.
     /// The logon task is left as it is; `install-task` starts it again.
-    Stop,
+    Stop {
+        /// Leave an open game session to the next watcher instead of
+        /// closing it: the stop commands do not run, and the watcher that
+        /// starts next resumes the session. For an update or an upgrade,
+        /// where one follows within seconds.
+        #[arg(long)]
+        handover: bool,
+    },
     /// Remove every trace of the program: the logon task, the configuration,
     /// the log, the session marker, and the executables themselves. Refuses
     /// while a game is running. Shows what it will remove and asks first.
@@ -143,9 +150,14 @@ pub fn run(cli: Cli, console: bool) -> Result<()> {
             setup_logging(cli.config.as_deref(), cli.log_level.as_deref(), console)?;
             return task::uninstall();
         }
-        Some(Command::Stop) => {
+        Some(Command::Stop { handover }) => {
             setup_logging(cli.config.as_deref(), cli.log_level.as_deref(), console)?;
-            service::stop()?;
+            let reason = if handover {
+                crate::win::StopReason::Handover
+            } else {
+                crate::win::StopReason::Restore
+            };
+            service::stop(reason)?;
             return Ok(());
         }
         Some(Command::Check { path, pid }) => return check(path.as_deref(), pid),

@@ -177,6 +177,15 @@ is off.
 `stop_actions_on_exit = false` opts out of both: quitting the watcher mid-game
 leaves your profile alone, and so does the next logon.
 
+The same file lets one watcher hand a game to the next. When the watcher is
+stopped for an update — by the installer, or by `stop --handover` — with a
+game on, it runs nothing and leaves the file saying the session is open; the
+watcher that starts a second later finds the game still running and takes
+the session up where it was, icon and name included. Nothing runs twice, and
+your gaming configuration is never switched off and on again in the middle
+of a game. If the game ended in that second, the new watcher runs the stop
+commands instead, as after a logoff.
+
 `gamemode-executor status` shows whether that file is there, and where.
 
 ## Removing it

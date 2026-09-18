@@ -26,7 +26,7 @@ use crate::detect::{self, GameSignal};
 use crate::logging::{self, target};
 use crate::marker::Marker;
 use crate::sensor::Sensor;
-use crate::win::StopSignal;
+use crate::win::{StopReason, StopSignal};
 
 /// What the engine tells the outside world about the session.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,20 +123,47 @@ impl<S: Sensor> Engine<S> {
         }
     }
 
-    /// Close the session the last process never got to.
+    /// Settle the session the last process left open: resume it when the
+    /// game is still on, close it when the game is gone.
     ///
     /// Measured on 2026-09-16: a command started at logoff, even one
     /// millisecond after Windows first asks, dies with STATUS_DLL_INIT_FAILED.
     /// The session-end handshake is not where the stop commands can run, so
     /// they run here, at the start that follows. A logoff, a shutdown, a crash
     /// and a power cut are then one case.
-    fn recover(&self) {
-        let Some(marker) = &self.marker else {
-            return;
-        };
-        let Some(pending) = marker.pending() else {
-            return;
-        };
+    ///
+    /// The other case, decided 2026-09-18: the writer is still running, so the
+    /// game never ended -- the last watcher handed the session over for an
+    /// update, or crashed under it. Then nothing runs, neither stop nor start,
+    /// and the session is taken up where it was. Looking for the writer
+    /// *before* recovering is what keeps a game still on from getting the
+    /// idle and then the gaming configuration seconds apart. Returns the
+    /// writer to park on and the name to show when resuming.
+    fn recover(&self) -> Option<(u32, Option<GameSignal>)> {
+        let marker = self.marker.as_ref()?;
+        let pending = marker.pending()?;
+        if let Some(pid) = self.sensor.writer_pid() {
+            let signal = pending.game.clone().map(|name| GameSignal {
+                source: "resumed",
+                process_name: Some(name),
+                process_id: None,
+                process_path: None,
+            });
+            match &pending.game {
+                Some(game) => tracing::info!(
+                    target: target::GAME,
+                    since = pending.since.as_deref(),
+                    "The last watcher left a session open with {game} still running, so it                      resumes where it was"
+                ),
+                None => tracing::info!(
+                    target: target::GAME,
+                    since = pending.since.as_deref(),
+                    "The last watcher left a session open with a game still running, so it                      resumes where it was"
+                ),
+            }
+            self.report(&Session::Playing(signal.clone()));
+            return Some((pid, signal));
+        }
         match &pending.game {
             Some(game) => tracing::info!(
                 target: target::GAME,
@@ -162,6 +189,7 @@ impl<S: Sensor> Engine<S> {
             &ActionContext::new("game_stop", signal.as_ref()),
         );
         self.forget();
+        None
     }
 
     pub fn run(&mut self, stop: &StopSignal) -> Result<()> {
@@ -170,12 +198,23 @@ impl<S: Sensor> Engine<S> {
             idle_poll = ?self.config.detection.poll_interval,
             "Watching for games"
         );
-        self.recover();
+        let mut resumed = self.recover();
 
-        while let Some(mut pid) = self.await_writer(stop) {
+        loop {
+            // A resumed session already had its start: no commands, no
+            // marker to write, and no refinement -- the name in the marker
+            // is the refined one when there was one.
+            let (mut pid, mut signal, fresh) = match resumed.take() {
+                Some((pid, signal)) => (pid, signal, false),
+                None => match self.await_writer(stop) {
+                    Some(pid) => (pid, self.identify(), true),
+                    None => break,
+                },
+            };
             let session_start = Instant::now();
-            let mut signal = self.identify();
-            self.fire_start(signal.as_ref());
+            if fresh {
+                self.fire_start(signal.as_ref());
+            }
 
             // The satellites of a title -- launcher stubs, anti-cheat
             // services -- can match the known game list too, and the one that
@@ -185,7 +224,7 @@ impl<S: Sensor> Engine<S> {
             // found nothing to arbitrate. So: once, a little way into the
             // session, ask which candidate is actually rendering, and expect
             // "no better answer" more often than not.
-            let mut refine_due = !self.config.detection.identify_after.is_zero();
+            let mut refine_due = fresh && !self.config.detection.identify_after.is_zero();
 
             let stopped = loop {
                 let timeout = refine_due.then_some(self.config.detection.identify_after);
@@ -228,6 +267,17 @@ impl<S: Sensor> Engine<S> {
             };
 
             if stopped {
+                // A handover: the watcher that follows resumes this session,
+                // so nothing runs and the marker stays open. The commands
+                // would only have swapped the configuration twice in the
+                // middle of a game.
+                if stop.reason() == StopReason::Handover {
+                    tracing::info!(
+                        target: target::WATCHER,
+                        "Stopping for an update; the game session is handed to the next watcher"
+                    );
+                    return Ok(());
+                }
                 if self.config.general.stop_actions_on_exit {
                     // Stays at info: without it the reader sees a session end
                     // and has no way to tell the game stopped from the watcher
