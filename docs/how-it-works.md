@@ -177,6 +177,15 @@ is off.
 `stop_actions_on_exit = false` opts out of both: quitting the watcher mid-game
 leaves your profile alone, and so does the next logon.
 
+The same file lets one watcher hand a game to the next. When the watcher is
+stopped for an update — by the installer, or by `stop --handover` — with a
+game on, it runs nothing and leaves the file saying the session is open; the
+watcher that starts a second later finds the game still running and takes
+the session up where it was, icon and name included. Nothing runs twice, and
+your gaming configuration is never switched off and on again in the middle
+of a game. If the game ended in that second, the new watcher runs the stop
+commands instead, as after a logoff.
+
 `gamemode-executor status` shows whether that file is there, and where.
 
 ## Removing it
@@ -209,9 +218,38 @@ register — the ones a recipe had you create, say — stays, and so does the
 anything else stays too. The recipes carry their own way out for what they
 added.
 
+## Updating itself
+
+*Check for updates* asks GitHub for the latest release — one request, no
+API, no key — and compares the tag with the version running. If it is
+newer, *Download and install* fetches the installer (or the zip, for a
+copy unpacked by hand) by its tag, computes its SHA-256 with Windows' own
+cryptography and compares it with the `SHA256SUMS.txt` the release
+publishes; a file that does not match is deleted before anything can run
+it. Then the installer is the updater: the package is run quietly, stops
+the watcher with a handover, replaces the files and starts the new version,
+which resumes the game session if there was one. An unpacked copy does the
+same through a small hidden shell that waits for the watcher to exit,
+expands the archive over the folder — keeping the previous executables as
+`.old` until the new version has started — and runs `install-task`.
+
+The hash proves the file is the one the release published, not that the
+release is honest; the program has no code signature, and the design record
+says why. A file it downloads carries no mark of the web, so Windows'
+SmartScreen never sees it: the program vouches for it, through the hash.
+
+The notification that answers *Check for updates* is the one time the
+program shows anything beyond its icon: a menu closes when you click in it,
+so the answer has to reach you somewhere. It is silent, it respects your
+quiet hours, and it only ever answers something you clicked.
+
 ## What it does not do
 
-- **No network.** It never connects to anything, and there is no telemetry.
+- **No network it did not ask you about.** It connects to exactly one
+  thing, GitHub, and only when you click *Check for updates* or run
+  `update`. There is no telemetry, nothing is polled, and the check itself
+  is one request: where does `releases/latest` redirect — the tag is the
+  answer.
 - **No administrator rights.** It runs as you, deliberately. That is why programs
   needing elevation go through a scheduled task instead.
 - **It does not touch your games.** It reads which processes exist and what the
@@ -228,6 +266,7 @@ added.
 | Configuration | `config.toml` next to the executable if there is one, otherwise `%APPDATA%\GameModeExecutor\config.toml` |
 | Log | `%LOCALAPPDATA%\GameModeExecutor\logs\gamemode-executor.log`, one file, local timestamps |
 | Scheduled tasks | a `GameModeExecutor` folder in Task Scheduler, holding `Watcher` and anything a recipe added |
+| A release being installed | `%LOCALAPPDATA%\GameModeExecutor\updates\`, emptied once the new version has started |
 
 **Roaming for the configuration, Local for the log**, and the split is
 deliberate. Windows carries `%APPDATA%` between machines on a roaming profile

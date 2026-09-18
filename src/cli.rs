@@ -101,7 +101,23 @@ pub enum Command {
     /// Stop the running watcher, the way Quit in its menu does: mid-game,
     /// the stop commands run on the way out. None running is not an error.
     /// The logon task is left as it is; `install-task` starts it again.
-    Stop,
+    Stop {
+        /// Leave an open game session to the next watcher instead of
+        /// closing it: the stop commands do not run, and the watcher that
+        /// starts next resumes the session. For an update or an upgrade,
+        /// where one follows within seconds.
+        #[arg(long)]
+        handover: bool,
+    },
+    /// Look for a newer release on GitHub and install it: downloaded,
+    /// verified against the release's checksums, then run the way the
+    /// installer would -- a running watcher hands its game session to the
+    /// new one. The one command that connects to anything.
+    Update {
+        /// Only say whether a newer release exists.
+        #[arg(long)]
+        check: bool,
+    },
     /// Remove every trace of the program: the logon task, the configuration,
     /// the log, the session marker, and the executables themselves. Refuses
     /// while a game is running. Shows what it will remove and asks first.
@@ -143,10 +159,19 @@ pub fn run(cli: Cli, console: bool) -> Result<()> {
             setup_logging(cli.config.as_deref(), cli.log_level.as_deref(), console)?;
             return task::uninstall();
         }
-        Some(Command::Stop) => {
+        Some(Command::Stop { handover }) => {
             setup_logging(cli.config.as_deref(), cli.log_level.as_deref(), console)?;
-            service::stop()?;
+            let reason = if handover {
+                crate::win::StopReason::Handover
+            } else {
+                crate::win::StopReason::Restore
+            };
+            service::stop(reason)?;
             return Ok(());
+        }
+        Some(Command::Update { check }) => {
+            setup_logging(cli.config.as_deref(), cli.log_level.as_deref(), console)?;
+            return update_command(check);
         }
         Some(Command::Check { path, pid }) => return check(path.as_deref(), pid),
         Some(Command::Purge { yes }) => return purge_command(cli.config, yes),
@@ -180,6 +205,51 @@ pub fn run(cli: Cli, console: bool) -> Result<()> {
             Ok(())
         }
         _ => service::serve(config, &path, &level, console),
+    }
+}
+
+/// `update`: the same object the menu drives, from a console. The log
+/// lines say what happens; the printed lines say what to do next.
+fn update_command(check_only: bool) -> Result<()> {
+    use crate::update::{Context, Launched, Verdict, Version, check_now, install_now, wait_for};
+
+    let context = Context::of_this_process(None, None)?;
+    let release = match check_now(&context) {
+        Ok(Verdict::UpToDate) => {
+            println!("{} is the latest version.", Version::running());
+            return Ok(());
+        }
+        Ok(Verdict::Available(release)) => release,
+        Err(fault) => anyhow::bail!("could not check for updates: {fault}"),
+    };
+    println!(
+        "{} is available ({}); this is {}.",
+        release.version,
+        release.page,
+        Version::running()
+    );
+    if check_only {
+        return Ok(());
+    }
+    match install_now(&context, &release) {
+        Ok(Launched::Installer(child)) => match wait_for(&context, child) {
+            None => {
+                println!(
+                    "Installed {}; a watcher that was running is back on it.",
+                    release.version
+                );
+                Ok(())
+            }
+            Some(fault) => anyhow::bail!("the update to {} failed: {fault}", release.version),
+        },
+        Ok(Launched::Shell) => {
+            println!(
+                "The update to {} continues once this command has exited; the log says how it went.",
+                release.version
+            );
+            Ok(())
+        }
+        Err(fault) => anyhow::bail!("the update to {} failed: {fault}", release.version),
     }
 }
 
@@ -459,4 +529,97 @@ fn print_foreground(snapshot: &Snapshot, known: Option<&KnownGames>) {
         _ => "unknown".to_owned(),
     };
     println!("  Windows calls it a game: {verdict}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(line: &[&str]) -> Cli {
+        Cli::try_parse_from(std::iter::once("gamemode-executor").chain(line.iter().copied()))
+            .expect("parses")
+    }
+
+    #[test]
+    fn the_default_command_is_run_and_hidden_is_still_accepted() {
+        assert!(parse(&[]).command.is_none());
+        assert!(matches!(
+            parse(&["run", "--hidden"]).command,
+            Some(Command::Run { hidden: true })
+        ));
+        assert!(matches!(
+            parse(&["--config", r"C:\x\config.toml"]).config,
+            Some(path) if path.ends_with("config.toml")
+        ));
+    }
+
+    #[test]
+    fn the_setup_commands_take_their_flags() {
+        assert!(matches!(
+            parse(&["stop", "--handover"]).command,
+            Some(Command::Stop { handover: true })
+        ));
+        assert!(matches!(
+            parse(&["stop"]).command,
+            Some(Command::Stop { handover: false })
+        ));
+        assert!(matches!(
+            parse(&["init", "--force"]).command,
+            Some(Command::Init { force: true })
+        ));
+        match parse(&["install-task", "--delay", "1m", "--force"]).command {
+            Some(Command::InstallTask { delay, force }) => {
+                assert_eq!(delay, "1m");
+                assert!(force);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(
+            parse(&["uninstall-task"]).command,
+            Some(Command::UninstallTask)
+        ));
+        assert!(matches!(
+            parse(&["update", "--check"]).command,
+            Some(Command::Update { check: true })
+        ));
+        assert!(matches!(
+            parse(&["purge", "--yes"]).command,
+            Some(Command::Purge { yes: true })
+        ));
+    }
+
+    #[test]
+    fn check_takes_a_path_or_a_pid_but_not_both() {
+        assert!(matches!(
+            parse(&["check", "--pid", "42"]).command,
+            Some(Command::Check {
+                path: None,
+                pid: Some(42)
+            })
+        ));
+        assert!(
+            Cli::try_parse_from(["gamemode-executor", "check", r"C:\g.exe", "--pid", "1"]).is_err()
+        );
+    }
+
+    /// The diagnostics against this machine: they read the Known Game List
+    /// and the Game Bar registration, which a GitHub-hosted runner does not
+    /// have, so they run where a Windows client is -- the script runs them
+    /// when `CI` is not set.
+    #[test]
+    #[ignore = "reads this machine's registry, which a stock runner lacks"]
+    fn status_and_check_answer_for_this_machine() {
+        status().expect("status reports what it sees");
+        check(Some(r"C:\Windows\notepad.exe"), None).expect("an executable is checked");
+        check(None, Some(std::process::id())).expect("this process is inspected");
+    }
+
+    #[test]
+    fn the_configuration_path_is_the_explicit_one_when_given() {
+        let explicit = PathBuf::from(r"C:\somewhere\config.toml");
+        assert_eq!(
+            resolve_config_path(Some(explicit.clone())).unwrap(),
+            explicit
+        );
+    }
 }

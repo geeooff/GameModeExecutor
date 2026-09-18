@@ -111,7 +111,9 @@ gamemode-executor install-task
 
 The first is **Quit** from the icon's menu, typed. The second starts it again
 — and, from the zip, registers the task that starts it at every logon, once.
-No administrator rights, no password, no window.
+No administrator rights, no password, no window. Doing this while a game is
+running? `stop --handover` instead of `stop`: the game session is left to the
+new watcher, which takes it up where it was without running anything.
 
 **That is the end of the setup.** Play. The commands fire by themselves.
 
@@ -145,10 +147,35 @@ arrow next to the clock, and drag it onto the taskbar to keep it there.
 | **Edit configuration** | opens your `config.toml` in whatever you use for text files — Notepad if `.toml` is not associated with anything |
 | **Open log** | opens the log the same way |
 | **Documentation** | opens this page for **the exact build you are running**, not for whatever the project looks like today |
+| **Check for updates** | asks GitHub whether a newer release exists — the only time this program ever connects to anything, and only when you click. The menu closes, as menus do; the answer arrives as a silent notification a second later, and waits in the menu too: *0.1.0 is the latest version*, or **Download and install 0.2.0** beside a **What changed in 0.2.0** that opens the release page |
 | **Quit** | stops the watcher, running the stop commands on the way out so you are not left on a gaming profile |
 
 Quitting only stops it until the next time you log on. To stop it for good, see
 [Turning it off](#turning-it-off).
+
+## Updating
+
+Right-click the icon, **Check for updates**. The menu closes and a
+notification answers a second later; the answer waits in the menu too. If a
+newer release exists, **Download and install** fetches it, checks it against
+the checksums the release publishes, and installs it — in the middle of a
+game if you like: the running watcher hands the game over to the new one,
+which picks it up where it was without touching your commands. The icon
+disappears for about a second and comes back, and the new version says so
+with a notification, since the install itself is too quick to watch. The
+menu and the log, under `update`, say the same.
+
+The same from a terminal:
+
+```bash
+gamemode-executor update --check
+gamemode-executor update
+```
+
+Nothing is ever checked or downloaded unless you ask. If a check or an
+install fails, the menu says so in one line ending in *(see log)*, and the
+log has the reason — no connection, a refusal from GitHub, a file that did
+not verify, or Windows Installer's own error code.
 
 ## Checking that it is alive
 
@@ -245,6 +272,13 @@ program that needs administrator rights (see above).
 They calm down at your next logon. Windows does not let the stop commands run
 once the session is ending, so the watcher runs them the moment it starts
 again — see [How it works](how-it-works.md#logging-off-mid-game).
+
+**The update failed, the menu says so.**
+Read the log: the `update` lines carry the reason. A download that did not
+verify is deleted, and a check that could not reach GitHub is just that —
+try again later. If Windows Installer refused with a code, the log names it
+and `%LOCALAPPDATA%\GameModeExecutor\updates\install.log` has its own
+account. The version you had keeps running either way.
 
 **The fans take ages to calm down after I quit.**
 That wait is Windows', not this program's. It releases its own "a game is

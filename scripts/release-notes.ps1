@@ -42,7 +42,7 @@ $changes = if ($previous) {
 }
 
 $lines = @(
-    'Runs the executables you configure when a game starts and when it stops. Windows 10 and 11.',
+    'Runs the executables you configure when a game starts and when it stops. Measured on Windows 11; it relies on the Xbox Game Bar component Windows ships by default, which Windows 10 carries too since version 1903, but nobody has run it there yet.',
     '',
     '## Install',
     '',

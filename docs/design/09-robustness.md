@@ -38,6 +38,16 @@ depend on Windows' timing:
 - At start, before watching, a marker present means the last session never
   closed: one `info` line naming the game, the stop commands, the marker
   removed. Logoff, shutdown, crash and power cut are one case.
+- **Since 2026-09-18, the writer is looked for first.** A marker present
+  with the presence writer still running means the game never ended: the
+  last watcher handed the session over — `stop --handover`, which an update
+  or an upgrade uses because a watcher follows within the second — or died
+  under it. Then nothing runs, neither stop nor start, and the session is
+  resumed from the marker: name, icon, the wait on the writer's handle. The
+  stop commands run at the end of the game as they always did. Without this
+  an update mid-game switched the configuration off and on again two
+  seconds apart. Three scenarios in `engine/tests.rs`; the design is in
+  [Lot 13](13-updating.md).
 
 **Where it lives, and why not in `logs\`.** A logs folder is disposable by
 nature and gets emptied without a second thought, which would take a pending
@@ -202,3 +212,14 @@ game", so the icon stayed grey through such a session. The sink now carries
 a `Session` enum — `Idle` or `Playing(Option<GameSignal>)` — and the case
 has a test. The manual `trigger` command no longer builds an engine at all;
 it runs the commands, which is all it ever did.
+
+**Measured again on 2026-09-18, with Lot 13's updater in:** the library at
+70 % line coverage, ignored tests included, and `winhttp` at 92 % through a
+listener the tests run themselves. The updater was written to the
+same cut — the network behind `Feed`, the machine driven by events — and
+sits at 76 % to 95 % per file, the shell scripts it generates checked for
+their shape and the `pending`/`result` files exercised on scratch folders.
+The command line gained parse tests and a machine-bound diagnostics test,
+44 % from nothing. What stays near zero is what it should be: `service`,
+`win`, and the parts of `tray` that are Win32 calls, verified by hand with
+the dates in this record.

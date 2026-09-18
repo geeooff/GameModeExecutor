@@ -21,20 +21,17 @@
 //! from discovering the machine, so the tests can hand it a scratch layout.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::{Context, Result};
 
 use crate::config;
 use crate::logging;
 use crate::marker;
+use crate::package;
 use crate::service;
+use crate::shell::{after_exit, quoted};
 use crate::task;
 use crate::win;
-
-/// The same value `scripts/msi.ps1` writes into every package. Fixed for the
-/// life of the product; a test checks the two copies agree.
-pub const UPGRADE_CODE: &str = "{8C4E0B2D-3F6A-4E7B-9A1C-5D2E8F7B6A30}";
 
 /// What the executables' removal has to go through.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,7 +75,8 @@ pub struct Plan {
 
 /// The files a hand-installed copy is made of, beyond the executables:
 /// what the zip unpacks next to them.
-const BUNDLE_FILES: [&str; 2] = ["LICENSE", "README.txt"];
+/// `LICENSE` without an extension is what zips before 2026-09-18 carried.
+const BUNDLE_FILES: [&str; 3] = ["LICENSE", "LICENSE.txt", "README.txt"];
 const EXECUTABLES: [&str; 2] = ["gamemode-executor.exe", "gamemode-executorw.exe"];
 
 impl Plan {
@@ -223,7 +221,7 @@ pub fn discover(config: Option<&config::Config>, config_path: &Path) -> Layout {
         exe_dir: std::env::current_exe()
             .ok()
             .and_then(|exe| exe.parent().map(Path::to_path_buf)),
-        product_code: installed_product(),
+        product_code: package::installed_product(),
     }
 }
 
@@ -231,7 +229,7 @@ pub fn discover(config: Option<&config::Config>, config_path: &Path) -> Layout {
 /// the caller prints nothing after this returns.
 pub fn execute(plan: &Plan) -> Result<()> {
     if plan.stop_watcher {
-        service::stop()?;
+        service::stop(win::StopReason::Restore)?;
         println!("Watcher stopped.");
     }
     if plan.remove_task {
@@ -295,75 +293,14 @@ pub fn execute(plan: &Plan) -> Result<()> {
     Ok(())
 }
 
-/// The product code Windows Installer registered for this upgrade code, if
-/// the program was installed from the package.
-pub fn installed_product() -> Option<String> {
-    use windows::Win32::Foundation::ERROR_SUCCESS;
-    use windows::Win32::System::ApplicationInstallationAndServicing::MsiEnumRelatedProductsW;
-    use windows::core::{HSTRING, PWSTR};
-
-    let upgrade = HSTRING::from(UPGRADE_CODE);
-    // A product code is 38 characters plus the terminator.
-    let mut buffer = [0u16; 39];
-    // SAFETY: `upgrade` outlives the call, and `buffer` is exactly the size
-    // the function documents for a product code, written in place.
-    let result = unsafe { MsiEnumRelatedProductsW(&upgrade, None, 0, PWSTR(buffer.as_mut_ptr())) };
-    if result != ERROR_SUCCESS.0 {
-        return None;
-    }
-    let len = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
-    Some(String::from_utf16_lossy(&buffer[..len]))
-}
-
-/// A path as a PowerShell single-quoted literal, which only a quote can
-/// end -- doubled inside, and nothing else expands.
-fn quoted(path: &Path) -> String {
-    format!("'{}'", path.display().to_string().replace('\'', "''"))
-}
-
-/// Run PowerShell statements once this process has exited, in a window
-/// nobody sees.
-///
-/// Windows PowerShell rather than `cmd.exe`, because it can wait for
-/// exactly this process -- `Wait-Process` on our own id -- where a batch
-/// line could only guess with a delay. Each step says for itself what it
-/// does when its target is already gone. `CREATE_NO_WINDOW` gives it a hidden console of its own;
-/// outliving this process needs no flag, Windows does not end children with
-/// their parent. Only single quotes reach the command line, so std's
-/// quoting for `CommandLineToArgvW` carries it through intact.
-fn after_exit(steps: &[String]) -> Result<()> {
-    after_process(std::process::id(), steps)
-}
-
-/// The same, once the process `pid` has exited -- which is how the tests
-/// run the steps without exiting themselves.
-fn after_process(pid: u32, steps: &[String]) -> Result<()> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut script = vec![format!(
-        "Wait-Process -Id {pid} -ErrorAction SilentlyContinue"
-    )];
-    script.extend(steps.iter().cloned());
-    Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-WindowStyle",
-            "Hidden",
-            "-Command",
-        ])
-        .arg(script.join("; "))
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn()
-        .context("cannot start the shell that finishes the removal")?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};
 
+    use std::process::Command;
+
     use super::*;
+    use crate::shell::after_process;
 
     fn scratch() -> PathBuf {
         static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -474,20 +411,6 @@ mod tests {
     /// The package builder and this module must agree on the upgrade code,
     /// or `purge` on an installed copy would fall back to deleting files
     /// under Windows Installer's feet.
-    #[test]
-    fn the_upgrade_code_matches_the_package_builder() {
-        let script = std::fs::read_to_string(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("scripts")
-                .join("msi.ps1"),
-        )
-        .expect("scripts/msi.ps1 is in the repository");
-        assert!(
-            script.contains(&format!("$UpgradeCode = '{UPGRADE_CODE}'")),
-            "scripts/msi.ps1 does not carry {UPGRADE_CODE}"
-        );
-    }
-
     #[test]
     fn executing_an_unpacked_plan_removes_files_and_empty_folders() {
         let root = scratch();

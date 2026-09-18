@@ -1,6 +1,7 @@
 //! Thin, safe wrappers around the few Win32 calls the program needs.
 
 use std::ffi::c_void;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -25,12 +26,28 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{BOOL, HSTRING, PCWSTR};
 
+/// Why the watcher is stopping, which decides what a stop mid-game does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StopReason {
+    /// Nobody follows: *Quit*, `stop`, Ctrl-C, a logoff. The stop commands
+    /// run, so the machine is not left on its gaming configuration.
+    Restore,
+    /// A watcher follows within seconds: an update, an upgrade, the
+    /// development loop. The session stays open in the marker and the next
+    /// watcher resumes it, so nothing runs twice. Decided 2026-09-18.
+    Handover,
+}
+
 /// A manual-reset event used to unblock every wait in the program at once.
 ///
 /// Waiting on a kernel event rather than checking a flag on a timer is what
 /// keeps the watcher at zero wake-ups while a game is running.
 pub struct StopSignal {
     event: HANDLE,
+    /// Set before the event when the stop is a handover. The first reason to
+    /// arrive wins: a *Quit* after a handover request still hands over, a
+    /// handover after a *Quit* has nothing left to hand.
+    handover: AtomicBool,
 }
 
 // SAFETY: a Win32 event handle is a kernel object; signalling and waiting on
@@ -45,12 +62,32 @@ impl StopSignal {
         // is owned by `StopSignal` and closed on drop.
         let event = unsafe { CreateEventW(None, true, false, PCWSTR::null()) }
             .context("cannot create the stop event")?;
-        Ok(Self { event })
+        Ok(Self {
+            event,
+            handover: AtomicBool::new(false),
+        })
     }
 
+    /// Stop, and restore: the stop commands run if a game is on.
     pub fn signal(&self) {
         // SAFETY: the event is open for as long as `self` lives.
         let _ = unsafe { SetEvent(self.event) };
+    }
+
+    /// Stop, and hand an open session to the watcher that follows.
+    pub fn signal_handover(&self) {
+        if !self.is_set() {
+            self.handover.store(true, Ordering::SeqCst);
+        }
+        self.signal();
+    }
+
+    pub fn reason(&self) -> StopReason {
+        if self.handover.load(Ordering::SeqCst) {
+            StopReason::Handover
+        } else {
+            StopReason::Restore
+        }
     }
 
     pub fn is_set(&self) -> bool {
@@ -85,6 +122,10 @@ impl Drop for StopSignal {
 /// Posted by the watcher thread once it has finished, so the message loop on
 /// the main thread knows there is nothing left to wait for.
 const WM_WATCHER_FINISHED: u32 = WM_APP + 1;
+
+/// Posted by another process of this program -- `stop --handover` -- where
+/// `WM_CLOSE` would mean *Quit*. `WM_APP + 2` and `+ 3` belong to the tray.
+const WM_HANDOVER: u32 = WM_APP + 4;
 
 /// What the window procedure needs. There is exactly one watcher per process --
 /// `SingleInstance` guarantees it -- so a process-wide slot is simpler and
@@ -147,6 +188,22 @@ unsafe extern "system" fn window_proc(
             }
             LRESULT(0)
         }
+        // `WM_CLOSE` with a reason: the session is handed on, not closed.
+        // Destroying the window is what the default procedure does for
+        // `WM_CLOSE`, and it ends the message loop the same way.
+        WM_HANDOVER => {
+            if let Some(state) = SESSION.get() {
+                tracing::debug!(
+                    target: crate::logging::target::WATCHER,
+                    "Asked to hand the session over, so the watcher stops without closing it"
+                );
+                state.stop.signal_handover();
+            }
+            // SAFETY: `window` is this procedure's own window, destroyed on
+            // its own thread; `WM_DESTROY` follows and ends the loop.
+            unsafe { _ = DestroyWindow(window) };
+            LRESULT(0)
+        }
         WM_WATCHER_FINISHED | WM_DESTROY => {
             // SAFETY: no arguments beyond the exit code; only affects the
             // calling thread's message queue.
@@ -169,39 +226,53 @@ unsafe extern "system" fn window_proc(
 /// of this program finds it.
 const SESSION_CLASS: &str = "GameModeExecutorSession";
 
-/// Ask a running watcher to quit, the way its *Quit* menu entry does: `WM_CLOSE`
-/// on its session window, which the default procedure turns into
-/// `WM_DESTROY` and so into the end of the message loop. Nothing here waits;
-/// the caller watches the single-instance mutex to know the process is gone.
+/// Ask a running watcher to stop: `WM_CLOSE` on its session window, the way
+/// its *Quit* menu entry does, or `WM_HANDOVER` to leave an open session to
+/// the watcher that follows. Either ends the message loop through
+/// `WM_DESTROY`. Nothing here waits; the caller watches the single-instance
+/// mutex to know the process is gone.
 ///
 /// `FindWindowW` cannot see a class another process registered, so the
 /// top-level windows are enumerated and asked their class name instead.
-pub fn close_session_window() -> Result<()> {
-    unsafe extern "system" fn visit(window: HWND, found: LPARAM) -> BOOL {
+pub fn close_session_window(reason: StopReason) -> Result<()> {
+    /// The message and the found flag, handed to the callback as one
+    /// pointer.
+    struct Visit {
+        message: u32,
+        found: bool,
+    }
+    unsafe extern "system" fn visit(window: HWND, visit: LPARAM) -> BOOL {
         let mut name = [0u16; 64];
         // SAFETY: `name` is a valid buffer and its length is what is passed;
         // GetClassNameW writes at most that many characters.
         let len = unsafe { GetClassNameW(window, &mut name) };
         if len > 0 && String::from_utf16_lossy(&name[..len as usize]) == SESSION_CLASS {
-            // SAFETY: WM_CLOSE carries no pointers; the window handle came
+            // SAFETY: `visit` is the address of the caller's `Visit`, alive
+            // for the whole enumeration and written only here.
+            let visit = unsafe { &mut *(visit.0 as *mut Visit) };
+            // SAFETY: the message carries no pointers; the window handle came
             // from the enumeration and may be gone by the time it is read,
             // which PostMessageW reports rather than dereferences.
-            if unsafe { PostMessageW(Some(window), WM_CLOSE, WPARAM(0), LPARAM(0)) }.is_ok() {
-                // SAFETY: `found` is the address of the caller's `bool`,
-                // alive for the whole enumeration.
-                unsafe { *(found.0 as *mut bool) = true };
+            if unsafe { PostMessageW(Some(window), visit.message, WPARAM(0), LPARAM(0)) }.is_ok() {
+                visit.found = true;
             }
             return BOOL(0);
         }
         BOOL(1)
     }
-    let mut found = false;
+    let mut state = Visit {
+        message: match reason {
+            StopReason::Restore => WM_CLOSE,
+            StopReason::Handover => WM_HANDOVER,
+        },
+        found: false,
+    };
     // SAFETY: the callback reads only what it is given and writes only to
-    // `found`, whose address is passed and which outlives the call. An
+    // `state`, whose address is passed and which outlives the call. An
     // enumeration the callback stops is reported as an error by EnumWindows,
     // which is why its result is not the verdict.
-    let _ = unsafe { EnumWindows(Some(visit), LPARAM(&mut found as *mut bool as isize)) };
-    anyhow::ensure!(found, "no running watcher was found");
+    let _ = unsafe { EnumWindows(Some(visit), LPARAM(&mut state as *mut Visit as isize)) };
+    anyhow::ensure!(state.found, "no running watcher was found");
     Ok(())
 }
 

@@ -1,14 +1,17 @@
 # Builds the Windows Installer package from a staged release folder.
 #
-# Per-user, no elevation, no UI: the two executables and the license go to
+# Per-user, no elevation, no UI: the two executables, the license and the
+# readme -- the same four files the zip carries -- go to
 # %LOCALAPPDATA%\Programs\GameModeExecutor. The user's configuration, log,
 # marker and scheduled tasks are not components, so no repair, upgrade or
-# uninstall reaches them. Four custom actions, all the program's own
+# uninstall reaches them. Five custom actions, all the program's own
 # commands and all idempotent, run through the windowless executable:
-# `stop` before an uninstall or upgrade touches the files, so the Restart
-# Manager never has to ask; `init`, which writes a starter configuration
-# only where there is none, and `install-task`, which registers the logon
-# task only where there is none and then starts the watcher -- the icon
+# `stop --handover` before an upgrade touches the files and plain `stop`
+# before an uninstall does, so the Restart Manager never has to ask and a
+# game session in progress is resumed by the new watcher rather than
+# closed and reopened; `init`, which writes a starter configuration only
+# where there is none, and `install-task`, which registers the logon task
+# only where there is none and then starts the watcher -- the icon
 # appearing is the confirmation -- to finish an install or upgrade; and
 # `uninstall-task` on an uninstall, since the task is the package's to take
 # down.
@@ -21,7 +24,7 @@
 # the package code from the version and the commit, each component from its
 # file name. Two builds of the same commit give the same package.
 param(
-    [Parameter(Mandatory)] [string] $Stage,    # holds the executables and LICENSE
+    [Parameter(Mandatory)] [string] $Stage,    # holds the executables, LICENSE.txt and README.txt
     [Parameter(Mandatory)] [string] $Version,  # x.y.z, from Cargo.toml
     [Parameter(Mandatory)] [string] $Out,      # the .msi to write
     [string] $Commit = 'unknown',
@@ -74,7 +77,8 @@ $PackageCode = New-NameGuid "package/$scope$Version/$Commit"
 $files = @(
     @{ Key = 'gamemode_executor.exe';  Name = 'gamemode-executor.exe';  Short = 'GAMEMO~1.EXE' },
     @{ Key = 'gamemode_executorw.exe'; Name = 'gamemode-executorw.exe'; Short = 'GAMEMO~2.EXE' },
-    @{ Key = 'LICENSE';                Name = 'LICENSE';                Short = 'LICENSE' }
+    @{ Key = 'LICENSE.txt';            Name = 'LICENSE.txt';            Short = 'LICENSE.TXT' },
+    @{ Key = 'README.txt';             Name = 'README.txt';             Short = 'README.TXT' }
 )
 foreach ($f in $files) {
     $f.Path = Join-Path $Stage $f.Name
@@ -282,16 +286,22 @@ try {
     # + 64 (carry on if it fails). Immediate, before InstallValidate, where
     # the Restart Manager would otherwise find the watcher holding the files
     # and put up its "close these applications" dialog (seen 2026-09-18 on
-    # the first uninstall). It runs the *installed* executable, which an
-    # upgrade has not replaced yet; one too old to know `stop` fails, and
-    # the dialog comes back -- a visible, harmless degradation.
-    Insert 'CustomAction' @('StopWatcher', 98, 'INSTALLDIR', '"[INSTALLDIR]gamemode-executorw.exe" stop', $null)
+    # the first uninstall). Both run the *installed* executable, which an
+    # upgrade has not replaced yet. An upgrade hands a game session over --
+    # RegisterTask starts the new watcher seconds later and it resumes the
+    # session, nothing runs twice; a removal restores, since nobody follows.
+    # An installed version too old to know the verb or the flag fails the
+    # action, which continues, and the dialog comes back for that one
+    # upgrade: 0.1.0 does not know --handover, accepted 2026-09-18.
+    Insert 'CustomAction' @('StopForUpgrade', 98, 'INSTALLDIR', '"[INSTALLDIR]gamemode-executorw.exe" stop --handover', $null)
+    Insert 'CustomAction' @('StopForRemoval', 98, 'INSTALLDIR', '"[INSTALLDIR]gamemode-executorw.exe" stop', $null)
 
     $sequences = @{
         InstallExecuteSequence = @(
             @('FindRelatedProducts', 25), @('LaunchConditions', 100), @('ValidateProductID', 700),
             @('CostInitialize', 800), @('FileCost', 900), @('CostFinalize', 1000),
-            @('StopWatcher', 1300), @('InstallValidate', 1400), @('InstallInitialize', 1500),
+            @('StopForUpgrade', 1300), @('StopForRemoval', 1310),
+            @('InstallValidate', 1400), @('InstallInitialize', 1500),
             @('RemoveExistingProducts', 1510),
             @('ProcessComponents', 1600), @('UnpublishFeatures', 1800),
             @('UnregisterTask', 3400), @('RemoveFiles', 3500), @('InstallFiles', 4000),
@@ -319,7 +329,7 @@ try {
     }
     # The setup actions run on an install and on an upgrade -- a new product
     # code is not Installed -- and never on a repair or an uninstall. The
-    # watcher is stopped on an uninstall and on an upgrade, where its files
+    # watcher is stopped on an upgrade and on an uninstall, where its files
     # are about to go; a fresh install has none to stop. Not when this
     # product is the old one being removed by an upgrade: the new package
     # stopped the watcher before it got here, and the first upgrade
@@ -327,7 +337,8 @@ try {
     $conditions = @{
         InitConfig     = 'NOT Installed'
         RegisterTask   = 'NOT Installed'
-        StopWatcher    = '(REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE) OR PREVIOUSVERSIONS'
+        StopForUpgrade = 'PREVIOUSVERSIONS'
+        StopForRemoval = 'REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE'
         UnregisterTask = 'REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE'
     }
     foreach ($t in $sequences.Keys) {

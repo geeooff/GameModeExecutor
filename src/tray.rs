@@ -24,9 +24,10 @@ use anyhow::{Context, Result};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::UI::HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi};
 use windows::Win32::UI::Shell::{
-    NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION,
-    NOTIFY_ICON_DATA_FLAGS, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
-    ShellExecuteW,
+    NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_INFO, NIIF_NOSOUND,
+    NIIF_RESPECT_QUIET_TIME, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION,
+    NOTIFY_ICON_DATA_FLAGS, NOTIFY_ICON_INFOTIP_FLAGS, NOTIFYICON_VERSION_4, NOTIFYICONDATAW,
+    Shell_NotifyIconW, ShellExecuteW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconFromResourceEx, CreatePopupMenu, DestroyIcon, DestroyMenu,
@@ -44,6 +45,10 @@ const WM_TRAY: u32 = WM_APP + 2;
 
 /// Posted by the watcher thread when the session changed.
 const WM_SESSION: u32 = WM_APP + 3;
+
+/// Posted by the updater's worker when an outcome left a notice to show.
+/// `WM_APP + 4` is `win`'s handover message.
+const WM_UPDATE: u32 = WM_APP + 5;
 
 /// One wording for a game Windows flags but does not name, shared by the
 /// tooltip and the menu and agreeing with what the log already says. Three
@@ -102,6 +107,23 @@ pub fn session_sink(window: isize) -> crate::engine::SessionSink {
             let _ = PostMessageW(
                 Some(HWND(window as *mut std::ffi::c_void)),
                 WM_SESSION,
+                WPARAM(0),
+                LPARAM(0),
+            );
+        }
+    })
+}
+
+/// Hand this to the updater so it wakes the window's thread when an
+/// outcome left a notice; the thread reads the notice itself.
+pub fn update_sink(window: isize) -> Arc<dyn Fn() + Send + Sync> {
+    Arc::new(move || {
+        // SAFETY: posting carries no pointers, and a window that is gone makes
+        // the call fail, which is ignored.
+        unsafe {
+            let _ = PostMessageW(
+                Some(HWND(window as *mut std::ffi::c_void)),
+                WM_UPDATE,
                 WPARAM(0),
                 LPARAM(0),
             );
@@ -298,6 +320,10 @@ const ID_CONFIG: usize = 1;
 const ID_LOG: usize = 2;
 const ID_DOCS: usize = 3;
 const ID_QUIT: usize = 4;
+/// The update section's entries, one id per item in the order `update`
+/// lists them. The section is whatever `update::view()` says: this module
+/// draws it and holds no rule about it.
+const ID_UPDATE_BASE: usize = 100;
 
 /// One icon per state and taskbar theme, compiled in.
 ///
@@ -416,6 +442,8 @@ enum Plan {
     Reload,
     /// Explorer restarted and took the icon with it.
     ReAdd,
+    /// The updater has something to say; the notice is read with no borrow.
+    Notify,
 }
 
 /// Add the icon. Call once, from the thread owning `window`.
@@ -496,6 +524,12 @@ pub fn dispatch(message: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT>
             re_add();
             Some(LRESULT(0))
         }
+        Plan::Notify => {
+            if let Some(notice) = crate::update::take_notice() {
+                notify(&notice.title, &notice.text);
+            }
+            Some(LRESULT(0))
+        }
     }
 }
 
@@ -522,6 +556,7 @@ impl Tray {
             WM_DPICHANGED => Plan::Reload,
             // The engine says a game started, was renamed, or ended.
             WM_SESSION => Plan::Reload,
+            WM_UPDATE => Plan::Notify,
             _ => Plan::Ignore,
         }
     }
@@ -547,6 +582,36 @@ impl Tray {
 // ---------------------------------------------------------------------------
 // Everything below runs with no borrow held.
 // ---------------------------------------------------------------------------
+
+/// A notification from the icon: the answer to something the user clicked,
+/// since the menu they clicked in closed under them as every menu does.
+/// Silent, and held back during quiet hours; Windows shows it as a toast
+/// and keeps it in the notification centre. Never for anything the user
+/// did not ask for.
+fn notify(title: &str, text: &str) {
+    let Some(mut data) = TRAY.with(|cell| cell.borrow().as_ref().map(Tray::data)) else {
+        return;
+    };
+    data.uFlags = NOTIFY_ICON_DATA_FLAGS(data.uFlags.0 | NIF_INFO.0);
+    data.dwInfoFlags =
+        NOTIFY_ICON_INFOTIP_FLAGS(NIIF_INFO.0 | NIIF_NOSOUND.0 | NIIF_RESPECT_QUIET_TIME.0);
+    let title_w = wide(title);
+    let len = title_w.len().min(data.szInfoTitle.len() - 1);
+    data.szInfoTitle[..len].copy_from_slice(&title_w[..len]);
+    let text_w = wide(text);
+    let len = text_w.len().min(data.szInfo.len() - 1);
+    data.szInfo[..len].copy_from_slice(&text_w[..len]);
+    // SAFETY: `data` is the fully initialised struct the icon was added with,
+    // its strings NUL-terminated within their buffers; nothing in the tray is
+    // borrowed while the shell handles it.
+    if unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) }.as_bool() {
+        tracing::debug!(
+            target: crate::logging::target::UPDATE,
+            title,
+            "Notification shown"
+        );
+    }
+}
 
 fn add(data: &NOTIFYICONDATAW) -> Result<()> {
     // SAFETY: `data` is fully initialised, `cbSize` included, and the handles
@@ -665,6 +730,12 @@ fn show_menu(window: HWND, at: POINT) {
     let log = wide("Open log");
     let docs = wide("Documentation");
     let quit = wide("Quit");
+    // The update section, as the object renders it right now. Read once,
+    // before the menu is built, and used again after it closes to know what
+    // an id meant -- the phase may have moved meanwhile, and a stale click
+    // is one the object ignores.
+    let updates = crate::update::view();
+    let update_labels: Vec<Vec<u16>> = updates.iter().map(|item| wide(&item.label)).collect();
 
     // SAFETY: the strings outlive the block, `menu` was just created and is
     // destroyed at the end, and `window` is the tray's own window. Nothing
@@ -683,6 +754,19 @@ fn show_menu(window: HWND, at: POINT) {
         let _ = AppendMenuW(menu, MF_STRING, ID_CONFIG, PCWSTR(config.as_ptr()));
         let _ = AppendMenuW(menu, MF_STRING, ID_LOG, PCWSTR(log.as_ptr()));
         let _ = AppendMenuW(menu, MF_STRING, ID_DOCS, PCWSTR(docs.as_ptr()));
+        if !updates.is_empty() {
+            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+            for (i, (item, label)) in updates.iter().zip(&update_labels).enumerate() {
+                // A disabled entry carries a sentence and cannot be chosen;
+                // id 0 so a stray selection means nothing.
+                let (flags, id) = if item.enabled && item.action.is_some() {
+                    (MF_STRING, ID_UPDATE_BASE + i)
+                } else {
+                    (MF_STRING | MF_DISABLED | MF_GRAYED, 0)
+                };
+                let _ = AppendMenuW(menu, flags, id, PCWSTR(label.as_ptr()));
+            }
+        }
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING, ID_QUIT, PCWSTR(quit.as_ptr()));
 
@@ -704,7 +788,31 @@ fn show_menu(window: HWND, at: POINT) {
         chosen.0 as usize
     };
 
+    if let Some(action) = chosen
+        .checked_sub(ID_UPDATE_BASE)
+        .and_then(|i| updates.get(i))
+        .and_then(|item| item.action.clone())
+    {
+        run_update_action(action);
+        return;
+    }
     run_command(chosen);
+}
+
+/// What an update entry asked for. The page opens here, because the shell
+/// is this module's business; everything else is the object's.
+fn run_update_action(action: crate::update::Action) {
+    match action {
+        crate::update::Action::OpenReleasePage(url) => {
+            tracing::debug!(
+                target: crate::logging::target::UPDATE,
+                url,
+                "Opening the release page"
+            );
+            open(&url, None);
+        }
+        other => crate::update::perform(other),
+    }
 }
 
 fn run_command(id: usize) {

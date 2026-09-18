@@ -39,7 +39,8 @@ way.
 | `init [--force]` | Write the starter configuration file into `%APPDATA%\GameModeExecutor`. One that is already there is kept unless `--force`. The installer runs this. What happened is logged under `setup`. |
 | `install-task [--delay 15s] [--force]` | Register a per-user logon task that runs `gamemode-executorw.exe` with no window, then start it now. A task already registered is kept unless `--force`. The configuration path is stored absolute. The installer runs this too. Logged under `setup`. |
 | `uninstall-task` | Remove that task. No task is not an error. The installer runs this on an uninstall, not on an upgrade. Logged under `setup`. |
-| `stop` | Stop the running watcher the way *Quit* in its menu does — mid-game, the stop commands run on the way out — and wait until it has gone. None running is not an error. The task is left alone; `install-task` starts it again. The installer runs this before removing or replacing the executables. Logged under `setup`. |
+| `update [--check]` | Look for a newer release on GitHub; with `--check`, say so and stop. Otherwise download it, verify it against the release's `SHA256SUMS.txt` and install it the way the package or the zip's shell does — a running watcher hands its game session to the new one. The one command that connects to anything. Logged under `update`. |
+| `stop [--handover]` | Stop the running watcher the way *Quit* in its menu does — mid-game, the stop commands run on the way out — and wait until it has gone. With `--handover` an open game session is left to the watcher that follows: the stop commands do not run, and the next start resumes the session with nothing run twice — for an update or an upgrade, where one follows within seconds. None running is not an error. The task is left alone; `install-task` starts it again. The installer runs this before removing (plain) or replacing (`--handover`) the executables. Logged under `setup`. |
 | `purge [--yes]` | Remove every trace of the program: the logon task, the configuration, the log, the session marker, the executables. It lists what it will remove and asks; `--yes` is for scripts. Refuses while a game is running. See [Removing it](how-it-works.md#removing-it). |
 
 Global options: `--config <PATH>`, `--log-level <LEVEL>`, `--version`.
@@ -168,7 +169,7 @@ what was done to this machine to set it up, which is the same story one
 chapter earlier. Nothing else competes with those lines.
 
 Each line is `time  LEVEL  category  message`, with the category one of
-`watcher`, `game`, `commands` or `setup`:
+`watcher`, `game`, `commands`, `setup` or `update`:
 
 ```
 2026-09-18 00:51:36.740  INFO  setup     Starter configuration written
@@ -190,6 +191,15 @@ Those commands open the log where the watcher would — the configuration's
 so a fresh install's first lines say what the installer did, and a machine
 that misbehaves can be read back to the day it was set up.
 
+`update` is every step of looking for, fetching and installing a newer
+release — the only thing in the program that touches a network, so each
+request is written down: `Checking for updates`, `0.1.0 is the latest
+version` or `Update available: 0.2.0`, `Downloading 0.2.0 (1.4 MB)`,
+`Downloaded and verified 0.2.0`, `Installing 0.2.0; the watcher stops now
+and comes back on the new version`, then from the new watcher `Updated to
+0.2.0`. A failure is a `warn` with the WinHTTP or Windows Installer code as
+a field; `RUST_LOG=update=debug` adds every request and its status.
+
 `debug` does not give a different log. It gives the same one annotated — the
 technical detail rides along as fields rather than in lines of its own:
 
@@ -209,8 +219,9 @@ syntax — `RUST_LOG=game=debug` for the detection lines alone.
 | --- | --- | --- |
 | Configuration | next to the executable, or `%APPDATA%\GameModeExecutor\config.toml` | yours; roams with the profile |
 | Log | `%LOCALAPPDATA%\GameModeExecutor\logs\` | disposable |
-| Session marker | `%LOCALAPPDATA%\GameModeExecutor\pending-stop-actions` | present while a game session is open; left behind by a logoff, shutdown or crash, and honoured at the next start. `status` reports it. |
+| Session marker | `%LOCALAPPDATA%\GameModeExecutor\pending-stop-actions` | present while a game session is open; left behind by a logoff, shutdown, crash or handover, and settled at the next start — the session resumed if the game is still on, closed if it is gone. `status` reports it. |
 | Logon task | `\GameModeExecutor\Watcher` in Task Scheduler | records the absolute path of the executable; removed with the package, kept through an upgrade |
+| Updates | `%LOCALAPPDATA%\GameModeExecutor\updates\` | a downloaded release and the installer's log while an update runs; emptied when the next watcher starts, the log kept if the update failed |
 
 ## Building and releasing
 

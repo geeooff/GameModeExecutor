@@ -24,7 +24,8 @@ session rather than when the code compiles. Each has its own page.
 | 10 | [Configuration window](10-configuration-window.md) | proposed |
 | 11 | [Documentation for the people who use it](11-user-documentation.md) | done |
 | 12 | [Editing the configuration without breaking it](12-editing-on-a-copy.md) | proposed |
-| 13 | [Updating](13-updating.md) | proposed |
+| 13 | [Updating](13-updating.md) | in progress |
+| 14 | [Release notes people can read](14-release-notes.md) | proposed |
 
 **Dependency order:** 1 → 2 → 4 → 5 → 6 → 7, with 3 independent and 7 needing
 both 3 and 6. Logging sits before the icon deliberately — the icon logs too,
@@ -54,8 +55,10 @@ Recorded so they stop coming back.
   applications.
 - **No allow-list of game executables, and no heuristics that guess at what a
   game is.** Detection is Windows' verdict, read from Windows.
-- **No telemetry, no network access.** A future update check must be manual or
-  opt-in, or this stops being true — see [Lot 13](13-updating.md).
+- **No telemetry, and no network access the user did not ask for.** The one
+  connection the program opens is *Check for updates*, on a click, and
+  [Lot 13](13-updating.md) says what it sends and to whom. Nothing is ever
+  polled, and an opt-in check at start, if it ever comes, defaults to off.
 - **No elevation.** The watcher runs as the user, on purpose. Programs that
   need administrator rights are reached through a scheduled task, never by
   elevating the watcher — see [Lot 1](01-console-watcher.md).

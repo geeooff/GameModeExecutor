@@ -36,6 +36,9 @@ struct Scripted {
     /// same instant `wait_for_writer_exit` reports the exit, as a logoff
     /// does when Windows kills the writer before the watcher is told.
     session_ends_with_writer: bool,
+    /// A stop reported by `wait_for_writer_exit` is a handover, as
+    /// `stop --handover` from an update makes it.
+    stops_by_handover: bool,
     stop: Arc<StopSignal>,
 }
 
@@ -50,8 +53,14 @@ impl Scripted {
             list_unreadable: false,
             counters_unreadable: false,
             session_ends_with_writer: false,
+            stops_by_handover: false,
             stop: Arc::clone(stop),
         }
+    }
+
+    fn stops_by_handover(mut self) -> Self {
+        self.stops_by_handover = true;
+        self
     }
 
     fn list_unreadable(mut self) -> Self {
@@ -121,6 +130,9 @@ impl Sensor for Scripted {
             .expect("the script ran out of waits");
         if self.session_ends_with_writer && outcome == WaitOutcome::WriterExited {
             self.stop.signal();
+        }
+        if self.stops_by_handover && outcome == WaitOutcome::Stopped {
+            self.stop.signal_handover();
         }
         Ok(outcome)
     }
@@ -599,6 +611,114 @@ fn opting_out_of_stop_on_exit_runs_nothing_and_closes_the_marker() {
         seen(&log),
         vec![Session::Playing(Some(game(10, "game.exe")))]
     );
+}
+
+// ------------------------------------------------------------- handover --
+
+#[test]
+fn a_handover_mid_game_runs_nothing_and_leaves_the_session_open() {
+    // An update stops the watcher while a game is on. The stop commands must
+    // not run -- the next watcher resumes the session within the second --
+    // and the marker must still say the session is open.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let sensor = Scripted::new(&stop)
+        .writer(&[Some(7)])
+        .waits(&[WaitOutcome::Stopped])
+        .stops_by_handover()
+        .candidates(&[&[game(10, "game.exe")]]);
+    let dir = scratch();
+    let ran = dir.join("stop-ran");
+    let mut config = quick_config();
+    config.general.stop_actions_on_exit = true;
+    config.on_game_stop = stop_event(vec![touch(&ran)]);
+    let (sink, log) = recorder();
+
+    let mut engine = Engine::new(config, sensor)
+        .reporting_to(sink)
+        .remembering(Marker::in_dir(&dir));
+    engine.run(&stop).unwrap();
+
+    assert!(!ran.exists(), "the stop commands did not run");
+    let pending = Marker::in_dir(&dir)
+        .pending()
+        .expect("the session stays open");
+    assert_eq!(pending.game.as_deref(), Some("game.exe"));
+    assert_eq!(
+        seen(&log),
+        vec![Session::Playing(Some(game(10, "game.exe")))],
+        "the session was never reported as ended"
+    );
+}
+
+#[test]
+fn a_session_handed_over_is_resumed_without_running_anything() {
+    // The next watcher starts with the marker open and the writer alive: it
+    // takes the session up -- name from the marker, icon active -- and runs
+    // neither the start commands, which already ran, nor the stop commands,
+    // which are for when the game ends. Then the game ends, and they run.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let sensor = Scripted::new(&stop)
+        .writer(&[Some(7)])
+        .waits(&[WaitOutcome::WriterExited]);
+    let dir = scratch();
+    let marker = Marker::in_dir(&dir);
+    marker.open(Some("game.exe"), "earlier").unwrap();
+    let started = dir.join("start-ran");
+    let stopped = dir.join("stop-ran");
+    let mut config = quick_config();
+    config.on_game_start = stop_event(vec![touch(&started)]);
+    config.on_game_stop = stop_event(vec![touch(&stopped)]);
+    let (sink, log) = recorder();
+
+    let mut engine = Engine::new(config, sensor)
+        .reporting_to(sink)
+        .remembering(marker);
+    engine.run(&stop).unwrap();
+
+    assert!(!started.exists(), "the start commands did not run again");
+    assert!(
+        stopped.exists(),
+        "the stop commands ran when the game ended"
+    );
+    assert!(
+        Marker::in_dir(&dir).pending().is_none(),
+        "and the session closed as usual"
+    );
+    let resumed = GameSignal {
+        source: "resumed",
+        process_name: Some("game.exe".to_owned()),
+        process_id: None,
+        process_path: None,
+    };
+    assert_eq!(
+        seen(&log),
+        vec![Session::Playing(Some(resumed)), Session::Idle],
+        "resumed as playing, then ended"
+    );
+}
+
+#[test]
+fn a_session_handed_over_whose_game_ended_meanwhile_is_closed_at_start() {
+    // Same marker, but the writer is gone by the time the next watcher
+    // starts: the ordinary recovery, the stop commands run before watching.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let sensor = Scripted::new(&stop).writer(&[None]);
+    let dir = scratch();
+    let marker = Marker::in_dir(&dir);
+    marker.open(Some("game.exe"), "earlier").unwrap();
+    let stopped = dir.join("stop-ran");
+    let mut config = quick_config();
+    config.on_game_stop = stop_event(vec![touch(&stopped)]);
+    let (sink, log) = recorder();
+
+    let mut engine = Engine::new(config, sensor)
+        .reporting_to(sink)
+        .remembering(marker);
+    engine.run(&stop).unwrap();
+
+    assert!(stopped.exists(), "the stop commands ran at start");
+    assert!(Marker::in_dir(&dir).pending().is_none());
+    assert!(seen(&log).is_empty(), "recovery is not a session");
 }
 
 // ------------------------------------------------------------- recovery --
