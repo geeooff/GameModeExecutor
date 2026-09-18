@@ -1,6 +1,7 @@
 # Lot 13 — Updating
 
-**Status: in progress since 2026-09-18; ships in 0.2.0.** Decided 2026-09-17
+**Status: in progress since 2026-09-18; shipped in 0.2.0 the same day.**
+Decided 2026-09-17
 to be a lot of its own rather than a tail of [Lot 8](08-distribution.md):
 updating touches the "no network" non-goal, the tray menu and the running
 process, and each of those deserves its own measurement. The shape below
@@ -16,8 +17,9 @@ meets the Restart Manager's dialog once, as recorded below.
 - [x] The zip copy updates itself the same way, through the after-exit shell — 2026-09-18, the script tested for its shape
 - [x] The documentation: *Getting started*, *How it works*, the reference, the README's word on the network — 2026-09-18
 - [x] Measured on the maintainer's machine, 2026-09-18 13:03–13:33, both paths against the real `v0.1.0`: the handover mid-game and the resume, the check, the download and its verification, the install from the zip and from the package, the watcher back on the new version — below
+- [x] Shipped: `v0.2.0`, 2026-09-18, the first version that carries the updater
 - [ ] Measured: offline and behind a proxy, as seen from the menu; the failure path restarting the old watcher; `/qn` on screen
-- [ ] Verified in the field across a real release pair
+- [ ] Verified in the field across a real release pair — the first update *from* 0.2.0, whenever the next release comes; that closes the lot
 
 **Goal.** A user who wants the newer version gets it from the notification
 icon, without a browser, without an administrator prompt, and without the

@@ -17,9 +17,11 @@ install on a second machine.
   the checklist, build the **MSI** and the **zip archive**, and publish a
   GitHub Release carrying both with their SHA-256 — nothing built or uploaded
   by hand. Written 2026-09-17 (`release.yml`, `scripts/release-notes.ps1`);
-  first run 2026-09-18 on the `v0.1.0` tag, green, three assets published
+  first run 2026-09-18 on the `v0.1.0` tag, green, three assets published;
+  second run the same day on `v0.2.0`, with the notes from the changelog
+  ([Lot 14](14-release-notes.md))
 - [x] The documentation: *Getting started* and the README point at the release rather than at `cargo build`, the reference gains `purge`, *How it works* gains removal — 2026-09-17
-- [ ] Verified in the field: the MSI on two machines, one real upgrade, one purge round trip — the maintainer's machine done 2026-09-17/18, below: install, upgrade, uninstall, purge; the second machine's first install still to come
+- [ ] Verified in the field: the MSI on two machines, one real upgrade, one purge round trip — the maintainer's machine done 2026-09-17/18, below: install, upgrade, uninstall, purge, and the 0.1.0 → 0.2.0 upgrade through the updater; the second machine's first install is the maintainer's to run and to report
 
 **Done when** a tag alone produces a release a stranger can install from, and
 the two artefacts on it were built by the workflow from that tag's commit.
