@@ -268,7 +268,11 @@ this does not work, nothing further will, and the problem is on this side.
 
 ## 5. The configuration
 
-Copy [`config.toml`](config.toml) over your own. It is the complete file:
+Replace your `config.toml` with [this one](config.toml): copy it over,
+whole, rather than merging the two — the starter file the installer wrote
+has nothing in it worth keeping. Only if you already run commands of your
+own should you add these two actions to your file instead. It is the
+complete file:
 
 ```toml
 [general]
