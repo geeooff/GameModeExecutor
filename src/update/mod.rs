@@ -329,12 +329,12 @@ impl Machine {
                 };
                 None
             }
+            // No notice here: the install goes by in a second, and the new
+            // version says it runs at its first start. One notification
+            // for the outcome, not two for the steps -- the maintainer's
+            // call, 2026-09-18.
             (Event::DownloadDone(Ok(())), Phase::Downloading { release, .. }) => {
                 let release = release.clone();
-                self.say(
-                    format!("Installing {}", release.version),
-                    "The icon disappears for a moment and comes back on the new version.",
-                );
                 self.phase = Phase::Installing {
                     release: release.clone(),
                 };

@@ -203,12 +203,14 @@ Windows reports finished background work: a notification from the icon
 (`NIF_INFO`), silent (`NIIF_NOSOUND`), held back during quiet hours,
 shown as a toast and kept in the notification centre. *Up to date*,
 *Update available — right-click the icon to download and install it*,
-*Installing 0.2.0*, or the fault and *See the log* — and, from the new
-version at its first start, *Updated to 0.2.0*: on the maintainer's
-machine the install went by in a second, too quick to see the version
-change, so the version that came out of it says so (2026-09-18). Only
-ever to answer a click, never for anything the program did on its own;
-and the same answer stays in the menu. The object owns it: `Machine` leaves a `Notice`
+the fault and *See the log* — and, from the new version at its first
+start, *Updated to 0.2.0*: on the maintainer's machine the install went
+by in a second, too quick to see the version change, so the version that
+comes out of it says so (2026-09-18). Nothing for the install itself: an
+*Installing* notice was shown for an afternoon and dropped the same day
+as one too many — one notification for the outcome, not two for the
+steps. Only ever to answer a click, never for anything the program did
+on its own; and the same answer stays in the menu. The object owns it: `Machine` leaves a `Notice`
 on each outcome, the worker wakes the window's thread through a callback
 the tray handed in, and the tray takes the notice and draws it — no rule
 in the tray. The earlier line of this page, *no balloon*, was written
@@ -336,7 +338,18 @@ task pointed at the unpacked copy; then the package.
   path had passed by luck, on a watcher restarted by hand after the
   install. The kind is now decided when the question is asked, from what
   Windows Installer says at that moment; the tests pin it. Cleaned by
-  uninstalling the package and deleting what it did not own.
+  uninstalling the package and deleting what it did not own, and the
+  case replayed at 17:56 on the fixed build: *This copy updates as
+  kind=Installer* from the watcher the package had started, the package
+  fetched, 0.1.0 running 1.0 s after the download.
+- **The new version's own notification cannot be seen yet.** *Updated to
+  0.1.0* is said by the version that comes out of the update, from the
+  pending file the previous one wrote; the published `0.1.0` predates the
+  file, so after these runs no notification followed the click. From the
+  first release that carries this code, every update ends with the new
+  version saying it runs — to be seen on the first real release pair. An
+  *Installing* notice had filled the gap that afternoon; the maintainer
+  found it one too many, and it went.
 - **A word swallowed in the resume line**: the source carried a run of
   spaces where a line continuation had been meant, and the log showed it.
   Fixed; the pitfall was the editing tool, not the code.

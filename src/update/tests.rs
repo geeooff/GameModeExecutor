@@ -448,7 +448,11 @@ fn every_outcome_leaves_one_notice_and_a_click_leaves_none() {
     m.apply(Event::InstallAsked, now);
     assert_eq!(m.take_notice(), None);
     m.apply(Event::DownloadDone(Ok(())), now);
-    assert_eq!(m.take_notice().unwrap().title, "Installing 0.2.0");
+    assert_eq!(
+        m.take_notice(),
+        None,
+        "installing is not an outcome: the new version says it runs"
+    );
     m.apply(Event::InstallFailed(Fault::Installer { code: 1618 }), now);
     let notice = m.take_notice().unwrap();
     assert_eq!(notice.title, "Update failed");

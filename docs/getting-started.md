@@ -161,9 +161,9 @@ newer release exists, **Download and install** fetches it, checks it against
 the checksums the release publishes, and installs it — in the middle of a
 game if you like: the running watcher hands the game over to the new one,
 which picks it up where it was without touching your commands. The icon
-disappears for about a second and comes back — and the new version says so
-with one more notification, since the install itself is too quick to watch.
-The menu and the log, under `update`, say the same.
+disappears for about a second and comes back, and the new version says so
+with a notification, since the install itself is too quick to watch. The
+menu and the log, under `update`, say the same.
 
 The same from a terminal:
 
