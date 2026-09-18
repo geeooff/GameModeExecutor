@@ -33,9 +33,22 @@ pub enum Launched {
     Shell,
 }
 
+/// What the last update left behind, read at start.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Settled {
+    /// No update was pending.
+    Nothing,
+    /// The update took: this is the version it installed, running for the
+    /// first time -- the moment to say so, since the install itself went by
+    /// in a second on a fast machine (the maintainer's remark, 2026-09-18).
+    Updated(Version),
+    /// The update did not take, and this is why.
+    Failed(Fault),
+}
+
 /// Read what the last update left behind, tidy the folder, and say what
-/// the menu should carry.
-pub fn settle(context: &Context) -> Option<Fault> {
+/// the menu and a notification should carry.
+pub fn settle(context: &Context) -> Settled {
     let dir = &context.updates_dir;
     let pending = std::fs::read_to_string(dir.join(PENDING)).ok();
     let result = std::fs::read_to_string(dir.join(RESULT)).ok();
@@ -44,7 +57,8 @@ pub fn settle(context: &Context) -> Option<Fault> {
         None => None,
         Some(version) if version == running => {
             tracing::info!(target: target::UPDATE, "Updated to {running}");
-            None
+            tidy(context, true);
+            return Settled::Updated(running);
         }
         Some(version) => {
             let note = result
@@ -65,7 +79,7 @@ pub fn settle(context: &Context) -> Option<Fault> {
                         "The update to {version} was installed, and this is {running} by other means"
                     );
                     tidy(context, true);
-                    return None;
+                    return Settled::Nothing;
                 }
                 (None, Some(code)) => format!("Windows Installer {code}"),
                 (None, None) => "the update did not take".to_owned(),
@@ -79,7 +93,7 @@ pub fn settle(context: &Context) -> Option<Fault> {
         }
     };
     tidy(context, verdict.is_none());
-    verdict
+    verdict.map_or(Settled::Nothing, Settled::Failed)
 }
 
 /// Windows Installer's own verdict on the log it wrote: the number after
@@ -125,7 +139,7 @@ fn tidy(context: &Context, all: bool) {
             }
         }
     }
-    if context.kind == Kind::Zip {
+    if context.kind() == Kind::Zip {
         for name in ["gamemode-executor.exe.old", "gamemode-executorw.exe.old"] {
             let _ = std::fs::remove_file(context.install_dir.join(name));
         }
@@ -202,7 +216,7 @@ pub fn launch(context: &Context, release: &Release, file: &Path) -> Result<Launc
         .map_err(|error| Fault::write(&dir.join(PENDING), &error))?;
     let _ = std::fs::remove_file(dir.join(RESULT));
     let result = dir.join(RESULT);
-    match context.kind {
+    match context.kind() {
         Kind::Installer => {
             let script = installer_script(file, &dir.join(INSTALL_LOG), &result);
             tracing::info!(
@@ -281,7 +295,7 @@ mod tests {
     fn context(kind: Kind, dir: &Path) -> Context {
         Context {
             repository: "https://example.invalid".to_owned(),
-            kind,
+            kind: Some(kind),
             updates_dir: dir.join("updates"),
             install_dir: dir.join("program"),
             stop: None,
@@ -296,7 +310,7 @@ mod tests {
         std::fs::create_dir_all(&context.updates_dir).unwrap();
         std::fs::write(context.updates_dir.join("GameModeExecutor-0.2.0.msi"), b"x").unwrap();
         std::fs::create_dir_all(context.updates_dir.join("unpacked")).unwrap();
-        assert_eq!(settle(&context), None);
+        assert_eq!(settle(&context), Settled::Nothing);
         assert!(
             std::fs::read_dir(&context.updates_dir)
                 .unwrap()
@@ -319,7 +333,7 @@ mod tests {
         std::fs::write(context.updates_dir.join(INSTALL_LOG), b"log").unwrap();
         let old = context.install_dir.join("gamemode-executorw.exe.old");
         std::fs::write(&old, b"old").unwrap();
-        assert_eq!(settle(&context), None);
+        assert_eq!(settle(&context), Settled::Updated(Version::running()));
         assert!(!old.exists(), "the previous executable is dropped");
         assert!(
             !context.updates_dir.join(INSTALL_LOG).exists(),
@@ -337,7 +351,7 @@ mod tests {
         std::fs::write(context.updates_dir.join(INSTALL_LOG), b"log").unwrap();
         assert_eq!(
             settle(&context),
-            Some(Fault::Setup(
+            Settled::Failed(Fault::Setup(
                 "Update to 99.0.0 failed: Windows Installer 1603".to_owned()
             ))
         );
@@ -346,7 +360,7 @@ mod tests {
             "the log stays for reading"
         );
         assert!(!context.updates_dir.join(PENDING).exists(), "said once");
-        assert_eq!(settle(&context), None, "and not again");
+        assert_eq!(settle(&context), Settled::Nothing, "and not again");
     }
 
     /// A log the way `msiexec /l*v` writes one: UTF-16, a byte-order mark,
@@ -385,7 +399,7 @@ mod tests {
         std::fs::create_dir_all(&context.updates_dir).unwrap();
         std::fs::write(context.updates_dir.join(PENDING), "99.0.0").unwrap();
         installer_log(&context.updates_dir, 0);
-        assert_eq!(settle(&context), None);
+        assert_eq!(settle(&context), Settled::Nothing);
         assert!(!context.updates_dir.join(PENDING).exists());
     }
 
@@ -398,7 +412,7 @@ mod tests {
         installer_log(&context.updates_dir, 1603);
         assert_eq!(
             settle(&context),
-            Some(Fault::Setup(
+            Settled::Failed(Fault::Setup(
                 "Update to 99.0.0 failed: Windows Installer 1603".to_owned()
             ))
         );
@@ -412,7 +426,7 @@ mod tests {
         std::fs::write(context.updates_dir.join(PENDING), "99.0.0").unwrap();
         assert_eq!(
             settle(&context),
-            Some(Fault::Setup(
+            Settled::Failed(Fault::Setup(
                 "Update to 99.0.0 failed: the update did not take".to_owned()
             ))
         );

@@ -159,6 +159,9 @@ pub enum Event {
     InstallFailed(Fault),
     /// The previous update did not take; read at start.
     FoundAtStart(Fault),
+    /// The previous update took, and this is its version running for the
+    /// first time; read at start.
+    UpdatedAtStart(Version),
 }
 
 /// What the worker has to go and do once an event was applied.
@@ -364,6 +367,15 @@ impl Machine {
                 };
                 None
             }
+            // The install went by in a second; this is the moment the new
+            // version can be seen. Nothing to offer, so the phase stays.
+            (Event::UpdatedAtStart(version), Phase::Idle) => {
+                self.say(
+                    format!("Updated to {version}"),
+                    "GameModeExecutor is running the new version.",
+                );
+                None
+            }
             // A stale answer, or a click the phase does not take: nothing.
             _ => None,
         }
@@ -432,7 +444,14 @@ fn megabytes(bytes: u64) -> String {
 pub struct Context {
     /// `https://github.com/{owner}/{repo}`, from the build.
     pub repository: String,
-    pub kind: Kind,
+    /// The kind of copy this is, when pinned -- the tests pin it. `None`
+    /// means it is decided when asked, from what Windows Installer says at
+    /// that moment, never at start: the package starts the watcher from
+    /// `RegisterTask`, which runs *before* `RegisterProduct`, so a watcher
+    /// that decided at start saw no product and took itself for an
+    /// unpacked copy. Seen on 2026-09-18 17:44 -- it expanded the zip over
+    /// the package's folder.
+    pub kind: Option<Kind>,
     /// Where downloads go: `%LOCALAPPDATA%\GameModeExecutor\updates`.
     pub updates_dir: PathBuf,
     /// Where the executables live, for the zip path.
@@ -448,14 +467,8 @@ pub struct Context {
 }
 
 impl Context {
-    /// The context of this process: installed or unpacked.
-    ///
-    /// Installed means two things at once: Windows Installer knows the
-    /// upgrade code, *and* this executable runs from the folder the package
-    /// installs to. A copy unpacked somewhere else on a machine that also
-    /// has the package must update its own files, not the package's --
-    /// otherwise its `msiexec` would upgrade the other copy and leave
-    /// itself as it was.
+    /// The context of this process. Which kind of copy it is waits for the
+    /// question -- see `kind`.
     pub fn of_this_process(
         stop: Option<Arc<StopSignal>>,
         wake: Option<Arc<dyn Fn() + Send + Sync>>,
@@ -465,21 +478,34 @@ impl Context {
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_else(|| PathBuf::from("."));
-        let kind = kind_of(
-            &install_dir,
-            crate::package::installed_product().is_some(),
-            crate::package::install_dir().as_deref(),
-        );
         let updates_dir = crate::config::local_dir()
             .ok_or_else(|| anyhow::anyhow!("no local profile folder"))?
             .join("updates");
         Ok(Self {
             repository: crate::build_info::REPOSITORY.to_owned(),
-            kind,
+            kind: None,
             updates_dir,
             install_dir,
             stop,
             wake,
+        })
+    }
+
+    /// Installed or unpacked, decided now.
+    ///
+    /// Installed means two things at once: Windows Installer knows the
+    /// upgrade code, *and* this executable runs from the folder the package
+    /// installs to. A copy unpacked somewhere else on a machine that also
+    /// has the package must update its own files, not the package's --
+    /// otherwise its `msiexec` would upgrade the other copy and leave
+    /// itself as it was.
+    pub fn kind(&self) -> Kind {
+        self.kind.unwrap_or_else(|| {
+            kind_of(
+                &self.install_dir,
+                crate::package::installed_product().is_some(),
+                crate::package::install_dir().as_deref(),
+            )
         })
     }
 }
@@ -518,9 +544,22 @@ fn with_state<T>(f: impl FnOnce(&mut State) -> T) -> Option<T> {
 /// the menu its section. Nothing connects until someone clicks.
 pub fn start(context: Context) {
     let mut machine = Machine::new(Version::running());
-    if let Some(fault) = install::settle(&context) {
-        machine.apply(Event::FoundAtStart(fault), Instant::now());
+    match install::settle(&context) {
+        install::Settled::Nothing => {}
+        install::Settled::Updated(version) => {
+            machine.apply(Event::UpdatedAtStart(version), Instant::now());
+        }
+        install::Settled::Failed(fault) => {
+            machine.apply(Event::FoundAtStart(fault), Instant::now());
+        }
     }
+    // An outcome found at start is told the way any other is: the tray
+    // reads the notice once its message loop runs.
+    let wake = machine
+        .notice
+        .is_some()
+        .then(|| context.wake.clone())
+        .flatten();
     let mut held = STATE
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -528,6 +567,10 @@ pub fn start(context: Context) {
         machine,
         context: Arc::new(context),
     });
+    drop(held);
+    if let Some(wake) = wake {
+        wake();
+    }
 }
 
 /// The menu section as it should read right now. Empty when the updater
@@ -581,7 +624,9 @@ pub fn perform(action: Action) {
 pub fn check_now(context: &Context) -> Result<Verdict, Fault> {
     tracing::info!(target: target::UPDATE, "Checking for updates");
     let feed = winhttp::WinHttp::new();
-    let verdict = feed::check(&feed, &context.repository, Version::running(), context.kind);
+    let kind = context.kind();
+    tracing::debug!(target: target::UPDATE, kind = ?kind, "This copy updates as");
+    let verdict = feed::check(&feed, &context.repository, Version::running(), kind);
     match &verdict {
         Ok(Verdict::UpToDate) => tracing::info!(
             target: target::UPDATE,

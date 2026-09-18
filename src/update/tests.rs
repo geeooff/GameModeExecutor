@@ -270,11 +270,18 @@ fn every_fault_has_a_menu_line_and_a_log_sentence() {
     assert_eq!(megabytes(1_462_272), "1.5 MB");
 }
 
+/// The two tests that go through the process-wide state take turns: the
+/// state is one per process, and the test harness runs tests in parallel.
+static PROCESS_WIDE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn the_process_wide_updater_renders_its_section_once_set_up() {
     // Before `start`, nothing: the tests of everything else see no
     // section. After it, the idle entry, and an action the phase does not
     // take is ignored without a thread being spawned.
+    let _turn = PROCESS_WIDE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let context = scratch_context();
     start(context);
     assert_eq!(labels(&view()), vec![("Check for updates", true)]);
@@ -295,13 +302,56 @@ fn a_failure_left_behind_is_shown_when_the_updater_is_set_up() {
     )
     .unwrap();
     let mut machine = Machine::new(Version::running());
-    if let Some(fault) = install::settle(&context) {
+    if let install::Settled::Failed(fault) = install::settle(&context) {
         machine.apply(Event::FoundAtStart(fault), Instant::now());
     }
     assert_eq!(
         machine.view(Instant::now())[1].label,
         "Update to 99.0.0 failed: Windows Installer 1603 (see log)"
     );
+    assert_eq!(
+        machine.take_notice().unwrap().title,
+        "The last update failed"
+    );
+}
+
+#[test]
+fn a_version_running_for_the_first_time_after_an_update_says_so() {
+    // The install itself goes by in a second, so this is the moment the
+    // new version is seen: a notice, the menu unchanged, and the tray woken
+    // for it once the updater starts.
+    let _turn = PROCESS_WIDE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (mut m, now) = machine();
+    assert_eq!(m.apply(Event::UpdatedAtStart(Version(0, 2, 0)), now), None);
+    let notice = m.take_notice().expect("told once");
+    assert_eq!(notice.title, "Updated to 0.2.0");
+    assert_eq!(notice.text, "GameModeExecutor is running the new version.");
+    assert_eq!(labels(&m.view(now)), vec![("Check for updates", true)]);
+
+    let woken = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut context = scratch_context();
+    let flag = Arc::clone(&woken);
+    context.wake = Some(Arc::new(move || {
+        flag.store(true, std::sync::atomic::Ordering::SeqCst);
+    }));
+    std::fs::create_dir_all(&context.updates_dir).unwrap();
+    std::fs::write(
+        context.updates_dir.join("pending.txt"),
+        Version::running().to_string(),
+    )
+    .unwrap();
+    start(context);
+    assert!(
+        woken.load(std::sync::atomic::Ordering::SeqCst),
+        "the tray was woken"
+    );
+    assert_eq!(
+        take_notice().unwrap().title,
+        format!("Updated to {}", Version::running())
+    );
+    assert_eq!(take_notice(), None);
 }
 
 #[test]
@@ -332,6 +382,9 @@ fn the_context_of_this_process_names_a_repository_and_a_folder() {
     assert!(context.repository.starts_with("https://github.com/"));
     assert!(context.updates_dir.ends_with("updates"));
     assert!(context.install_dir.is_dir());
+    // Decided when asked, not at start: the test binary is no package.
+    assert_eq!(context.kind, None);
+    assert_eq!(context.kind(), Kind::Zip);
 }
 
 /// A feed that serves bytes from memory, for the download path.
@@ -362,7 +415,7 @@ fn scratch_context() -> Context {
     let dir = std::env::temp_dir().join(format!("gme-download-{}-{n}", std::process::id()));
     Context {
         repository: REPO.to_owned(),
-        kind: Kind::Installer,
+        kind: Some(Kind::Installer),
         updates_dir: dir.join("updates"),
         install_dir: dir.join("program"),
         stop: None,

@@ -203,9 +203,12 @@ Windows reports finished background work: a notification from the icon
 (`NIF_INFO`), silent (`NIIF_NOSOUND`), held back during quiet hours,
 shown as a toast and kept in the notification centre. *Up to date*,
 *Update available — right-click the icon to download and install it*,
-*Installing 0.2.0*, or the fault and *See the log*. Only ever to answer a
-click, never for anything the program did on its own; and the same
-answer stays in the menu. The object owns it: `Machine` leaves a `Notice`
+*Installing 0.2.0*, or the fault and *See the log* — and, from the new
+version at its first start, *Updated to 0.2.0*: on the maintainer's
+machine the install went by in a second, too quick to see the version
+change, so the version that came out of it says so (2026-09-18). Only
+ever to answer a click, never for anything the program did on its own;
+and the same answer stays in the menu. The object owns it: `Machine` leaves a `Notice`
 on each outcome, the worker wakes the window's thread through a callback
 the tray handed in, and the tray takes the notice and draws it — no rule
 in the tray. The earlier line of this page, *no balloon*, was written
@@ -322,6 +325,18 @@ task pointed at the unpacked copy; then the package.
   means* at `info`, or names the installer's error code when there is one,
   before falling back to *did not take*.
 - **The menu closed on the click** — above.
+- **A watcher started by the package took itself for an unpacked copy**,
+  17:44 the same day, on the second run of the package path: it checked,
+  found the *zip*, expanded it over the package's own folder, and left a
+  product registered as 0.0.9 with 0.1.0 files, `docs\` and `.old`
+  executables beside them. The kind of copy was decided once, at start —
+  and the package starts the watcher from `RegisterTask`, sequenced
+  *before* `RegisterProduct`: at that instant Windows Installer knows no
+  product, and the folder rule alone says unpacked. The first run of the
+  path had passed by luck, on a watcher restarted by hand after the
+  install. The kind is now decided when the question is asked, from what
+  Windows Installer says at that moment; the tests pin it. Cleaned by
+  uninstalling the package and deleting what it did not own.
 - **A word swallowed in the resume line**: the source carried a run of
   spaces where a line continuation had been meant, and the log showed it.
   Fixed; the pitfall was the editing tool, not the code.
