@@ -167,7 +167,7 @@ function Invoke-Tests {
 
     Step "Documentation links resolve"
     $broken = @()
-    $pages = @((Join-Path $root 'README.md'), (Join-Path $root 'AGENTS.md')) +
+    $pages = @((Join-Path $root 'README.md'), (Join-Path $root 'AGENTS.md'), (Join-Path $root 'CHANGELOG.md')) +
              (Get-ChildItem (Join-Path $root 'docs') -Recurse -Filter '*.md' |
                   ForEach-Object { $_.FullName })
     foreach ($page in $pages) {
@@ -263,10 +263,27 @@ function Invoke-Build {
     }
 }
 
+# The section of CHANGELOG.md for one version, heading excluded, or nothing.
+# The workflow's notes script reads it the same way, so a version without
+# its section fails here first, on the machine that can still write it.
+function Get-ChangelogSection([string] $Version) {
+    $text = Get-Content (Join-Path $root 'CHANGELOG.md') -Raw
+    $pattern = "(?ms)^## \[$([regex]::Escape($Version))\][^\r\n]*\r?\n(.*?)(?=^## |\z)"
+    $match = [regex]::Match($text, $pattern)
+    if ($match.Success) { $match.Groups[1].Value.Trim() } else { $null }
+}
+
 function Invoke-Release {
     $version = Get-Version
     $stage = Join-Path $root "dist\GameModeExecutor-$version"
     $zip = Join-Path $root "dist\GameModeExecutor-$version.zip"
+
+    Step "The changelog carries $version"
+    $section = Get-ChangelogSection $version
+    if (-not $section) {
+        Fail "CHANGELOG.md has no section for $version -- a release commit carries one, see AGENTS.md"
+    }
+    Write-Host "    $((($section -split "`n") | Where-Object { $_ -match '^- ' }).Count) lines"
 
     Step "Staging $version"
     if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
