@@ -264,11 +264,13 @@ function Invoke-Build {
 }
 
 # The section of CHANGELOG.md for one version, heading excluded, or nothing.
+# The heading must carry the date of the release commit -- `## [x.y.z] -
+# YYYY-MM-DD` -- so the file reads on its own, without the release page.
 # The workflow's notes script reads it the same way, so a version without
-# its section fails here first, on the machine that can still write it.
+# its dated section fails here first, on the machine that can still write it.
 function Get-ChangelogSection([string] $Version) {
     $text = Get-Content (Join-Path $root 'CHANGELOG.md') -Raw
-    $pattern = "(?ms)^## \[$([regex]::Escape($Version))\][^\r\n]*\r?\n(.*?)(?=^## |\z)"
+    $pattern = "(?ms)^## \[$([regex]::Escape($Version))\] - \d{4}-\d{2}-\d{2}[^\r\n]*\r?\n(.*?)(?=^## |\z)"
     $match = [regex]::Match($text, $pattern)
     if ($match.Success) { $match.Groups[1].Value.Trim() } else { $null }
 }
@@ -281,7 +283,7 @@ function Invoke-Release {
     Step "The changelog carries $version"
     $section = Get-ChangelogSection $version
     if (-not $section) {
-        Fail "CHANGELOG.md has no section for $version -- a release commit carries one, see AGENTS.md"
+        Fail "CHANGELOG.md has no dated section for $version -- a release commit carries ``## [$version] - YYYY-MM-DD``, see AGENTS.md"
     }
     Write-Host "    $((($section -split "`n") | Where-Object { $_ -match '^- ' }).Count) lines"
 

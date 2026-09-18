@@ -123,11 +123,13 @@ from the commit that carries the final documentation, never before it.
 
 **Publishing a release** is a tag, and the tag needs explicit approval like
 any push: bump `version` in `Cargo.toml` in the release commit, turn the
-`[Unreleased]` section of `CHANGELOG.md` into that version's, merge it,
+`[Unreleased]` section of `CHANGELOG.md` into that version's -- headed
+`## [x.y.z] - YYYY-MM-DD`, the date of that commit, so the file reads on
+its own without the release page -- merge it,
 tag that commit `vX.Y.Z`, push the tag. The release workflow runs the same
 script on a runner and publishes the installer, the zip and their checksums,
 with the changelog section as the notes; `build.ps1 release` and the
-workflow both refuse a version the changelog does not carry. Versions
+workflow both refuse a version the changelog does not carry, dated. Versions
 follow `docs/design/08-distribution.md`: the number moves only in a release
 commit, and 1.0.0 waits for the criteria written there.
 

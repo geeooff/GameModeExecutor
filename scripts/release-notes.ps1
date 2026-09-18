@@ -21,9 +21,9 @@ $version = $Matches[1]
 # heading excluded, up to the next one. Refused when absent, the way a tag
 # that disagrees with Cargo.toml is refused.
 $changelog = Get-Content (Join-Path $root 'CHANGELOG.md') -Raw
-$pattern = "(?ms)^## \[$([regex]::Escape($version))\][^\r\n]*\r?\n(.*?)(?=^## |\z)"
+$pattern = "(?ms)^## \[$([regex]::Escape($version))\] - \d{4}-\d{2}-\d{2}[^\r\n]*\r?\n(.*?)(?=^## |\z)"
 $section = [regex]::Match($changelog, $pattern)
-if (-not $section.Success) { throw "CHANGELOG.md has no section for $version; a release commit carries one" }
+if (-not $section.Success) { throw "CHANGELOG.md has no dated section for $version; a release commit carries ``## [$version] - YYYY-MM-DD``" }
 # The last section is followed by the link definitions Keep a Changelog
 # keeps at the bottom; those are the file's, not the release's.
 $notes = (($section.Groups[1].Value -replace '\r\n', "`n") -split "`n" |

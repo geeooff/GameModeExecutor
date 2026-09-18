@@ -7,8 +7,11 @@ reasoning is in the [design record](docs/design/README.md). The shape is
 [Keep a Changelog](https://keepachangelog.com/): *Added*, *Changed*,
 *Fixed*, *Removed*.
 
-The release workflow takes the section for the tag it is given and refuses
-to publish without one. `AGENTS.md` says how a section is written.
+Each released section is headed with its version and the date of its
+release commit, so this file reads on its own; the release page has the
+rest. The release workflow takes the section for the tag it is given and
+refuses to publish without one, or without its date. `AGENTS.md` says how
+a section is written.
 
 ## [Unreleased]
 
