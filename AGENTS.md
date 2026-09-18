@@ -122,11 +122,35 @@ tree because the binaries carry the commit they were built from, and
 from the commit that carries the final documentation, never before it.
 
 **Publishing a release** is a tag, and the tag needs explicit approval like
-any push: bump `version` in `Cargo.toml` in the release commit, merge it,
+any push: bump `version` in `Cargo.toml` in the release commit, turn the
+`[Unreleased]` section of `CHANGELOG.md` into that version's -- headed
+`## [x.y.z] - YYYY-MM-DD`, the date of that commit, so the file reads on
+its own without the release page -- merge it,
 tag that commit `vX.Y.Z`, push the tag. The release workflow runs the same
-script on a runner and publishes the installer, the zip and their checksums.
-Versions follow `docs/design/08-distribution.md`: the number moves only in
-a release commit, and 1.0.0 waits for the criteria written there.
+script on a runner and publishes the installer, the zip and their checksums,
+with the changelog section as the notes; `build.ps1 release` and the
+workflow both refuse a version the changelog does not carry, dated. Versions
+follow `docs/design/08-distribution.md`: the number moves only in a release
+commit, and 1.0.0 waits for the criteria written there.
+
+**The changelog is written here, by the agent, and read by the maintainer
+as a diff.** The workflow cannot summarise, and the release commit is made
+on the maintainer's machine anyway, with the agent present. Rules for a
+section, so that two agents write it the same way:
+
+- Every line is something the person running the program can see or do,
+  in a sentence, under *Added*, *Changed*, *Fixed* or *Removed*. Never the
+  code, the module or the commit; those are on the release page under
+  *For the curious*, which the workflow writes from `git log`.
+- One line per thing that changed for them, however many commits it took;
+  no line for what changed only for the people working here — tests,
+  refactors, the design record, this file.
+- Written from the commits since the previous tag and the design pages
+  they touched, in `[Unreleased]` as the work lands or at the latest in the
+  release commit. A link to a lot page is allowed when the reasoning is
+  worth a click; no line needs one to make sense.
+- Once a version is published its section is history: corrected in place
+  only for an error of fact, never rewritten for taste.
 
 Three tests read this machine's registry — the Known Game List, the Game Bar
 registration, the real sensor — which a GitHub-hosted Windows Server runner

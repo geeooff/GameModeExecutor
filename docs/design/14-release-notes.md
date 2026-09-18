@@ -1,10 +1,17 @@
 # Lot 14 — Release notes people can read
 
-**Status: proposed 2026-09-18**, on the maintainer's remark after the first
-update ran through the menu: *What changed in 0.1.0* opened the release
-page, and the page said *First public release* over a list of commits.
-That is a changelog for the people who wrote the commits, not for the
-person who clicked.
+**Status: in progress since 2026-09-18, the same day it was proposed**, on
+the maintainer's remark after the first update ran through the menu:
+*What changed in 0.1.0* opened the release page, and the page said *First
+public release* over a list of commits. That is a changelog for the people
+who wrote the commits, not for the person who clicked. Taken before 0.2.0,
+so that release reads well from the moment it is published.
+
+- [x] `CHANGELOG.md`, with the sections for 0.1.0 and what 0.2.0 will carry — 2026-09-18
+- [x] `release-notes.ps1` takes the section for the tag and refuses a version without one; `build.ps1 release` refuses it first, on the machine that can still write it — 2026-09-18
+- [x] The rules of a section, in `AGENTS.md` — 2026-09-18
+- [ ] `v0.1.0`'s notes rewritten once with its section, on approval
+- [ ] The first release published this way: 0.2.0
 
 **Goal.** Every release page reads, in a few lines, what changed for the
 person running the program — and the same lines are what the updater's
@@ -42,41 +49,41 @@ way.
 - **Published releases are rewritten once**, by hand, with the new shape,
   when this lot lands — `v0.1.0` and whatever follows it before then.
 
-## Who writes it — the maintainer's questions, 2026-09-18
+## Who writes it — the maintainer's questions, and the answer
 
-The page above says *by hand, in the release commit*. The maintainer's
-reading, the same day, is that this is a task for the coding agent, not
-for a person: a person forgets, and an agent can establish everything a
-changelog needs from the commits between two tags and the design pages
-they touch, and turn it into something coherent that a lay user can read.
-Two constraints shape how, and both are noted here to be settled when the
-lot is taken:
+The first draft of this page said *by hand, in the release commit*. The
+maintainer's reading, the same day, was that this is a task for the coding
+agent, not for a person: a person forgets, and an agent can establish
+everything a changelog needs from the commits between two tags and the
+design pages they touch, and turn it into something coherent that a lay
+user can read. Two constraints were raised with it:
 
 - **The release workflow cannot call the agent.** A GitHub runner has
   Copilot, not Claude, and the agent's memory of this project is local to
   the maintainer's machine. So the notes cannot be written *by* the
-  release. What the workflow can do is publish a **placeholder** — the
-  install lines, the checksums, the commits — and mark the notes as
-  pending; the agent then rewrites them on the maintainer's request, from
-  the commits and the design record, and the maintainer publishes the
-  result. Whether that rewrite goes through `gh release edit` by the agent
-  on approval, or through a `CHANGELOG.md` the next release picks up, is
-  the choice to make.
-- **The rules of the summary belong in `AGENTS.md`.** What a changelog
-  line is made of — what the user sees, in sentences, never the code;
-  which commits are one line and which are none; when a lot page is
-  linked and when nothing is; how the *For the curious* list relates to
-  the lines above it — has to be written down before an agent is asked to
-  follow it twice the same way. A framework there, the way the log
-  contract and the commit-message shape already are.
+  release; a placeholder the agent fills afterwards was one shape
+  considered.
+- **The rules of the summary belong in `AGENTS.md`**, written down before
+  an agent is asked to follow them twice the same way.
 
-Left open on purpose until then. What the page decided above stands where
-it does not depend on the author: the notes sit first, the commits stay
-below, published releases are rewritten once.
+**Settled the same evening, by noticing where the release commit is made:**
+on the maintainer's machine, with the agent present. Nothing needs the
+runner to summarise. The agent writes the section in `CHANGELOG.md` — in
+`[Unreleased]` as the work lands, at the latest in the release commit —
+from the commits since the previous tag and the design pages they touch;
+the maintainer reads it as a diff in the release pull request, the way any
+change is read; the workflow copies it onto the release page and refuses a
+version without one, so no release is ever published with nothing to say.
+No placeholder, no edit after publication. The rules are in `AGENTS.md`
+beside the release procedure: what a line is, what earns none, when to
+link, and that a published section is history.
 
-## To settle when it is taken
+The one exception is the release published before this lot: `v0.1.0`'s
+notes are rewritten once, by `gh release edit` on the maintainer's
+approval, with the section the changelog now carries for it.
 
-- The two questions above.
+## To settle later
+
 - Whether the updater should show the notes itself one day, through the
   API's `body`, rather than open the page. Not before the notes are worth
   showing.

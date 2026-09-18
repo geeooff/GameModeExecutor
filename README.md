@@ -26,6 +26,7 @@ update, and shows nothing but a small icon in the notification area.
 | [Recipes](docs/recipes/) | Worked examples, one folder each with a ready-made `config.toml` — including fan profiles with FanControl, which needs one extra step because it requires administrator rights. |
 | [How it works](docs/how-it-works.md) | For the curious: how it knows a game is running, why there are two executables, why the wait after you quit. No programming needed. |
 | [Reference](docs/reference.md) | Commands, configuration fields, exit codes, the log contract, building. |
+| [Changelog](CHANGELOG.md) | What each release changed for you, in plain sentences. |
 | [Design record](docs/design/) | Why it is built this way: the decisions, the measurements behind them, and what is still open. |
 | [AGENTS.md](AGENTS.md) | How to work in this repository — for coding agents, and for people. |
 

@@ -1,7 +1,10 @@
-# Writes the release notes for a tag, from what the release build produced:
-# the documentation link the binary carries, the checksums of the two
-# artefacts, and the commits since the previous tag. Run by the release
-# workflow after scripts\build.ps1 release; nothing in it needs GitHub.
+# Writes the release notes for a tag: the section CHANGELOG.md carries for
+# that version -- written before the release, for the person running the
+# program -- then the documentation link the binary carries, the commits
+# since the previous tag for the curious, and the checksums of the two
+# artefacts. Run by the release workflow after scripts\build.ps1 release;
+# nothing in it needs GitHub. A version without its section is refused:
+# the workflow cannot summarise, and a release must have something to say.
 #
 #   .\scripts\release-notes.ps1 -Tag v0.1.0            writes dist\notes.md and dist\SHA256SUMS.txt
 param(
@@ -13,6 +16,19 @@ $dist = Join-Path $root 'dist'
 
 if ($Tag -notmatch '^v(\d+\.\d+\.\d+)$') { throw "tag `"$Tag`" is not vX.Y.Z" }
 $version = $Matches[1]
+
+# The notes proper, from CHANGELOG.md: the section for this version,
+# heading excluded, up to the next one. Refused when absent, the way a tag
+# that disagrees with Cargo.toml is refused.
+$changelog = Get-Content (Join-Path $root 'CHANGELOG.md') -Raw
+$pattern = "(?ms)^## \[$([regex]::Escape($version))\] - \d{4}-\d{2}-\d{2}[^\r\n]*\r?\n(.*?)(?=^## |\z)"
+$section = [regex]::Match($changelog, $pattern)
+if (-not $section.Success) { throw "CHANGELOG.md has no dated section for $version; a release commit carries ``## [$version] - YYYY-MM-DD``" }
+# The last section is followed by the link definitions Keep a Changelog
+# keeps at the bottom; those are the file's, not the release's.
+$notes = (($section.Groups[1].Value -replace '\r\n', "`n") -split "`n" |
+          Where-Object { $_ -notmatch '^\[[^\]]+\]: ' }) -join "`n"
+$notes = $notes.Trim()
 $msi = Join-Path $dist "GameModeExecutor-$version.msi"
 $zip = Join-Path $dist "GameModeExecutor-$version.zip"
 foreach ($artefact in $msi, $zip) {
@@ -34,11 +50,11 @@ $docs = ($stamp | Select-String -Pattern '^documentation:\s+(\S+)').Matches[0].G
 # into Select-Object -First, which stops the upstream command.
 $tags = @(& git -C $root tag --sort=-v:refname | Where-Object { $_ -ne $Tag -and $_ -match '^v\d+\.\d+\.\d+$' })
 $previous = if ($tags.Count) { $tags[0] } else { $null }
-$changes = if ($previous) {
-    $log = @(& git -C $root log --format='- %s' "$previous..$Tag")
-    "## Changes since $previous`n`n" + ($log -join "`n")
+$commits = if ($previous) {
+    $log = @(& git -C $root log --format='- %s' "$previous..$Tag" --no-merges)
+    "## For the curious`n`nThe commits since $previous, newest first:`n`n" + ($log -join "`n")
 } else {
-    "## Changes`n`nFirst public release."
+    "## For the curious`n`nThe first release: every commit is in it."
 }
 
 $lines = @(
@@ -51,13 +67,17 @@ $lines = @(
     '',
     "[Documentation for this exact build]($docs).",
     '',
+    '## What changed',
+    '',
+    $notes,
+    '',
+    $commits,
+    '',
     '## SHA-256',
     '',
     '```'
 ) + $sums + @(
-    '```',
-    '',
-    $changes
+    '```'
 )
 Set-Content -Path (Join-Path $dist 'notes.md') -Value $lines -Encoding utf8
 Get-Content (Join-Path $dist 'notes.md')
