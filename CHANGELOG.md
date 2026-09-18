@@ -15,6 +15,12 @@ a section is written.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] - 2026-09-18
+
+The program updates itself from the icon, and a game session survives it.
+
 ### Added
 
 - **Check for updates**, in the icon's menu: asks GitHub whether a newer
@@ -88,5 +94,6 @@ and when it stops, on Windows' own signal that a game is running.
   including the scheduled tasks a program that needs administrator rights
   requires, and a Windows power plan.
 
-[Unreleased]: https://github.com/Geeooff/GameModeExecutor/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Geeooff/GameModeExecutor/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Geeooff/GameModeExecutor/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Geeooff/GameModeExecutor/releases/tag/v0.1.0
