@@ -91,7 +91,13 @@ deleted.
 - Pure logic gets a unit test; Win32 behaviour gets verified by hand and the
   result written into the design record with its date. The engine reads the
   OS only through `sensor::Sensor`, and `engine/tests.rs` scripts one to run
-  whole sessions; a change to the loop gets a scenario there.
+  whole sessions; a change to the loop gets a scenario there. The updater
+  reads the network only through `update::feed::Feed`, scripted the same
+  way.
+- **No test calls an external host**, ignored or not: the script runs the
+  ignored tests on every developer machine, and a test that needs GitHub
+  is a test that fails with the Wi-Fi. The network path is measured by hand
+  with `gamemode-executor update --check` and recorded with its date.
 - Commit messages: an imperative subject, a short body saying what changed
   and why, and a `Co-Authored-By` trailer for the agent that co-wrote it. The
   collaboration is not hidden.

@@ -218,9 +218,33 @@ register — the ones a recipe had you create, say — stays, and so does the
 anything else stays too. The recipes carry their own way out for what they
 added.
 
+## Updating itself
+
+*Check for updates* asks GitHub for the latest release — one request, no
+API, no key — and compares the tag with the version running. If it is
+newer, *Download and install* fetches the installer (or the zip, for a
+copy unpacked by hand) by its tag, computes its SHA-256 with Windows' own
+cryptography and compares it with the `SHA256SUMS.txt` the release
+publishes; a file that does not match is deleted before anything can run
+it. Then the installer is the updater: the package is run quietly, stops
+the watcher with a handover, replaces the files and starts the new version,
+which resumes the game session if there was one. An unpacked copy does the
+same through a small hidden shell that waits for the watcher to exit,
+expands the archive over the folder — keeping the previous executables as
+`.old` until the new version has started — and runs `install-task`.
+
+The hash proves the file is the one the release published, not that the
+release is honest; the program has no code signature, and the design record
+says why. A file it downloads carries no mark of the web, so Windows'
+SmartScreen never sees it: the program vouches for it, through the hash.
+
 ## What it does not do
 
-- **No network.** It never connects to anything, and there is no telemetry.
+- **No network it did not ask you about.** It connects to exactly one
+  thing, GitHub, and only when you click *Check for updates* or run
+  `update`. There is no telemetry, nothing is polled, and the check itself
+  is one request: where does `releases/latest` redirect — the tag is the
+  answer.
 - **No administrator rights.** It runs as you, deliberately. That is why programs
   needing elevation go through a scheduled task instead.
 - **It does not touch your games.** It reads which processes exist and what the

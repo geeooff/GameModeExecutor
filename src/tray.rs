@@ -298,6 +298,10 @@ const ID_CONFIG: usize = 1;
 const ID_LOG: usize = 2;
 const ID_DOCS: usize = 3;
 const ID_QUIT: usize = 4;
+/// The update section's entries, one id per item in the order `update`
+/// lists them. The section is whatever `update::view()` says: this module
+/// draws it and holds no rule about it.
+const ID_UPDATE_BASE: usize = 100;
 
 /// One icon per state and taskbar theme, compiled in.
 ///
@@ -665,6 +669,12 @@ fn show_menu(window: HWND, at: POINT) {
     let log = wide("Open log");
     let docs = wide("Documentation");
     let quit = wide("Quit");
+    // The update section, as the object renders it right now. Read once,
+    // before the menu is built, and used again after it closes to know what
+    // an id meant -- the phase may have moved meanwhile, and a stale click
+    // is one the object ignores.
+    let updates = crate::update::view();
+    let update_labels: Vec<Vec<u16>> = updates.iter().map(|item| wide(&item.label)).collect();
 
     // SAFETY: the strings outlive the block, `menu` was just created and is
     // destroyed at the end, and `window` is the tray's own window. Nothing
@@ -683,6 +693,19 @@ fn show_menu(window: HWND, at: POINT) {
         let _ = AppendMenuW(menu, MF_STRING, ID_CONFIG, PCWSTR(config.as_ptr()));
         let _ = AppendMenuW(menu, MF_STRING, ID_LOG, PCWSTR(log.as_ptr()));
         let _ = AppendMenuW(menu, MF_STRING, ID_DOCS, PCWSTR(docs.as_ptr()));
+        if !updates.is_empty() {
+            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+            for (i, (item, label)) in updates.iter().zip(&update_labels).enumerate() {
+                // A disabled entry carries a sentence and cannot be chosen;
+                // id 0 so a stray selection means nothing.
+                let (flags, id) = if item.enabled && item.action.is_some() {
+                    (MF_STRING, ID_UPDATE_BASE + i)
+                } else {
+                    (MF_STRING | MF_DISABLED | MF_GRAYED, 0)
+                };
+                let _ = AppendMenuW(menu, flags, id, PCWSTR(label.as_ptr()));
+            }
+        }
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING, ID_QUIT, PCWSTR(quit.as_ptr()));
 
@@ -704,7 +727,31 @@ fn show_menu(window: HWND, at: POINT) {
         chosen.0 as usize
     };
 
+    if let Some(action) = chosen
+        .checked_sub(ID_UPDATE_BASE)
+        .and_then(|i| updates.get(i))
+        .and_then(|item| item.action.clone())
+    {
+        run_update_action(action);
+        return;
+    }
     run_command(chosen);
+}
+
+/// What an update entry asked for. The page opens here, because the shell
+/// is this module's business; everything else is the object's.
+fn run_update_action(action: crate::update::Action) {
+    match action {
+        crate::update::Action::OpenReleasePage(url) => {
+            tracing::debug!(
+                target: crate::logging::target::UPDATE,
+                url,
+                "Opening the release page"
+            );
+            open(&url, None);
+        }
+        other => crate::update::perform(other),
+    }
 }
 
 fn run_command(id: usize) {

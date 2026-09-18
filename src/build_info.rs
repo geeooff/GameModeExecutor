@@ -19,6 +19,9 @@ pub const COMMIT_DISPLAY: &str = env!("GIT_COMMIT_DISPLAY");
 
 pub const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 
+/// The bare `x.y.z` from `Cargo.toml`, for comparing with a release tag.
+pub const PACKAGE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// One line: `0.1.0 (de538e3f-dirty)`. What `-V` prints.
 pub const VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),

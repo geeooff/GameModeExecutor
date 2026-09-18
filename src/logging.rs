@@ -50,9 +50,13 @@ pub mod target {
     /// the logon task. Written by the commands and by the installer alike,
     /// so the log says who did what to this machine and when.
     pub const SETUP: &str = "setup";
+    /// Looking for, fetching and installing a newer release: the one thing
+    /// in the program that touches a network, so every step of it is
+    /// written down.
+    pub const UPDATE: &str = "update";
 
     /// Every category, in the order they appear in a session.
-    pub const ALL: &[&str] = &[WATCHER, GAME, COMMANDS, SETUP];
+    pub const ALL: &[&str] = &[WATCHER, GAME, COMMANDS, SETUP, UPDATE];
 
     /// Width of the category column, so messages line up whatever the category.
     pub(super) const WIDTH: usize = 8;

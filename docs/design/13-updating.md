@@ -6,12 +6,12 @@ the "no network" non-goal, the tray menu and the running process, and each
 of those deserves its own measurement. The shape below was agreed with the
 maintainer on 2026-09-18, against `v0.1.0`, before a line was written.
 
-- [ ] The session handed from one watcher to the next: `stop --handover`, and a start that resumes an open session instead of closing it — two scenarios in `engine/tests.rs`
-- [ ] `update`: the state machine, tested whole through a scripted feed; the WinHTTP feed and the BCrypt hash behind it
-- [ ] The menu section, rendered from the machine and nothing else
-- [ ] The package: `StopForUpgrade` hands over, `StopForRemoval` restores
-- [ ] The zip copy updates itself the same way, through the after-exit shell
-- [ ] The documentation: *Getting started*, *How it works*, the reference, the README's word on the network
+- [x] The session handed from one watcher to the next: `stop --handover`, and a start that resumes an open session instead of closing it — three scenarios in `engine/tests.rs`, 2026-09-18
+- [x] `update`: the state machine, tested whole through a scripted feed; the WinHTTP feed and the CNG hash behind it — 2026-09-18, and no test ever calls GitHub: the network path is measured by hand, below
+- [x] The menu section, rendered from the machine and nothing else — 2026-09-18, to be seen on screen
+- [x] The package: `StopForUpgrade` hands over, `StopForRemoval` restores — 2026-09-18
+- [x] The zip copy updates itself the same way, through the after-exit shell — 2026-09-18, the script tested for its shape
+- [x] The documentation: *Getting started*, *How it works*, the reference, the README's word on the network — 2026-09-18
 - [ ] Measured: the four requests through WinHTTP, offline and behind a proxy; a self-launched upgrade with the session resumed; the failure path restarting the old watcher; `/qn` on screen
 - [ ] Verified in the field across a real release pair
 
@@ -83,7 +83,7 @@ against a corrupted or truncated download, and the record says so.
 
 **What the program already knows without connecting:** its own version,
 `build_info::VERSION`; whether Windows Installer owns it and under which
-product code, `purge::installed_product()`; whether a game is running;
+product code, `package::installed_product()`; whether a game is running;
 whether the logon task exists.
 
 ## The session is handed over, not closed
@@ -122,10 +122,10 @@ development loop of `stop` then `install-task` — all resume where they
 used to blip. `StopSignal` carries a reason, `Restore` or `Handover`; the
 session window takes an application message beside `WM_CLOSE` so a
 `stop --handover` from another process can say which; the engine
-branches on it. Two scenarios in `engine/tests.rs`: a handed-over session
-is resumed by the next watcher without running anything, and a
-handed-over session whose game ended in between runs the stop commands at
-start.
+branches on it. Three scenarios in `engine/tests.rs`: a handover mid-game
+runs nothing and leaves the session open, a handed-over session is
+resumed by the next watcher without running anything, and a handed-over
+session whose game ended in between runs the stop commands at start.
 
 **In the package**, two stop actions where there was one: `StopForUpgrade`,
 `stop --handover`, conditioned on `PREVIOUSVERSIONS` — a successor is
@@ -155,18 +155,22 @@ tests.
 Idle                                   nothing to say
 Checking                               one request in flight
 UpToDate    { version, at }            a verdict about now
-Available   { release, at }            tag, version, page, file name, hash
+Available   { release }                tag, version, page, file name, hash
 Downloading { release, size }
 Installing  { release }                msiexec, or the zip's shell, is running
-Failed      { fault, at }              a sentence, a code, the log has the rest
+Failed      { fault, during, at }      a sentence, a code, the log has the rest
 ```
 
-`apply(event)` with `CheckAsked`, `CheckDone(Ok(verdict) | Err(fault))`,
-`InstallAsked`, `DownloadStarted(size)`, `DownloadDone(Ok | Err)`,
-`Launched`, `LaunchFailed(fault)`; `view(now) -> Vec<Item>`, an `Item` being
-a label, an optional `Action` — `Check`, `Install`, `OpenReleasePage` — and
+`apply(event, now)` takes `CheckAsked`, `CheckDone(Ok(verdict) | Err(fault))`,
+`InstallAsked`, `DownloadStarted { size }`, `DownloadDone(Ok | Err)`,
+`InstallFailed(fault)` and `FoundAtStart(fault)`, and hands back the
+`Effect` the worker must go and run — `Check`, `Download(release)`,
+`Install(release)` — or nothing, for an answer nobody asked for or a click
+the phase does not take. `view(now) -> Vec<Item>`, an `Item` being a label,
+an optional `Action` — `Check`, `Install`, `OpenReleasePage(url)` — and
 whether it is enabled. Expiry is computed in `view` from the phase's `at`;
-there is no timer.
+there is no timer. `Failed` with no `at` is a failure found at start, kept
+until the next check.
 
 The section sits between *Documentation*'s separator and *Quit*:
 
@@ -214,6 +218,59 @@ object — `--check` prints the verdict and stops, the default downloads,
 verifies and installs — so a script, a diagnosis or the second machine's
 maintainer can do what the menu does, and the network path can be
 measured from a shell without a watcher.
+
+**Measured through the code on 2026-09-18**, with `update --check` from a
+console and a run of the feed by hand, against `v0.1.0`: the `HEAD` answers
+`302` with the tag in 330 ms; the checksum file comes through its redirect;
+the 1.4 MB installer comes through the signed-URL chain in 340 ms and
+hashes to the release's line. One thing the record could not have known:
+closing a WinHTTP session cancels every request under it, and the first
+body read failed with `12017` until the session and connection handles
+were kept alive with the response. No test calls GitHub — the script runs
+the ignored tests on every developer machine — so this is a hand
+measurement, repeated with the command whenever the feed changes.
+
+**What the tests do instead, decided 2026-09-18:** a listener of their
+own on `127.0.0.1`, written from the standard library in the test module
+of `winhttp.rs`, that answers the record's table — the `302` with the tag,
+a redirect to a *second* listener for the asset host, a body larger than
+one read, a cut-off download, a `404`, a `503`, a page where a text file
+should be, a port nobody listens on. It talks plain `http` to a
+`#[cfg(test)]` constructor of the feed that the shipped program does not
+have; a TLS server without a crate would be SChannel by hand, and TLS is
+WinHTTP's, not ours. The `12017` defect above is the kind this catches.
+A local certificate was considered and declined: absent from the runner,
+and a test that installs one touches the machine's trust store. So was
+HTTP.sys, which IIS and .NET's `HttpListener` serve HTTPS through, with SNI
+bindings since Windows 8: binding a certificate to a port is `netsh http
+add sslcert`, administrator only, and a non-administrator cannot reserve a
+URL prefix for a listener without `netsh http add urlacl` either — a test
+can do neither unelevated, and one that could would be changing the
+machine. Considered on the maintainer's remark, 2026-09-18. What TLS
+does when the certificate is wrong was measured by hand instead, the same
+day, against `expired`, `self-signed` and `wrong.host` at badssl.com:
+`NoConnection { code: 12175 }`, `ERROR_WINHTTP_SECURE_FAILURE`, all three
+— the program relaxes no flag. A comparison test against GitHub, to
+measure drift, was declined for the same rule; drift shows up as
+"unexpected answer" from `update --check`, with the headers at `debug`,
+and the record and the listener are corrected together.
+
+**A stand-in for GitHub as a project of its own** — a Python or .NET
+minimal API beside the repository, for end-to-end runs — was weighed on
+2026-09-18 and declined. It would not buy TLS either: the blocker is the
+client, which trusts only what the machine trusts, and a development
+certificate is trusted through a consent prompt or the root store, neither
+of which a runner has. It would buy fidelity the code does not read,
+against a process to start and stop, a second toolchain, and a dependency
+tree of its own to keep patched. Should an end-to-end run against the real
+binary ever be worth having, the honest shape is not a fake GitHub but a
+real one: a repository of test releases, with real HTTPS, real redirects
+and real signed URLs, reached through a configuration key naming the
+repository to update from — a key a fork would need anyway, and one that
+opens nothing new, since whoever can edit the configuration can already
+name any executable in it. Run by hand or on a `workflow_dispatch`, never
+in `test`, because it calls an external host. Kept in reserve until a fork
+asks for it.
 
 ## Faults, and what the log says
 

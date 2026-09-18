@@ -28,7 +28,7 @@ use anyhow::{Context, Result};
 
 use crate::config::{self, Config};
 use crate::win::{SessionWindow, SingleInstance, StopReason, StopSignal};
-use crate::{engine, logging, sensor, tray, win};
+use crate::{engine, logging, sensor, tray, update, win};
 
 /// Ceiling on how long `WM_ENDSESSION` holds the shutdown while the stop
 /// actions run. `schtasks` returns in about 100 ms, so this is only here so a
@@ -105,6 +105,17 @@ pub fn serve(
             error = %format!("{error:#}"),
             "No notification icon; the watcher runs without one"
         );
+    }
+
+    // The updater: reads what the last update left behind and gives the
+    // menu its section. It never connects on its own.
+    match update::Context::of_this_process(Some(Arc::clone(&stop))) {
+        Ok(context) => update::start(context),
+        Err(error) => tracing::warn!(
+            target: logging::target::UPDATE,
+            error = %format!("{error:#}"),
+            "Updates are unavailable from the menu this session"
+        ),
     }
 
     // The commit rides along as a field, so it is there at debug level when
