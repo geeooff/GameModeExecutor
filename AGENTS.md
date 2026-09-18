@@ -31,10 +31,12 @@ These decide most questions before they are asked.
   concrete.
 - **Discreet.** No dialogs, no windows, no sounds. The icon, its tooltip and
   its menu are the whole user interface; the log is the rest.
-- **No elevation, no network, no service, no telemetry.** Recorded as
-  non-goals in the design record with their reasons. Programs that need
-  administrator rights are reached through a scheduled task the user registers
-  once, never by elevating the watcher.
+- **No elevation, no service, no telemetry, and no network the user did
+  not ask for.** Recorded as non-goals in the design record with their
+  reasons. The one connection the program ever opens is *Check for updates*,
+  on a click, and `docs/design/13-updating.md` says exactly what it sends.
+  Programs that need administrator rights are reached through a scheduled
+  task the user registers once, never by elevating the watcher.
 - **Microsoft libraries only.** The `windows` crate for Win32, the Windows
   SDK's `rc.exe` for resources. No third-party tray, icon, or installer crate.
 
@@ -60,10 +62,23 @@ deleted.
   `ALL CAPS` categories, no `camelCase` in prose. Conversation with the
   maintainer is in French.
 - **Log lines follow the contract in `docs/reference.md`.** `info` is
-  reserved for detection, the watcher's own start and stop, and what the
-  setup commands did to the machine; everything else is `debug` unless it is
-  a degradation (`warn`) or needs the user (`error`). The message is the sentence, the fields are the technical annex,
-  and every call names a `target:` — a test fails the build otherwise.
+  reserved for detection, the watcher's own start and stop, what the setup
+  commands did to the machine, and each step of an update; everything else
+  is `debug` unless it is a degradation (`warn`) or needs the user
+  (`error`). The message is the sentence, the fields are the technical
+  annex, and every call names a `target:` — a test fails the build
+  otherwise.
+- **The tray renders state and holds no rule.** What the icon, the tooltip
+  and the menu show comes from objects that own the rules — the engine's
+  session, `update`'s phase — and the tray asks them what to draw and which
+  action a click means. A rule written in the menu code is in the wrong
+  place and cannot be tested.
+- **The setup commands are a contract with three callers.** `stop`, `init`,
+  `install-task` and `uninstall-task` are sequenced by the package
+  (`scripts/msi.ps1`), by the zip's after-exit shell in `update`, and by
+  `purge`, each in the order its own mechanism allows. A change to any one
+  of those commands, however small, is verified on all three paths before
+  it is called done.
 - Module-level doc comments carry the rules a module is shaped by (the tray's
   re-entrancy rule, the marker's location, the engine's callback). Read them
   before changing a module, and update them when the rule changes.

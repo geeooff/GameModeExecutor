@@ -1,46 +1,70 @@
 # Lot 13 — Updating
 
-**Status: proposed, measured against a real release on 2026-09-18.** Decided
-2026-09-17 to be a lot of its own rather than a tail of
-[Lot 8](08-distribution.md): updating touches the "no network" non-goal, the
-tray menu and the running process, and each of those deserves its own
-measurement. Nothing here is built. Lot 8 is done and `v0.1.0` exists, so
-there is now something to update from, and what a release actually answers
-is recorded below rather than assumed.
+**Status: in progress since 2026-09-18.** Decided 2026-09-17 to be a lot of
+its own rather than a tail of [Lot 8](08-distribution.md): updating touches
+the "no network" non-goal, the tray menu and the running process, and each
+of those deserves its own measurement. The shape below was agreed with the
+maintainer on 2026-09-18, against `v0.1.0`, before a line was written.
+
+- [ ] The session handed from one watcher to the next: `stop --handover`, and a start that resumes an open session instead of closing it — two scenarios in `engine/tests.rs`
+- [ ] `update`: the state machine, tested whole through a scripted feed; the WinHTTP feed and the BCrypt hash behind it
+- [ ] The menu section, rendered from the machine and nothing else
+- [ ] The package: `StopForUpgrade` hands over, `StopForRemoval` restores
+- [ ] The zip copy updates itself the same way, through the after-exit shell
+- [ ] The documentation: *Getting started*, *How it works*, the reference, the README's word on the network
+- [ ] Measured: the four requests through WinHTTP, offline and behind a proxy; a self-launched upgrade with the session resumed; the failure path restarting the old watcher; `/qn` on screen
+- [ ] Verified in the field across a real release pair
 
 **Goal.** A user who wants the newer version gets it from the notification
 icon, without a browser, without an administrator prompt, and without the
 program ever connecting on its own.
 
-**Done when:** *Check for updates…* in the menu finds the latest release,
-says what it found, installs it on request while no game is running, and
-the watcher comes back on the new version — verified in the field across a
-real release pair.
+**Done when:** *Check for updates* in the menu finds the latest release,
+says what it found, installs it on request — mid-game included — and the
+watcher comes back on the new version with the game session intact,
+verified in the field across a real release pair.
 
 ## What Lot 8 settled, and what it then did for this lot
 
 **The installer is the updater.** An updater that swaps files under an
 installer is the wrong shape, for reasons the distribution page keeps in
-its table of Windows Installer's four moments. So the updater downloads the
-new package, verifies it, and runs it silently: `msiexec /i new.msi`,
-per-user, no UAC. `MsiEnumRelatedProducts` on the package's UpgradeCode —
-already in `purge` — tells an installed copy from an unpacked one.
+its table of Windows Installer's four moments. So for an installed copy the
+updater downloads the new package, verifies it, and runs it silently:
+`msiexec /i new.msi /qn`, per-user, no UAC. `MsiEnumRelatedProducts` on the
+package's UpgradeCode — already in `purge` — tells an installed copy from an
+unpacked one.
 
-**The package now stops and restarts the watcher itself.** This page first
-proposed that the watcher quit before launching the installer and hand its
-own relaunch to a detached shell, because Windows Installer's Restart
-Manager would otherwise put up a files-in-use dialog. Lot 8 met that dialog
-on its first uninstall and answered it in the package: an immediate action
-runs `stop` before `InstallValidate`, and `install-task` at the end starts
-the watcher through its task. Measured on a real upgrade on 2026-09-18:
-700 ms from *Stopped* to *starting*, no dialog, one product listed. So the
-updater has less to do than planned — start the installer detached and let
-the package close the process that started it; the new version comes back
-by the package's own doing. What the updater still owns is the failure
-path: if the install fails after the watcher was stopped, nothing restarts
-it until the next logon, so something must wait for `msiexec` and run the
-task again when it exits non-zero. The same idiom as `purge`'s after-exit
-shell: hidden Windows PowerShell, `Wait-Process`, then `schtasks /Run`.
+**The package stops and restarts the watcher itself.** Lot 8 met the Restart
+Manager's dialog on its first uninstall and answered it in the package: an
+immediate action runs `stop` before `InstallValidate`, and `install-task`
+at the end starts the watcher through its task. Measured on a real upgrade
+on 2026-09-18: 700 ms from *Stopped* to *starting*, no dialog, one product
+listed. So the updater starts the installer detached and lets the package
+close the process that started it; the new version comes back by the
+package's own doing. What the updater still owns is the failure path: if
+the install fails after the watcher was stopped, nothing restarts it until
+the next logon, so a hidden shell waits for `msiexec` and runs the task
+again when it exits non-zero — `purge`'s after-exit idiom.
+
+**The zip copy is not told, it is updated** — decided 2026-09-18 after this
+page had, for a night, proposed a notice and a link instead. The shape to
+avoid is swapping files under an installer that owns them; nothing owns an
+unpacked copy's files but the user, which is what the distribution page
+had said all along. The same hidden shell does the work in that mode: wait
+for the watcher to exit, expand the archive over the folder — the zip ships
+no `config.toml`, so a configuration beside the executables is untouched —
+keep the previous executables as `.old` until the new version has started,
+then `install-task`. Not transactional, unlike Windows Installer, and the
+page says so; the old files stay until the new ones are in place.
+
+**The commands are the contract, and each caller sequences them.** The
+package, the zip's shell and `purge` each call `stop`, `init`,
+`install-task` and `uninstall-task` in the order their own mechanism
+allows; a shared "finish" verb was considered on 2026-09-18 and declined,
+because the package could not call it at the moments Windows Installer
+dictates anyway and it would exist for symmetry alone. The cost of that
+freedom is a rule, in `AGENTS.md`: a change to any of those commands is
+verified on all three paths.
 
 ## What the release answers, measured 2026-09-18 against `v0.1.0`
 
@@ -59,69 +83,168 @@ against a corrupted or truncated download, and the record says so.
 
 **What the program already knows without connecting:** its own version,
 `build_info::VERSION`; whether Windows Installer owns it and under which
-product code, `purge::installed_product()`; the installed product's
-version, `MsiGetProductInfoW` with `VersionString` — which is the number
-*Programs and Features* shows and the one an upgrade must beat; whether a
-game is running; whether the logon task exists.
+product code, `purge::installed_product()`; whether a game is running;
+whether the logon task exists.
 
-## The shape, decided ahead of building it
+## The session is handed over, not closed
 
-- **Never a silent poll.** An automatic release check breaks the "no
-  network" non-goal. *Check for updates…* connects when clicked and at no
-  other time. An opt-in check at start is not offered in this lot; if it
-  ever is, it is a configuration key that defaults to off, at most once a
-  day, and the record says what it sends.
-- **The check is one request and no API.** `HEAD …/releases/latest` with
-  redirects disabled, the tag read from `Location`, `x.y.z` parsed from it
-  and compared with the running version as three numbers. A tag that does
-  not parse as exactly `vX.Y.Z` is "a release this version does not
-  understand", shown as such, never guessed at. No rate limit to think
-  about, no JSON, no `User-Agent` contract. The API stays in reserve for
-  the release notes, should the menu ever show them.
-- **Every later request names the tag, not `latest`.** The checksum file
-  and the package are fetched from `…/releases/download/<tag>/…`, so a
-  release published between the check and the download cannot mix one
-  version's hash with another's file.
-- **Verified against `SHA256SUMS.txt`**, the line for the package's exact
-  file name, with the hash computed through BCrypt — a Microsoft library,
-  no crate. A mismatch deletes the file and says so; nothing is ever run
-  unverified.
-- **Over WinHTTP**, a Microsoft library using the system certificate store
-  and the system proxy (`WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`). No HTTP
-  crate, no relaxed certificate flag. It follows `https` → `https`
-  redirects by default, which the asset chain needs, and can be told not
-  to for the one request whose redirect *is* the answer.
-- **Downloaded to `%LOCALAPPDATA%\GameModeExecutor\updates\`**, local and
-  disposable like the log; the watcher empties that folder when it starts,
-  so a package is kept only until the version it carries is running.
-  Windows Installer caches its own copy of every package it installs, so
-  deleting the download costs a later repair nothing.
-- **Installed with `msiexec /i <file> /qn /l*v <updates>\install.log`**,
-  started detached — not a child that shares the watcher's fate — and the
-  package's own actions stop this process and start the new one. `/qn`
-  rather than `/passive`, provisionally: `/passive` shows Windows
-  Installer's progress window, and the program's rule is no windows; the
-  icon going and coming back is the visible part, as it is for the
-  installer run by hand, and the version in the tooltip afterwards is the
-  confirmation. To be measured on screen before it is settled.
-- **Refused while a game is running**, for the purge's reason: the stop
-  commands would fire mid-game and the new watcher would fire the start
-  commands seconds later. The menu says so; the user quits the game and
-  clicks again.
-- **The zip copy is told, not updated.** Nothing owns its files but the
-  user, and replacing two executables under a running logon task from a
-  hidden shell is exactly the file-swapping shape this lot exists to avoid.
-  A hand-installed copy gets the same check, and the menu entry then
-  opens the release page. The person who chose no installer keeps their
-  files in their hands.
-- **The menu is the whole interface**, as everywhere else: the entry reads
-  *Check for updates…*, then *Up to date (0.1.0)* greyed, or *Update to
-  0.2.0…*, or *Could not check: offline* greyed; the tooltip mirrors it.
-  No balloon, no dialog. The log carries the same lines under `setup`,
-  with the URL, the size and the hash, so an update is as readable
-  afterwards as an install.
-- **A downgrade is never offered.** The package refuses one anyway
-  (`NEWERVERSIONDETECTED`), and the comparison makes it unreachable.
+Decided 2026-09-18, when the maintainer asked why an update should wait for
+the game to end. The first draft of this page refused to install mid-game,
+because `stop` is *Quit*: the stop commands fire, the marker goes, and the
+new watcher then detects the running game and fires the start commands —
+a two-second blip of the idle configuration in the middle of a session.
+The refusal avoided the blip from the wrong end. The session marker
+already says "a game session is open"; what was missing was a stop that
+leaves it saying so.
+
+| | *Quit*, `stop` | `stop --handover` |
+| --- | --- | --- |
+| Who follows | nobody | a watcher, within the second |
+| Stop commands | run now — the standing promise, "not left on a gaming configuration" | **do not run** |
+| Marker | removed once the commands are confirmed | **left in place**: the session is open, and handed on |
+| Log | `Stopping while a game is running, so the stop commands run now` | `Stopping for an update; the game session is handed to the next watcher` |
+
+And at start, `recover()` learns the distinction [Lot 9](09-robustness.md)
+had already written down for the configuration-fault case — *look for the
+writer before recovering*:
+
+- marker present **and the presence writer alive** → **resume**: the name
+  from the marker, the icon active, the wait on the writer's handle taken
+  up again. Nothing runs, neither stop nor start: the start already
+  happened. No refinement either; the name in the marker is the refined
+  one when there was one.
+- marker present, writer gone → the recovery of today: the stop commands
+  run, because the game ended in the gap, or during a logoff.
+
+It covers more than the updater: a watcher that crashes mid-game and is
+restarted by its task, the failure path restarting the old watcher, the
+development loop of `stop` then `install-task` — all resume where they
+used to blip. `StopSignal` carries a reason, `Restore` or `Handover`; the
+session window takes an application message beside `WM_CLOSE` so a
+`stop --handover` from another process can say which; the engine
+branches on it. Two scenarios in `engine/tests.rs`: a handed-over session
+is resumed by the next watcher without running anything, and a
+handed-over session whose game ended in between runs the stop commands at
+start.
+
+**In the package**, two stop actions where there was one: `StopForUpgrade`,
+`stop --handover`, conditioned on `PREVIOUSVERSIONS` — a successor is
+guaranteed by `RegisterTask` in the same sequence — and `StopForRemoval`,
+plain `stop`, on an uninstall, where nobody follows and the machine must
+be restored. **One degradation, accepted on 2026-09-18:** the first package
+to carry `--handover` runs it on the installed `0.1.0`, which does not know
+the flag; the action fails, continues, and the Restart Manager's dialog
+comes back for that one upgrade on the two machines that have `0.1.0`.
+Clicking through was measured clean on 2026-09-18 01:08. A legacy action
+kept forever for two machines was not worth it.
+
+`purge` keeps refusing mid-game: nobody follows a purge.
+
+## The machine, and the menu that renders it
+
+**The UI reflects an object.** Every rule lives in `update`: which entries
+exist in which phase, which actions are legal, when a verdict expires. The
+tray asks `view()` for a list of items and calls `perform(action)` for the
+one chosen; it holds no rule of its own. The object is driven by events,
+so it is tested whole without a network, through the same seam the engine
+uses for the OS: a `Feed` trait — the latest tag, a text file, a download —
+with `WinHttp` as the one real implementation and a scripted one for the
+tests.
+
+```
+Idle                                   nothing to say
+Checking                               one request in flight
+UpToDate    { version, at }            a verdict about now
+Available   { release, at }            tag, version, page, file name, hash
+Downloading { release, size }
+Installing  { release }                msiexec, or the zip's shell, is running
+Failed      { fault, at }              a sentence, a code, the log has the rest
+```
+
+`apply(event)` with `CheckAsked`, `CheckDone(Ok(verdict) | Err(fault))`,
+`InstallAsked`, `DownloadStarted(size)`, `DownloadDone(Ok | Err)`,
+`Launched`, `LaunchFailed(fault)`; `view(now) -> Vec<Item>`, an `Item` being
+a label, an optional `Action` — `Check`, `Install`, `OpenReleasePage` — and
+whether it is enabled. Expiry is computed in `view` from the phase's `at`;
+there is no timer.
+
+The section sits between *Documentation*'s separator and *Quit*:
+
+| Phase | Entries (⊘ disabled) |
+| --- | --- |
+| Idle | Check for updates |
+| Checking | ⊘ Checking for updates… |
+| UpToDate, within the hour | Check for updates · ⊘ 0.1.0 is the latest version |
+| Available | Check for updates · **Download and install 0.2.0** · What changed in 0.2.0 |
+| Downloading | ⊘ Check for updates · ⊘ Downloading 0.2.0 (1.4 MB)… · What changed in 0.2.0 |
+| Installing | ⊘ Check for updates · ⊘ Installing 0.2.0… |
+| Failed, within the hour | Check for updates · ⊘ Could not check: no connection (see log) |
+| A failure found at start | Check for updates · ⊘ Update to 0.2.0 failed: Windows Installer 1603 (see log) |
+
+Three entries at most, never two disabled ones outside a download. *Check
+for updates* is clickable again as soon as a result exists and clears the
+rest; it is disabled while a download or an install is running, where a
+new check would mean nothing. The tooltip and the icon do not change: the
+updater says nothing through the icon.
+
+**Two expiries, not one.** `UpToDate` and `Failed` are claims about *now*
+and expire after an hour. `Available` does not expire: a release does not
+un-release, and someone who said "later" should find the offer where they
+left it rather than click twice. Both were the maintainer's call on
+2026-09-18, between five minutes and a day.
+
+**The check is one request and no API.** `HEAD …/releases/latest` with
+redirects disabled, the tag read from `Location`, `x.y.z` parsed from it
+and compared with the running version as three numbers. A tag that does
+not parse as exactly `vX.Y.Z` is "a release this version does not
+understand", shown as such, never guessed at. Every later request names
+the tag, not `latest`, so a release published between the check and the
+download cannot mix one version's hash with another's file. The API stays
+in reserve for the release notes, should the menu ever show them; *What
+changed* opens the release page in the browser.
+
+**Never a silent poll.** *Check for updates* connects when clicked and at
+no other time. An opt-in check at start is not offered; if it ever is, it
+is a configuration key that defaults to off, at most once a day, and the
+record says what it sends. **A downgrade is never offered**; the package
+refuses one anyway.
+
+**The same from the console.** `gamemode-executor update` drives the same
+object — `--check` prints the verdict and stops, the default downloads,
+verifies and installs — so a script, a diagnosis or the second machine's
+maintainer can do what the menu does, and the network path can be
+measured from a shell without a watcher.
+
+## Faults, and what the log says
+
+A network is an outside dependency the program did not have before, so
+every step is written down, under a new category, `update` —
+`RUST_LOG=update=debug` isolates everything that touches it:
+
+| Cause | Menu | Log |
+| --- | --- | --- |
+| DNS, connection refused, timeout | Could not check: no connection (see log) | `warn`, the WinHTTP code as a field |
+| GitHub answered 4xx/5xx, or 429 | Could not check: GitHub answered 503 (see log) | `warn` |
+| An unexpected answer — no `Location`, a tag that is not `vX.Y.Z`, HTML where the checksums should be, a captive portal | Could not check: unexpected answer (see log) | `warn`, the headers at `debug` |
+| The hash does not match | Download failed: the file did not verify (see log) | `warn`, the file deleted |
+| Disk full, folder not writable | Download failed: cannot write to …\updates (see log) | `warn`, the Win32 code |
+| `msiexec` refuses before stopping the watcher — 1618 another install running, 1638 | Update failed: Windows Installer 1618 (see log) | `warn`; the watcher is still there to say so |
+| A failure *after* the watcher stopped — 1603, the zip's extraction, `install-task` | seen at the next start: Update to 0.2.0 failed: … (see log) | the shell restarts the previous watcher and writes `updates\result.txt`; the watcher reads it at start, logs `warn`, shows it until the next check |
+
+At `info`, the story: `Checking for updates` · `0.1.0 is the latest` ·
+`Update available: 0.2.0` · `Downloading 0.2.0 (1.4 MB)` · `Downloaded and
+verified 0.2.0` · `Installing 0.2.0; the watcher stops now and comes back
+on the new version` — then, from the new watcher, `Updated to 0.2.0`. The
+watcher writes `updates\pending.txt` with the version it is installing
+before it launches anything; whichever watcher starts next compares that
+file with its own version — equal, the update took; different, it did
+not, and `result.txt` says why when the shell got as far as writing it.
+Every menu line that ends in *(see log)* means it.
+
+Downloads go to `%LOCALAPPDATA%\GameModeExecutor\updates\`, local and
+disposable like the log; the watcher empties it at start once the pending
+file has been read. Windows Installer caches its own copy of every package
+it installs, so deleting the download costs a later repair nothing.
 
 ## What it does not defend against, said plainly
 
@@ -139,26 +262,20 @@ game is running; whether the logon task exists.
   GitHub, or a `200` that is an HTML page, must fail the parse and be
   shown as "could not check", never as "up to date".
 
-## To measure, when the lot is taken
+## To measure, when the pieces exist
 
 1. WinHTTP against the four requests above: reading `Location` with
    redirects disabled, following the asset chain to the signed URL with
-   them enabled, a proxy, an offline machine and a DNS failure, each as
-   seen from the menu and the log.
-2. The watcher launching its own upgrade: `msiexec /qn` detached,
-   `StopWatcher` closing the process that started it, `RegisterTask`
-   bringing the new version back — and the failure path, with a package
-   built to fail after `InstallValidate`, restarting the old one.
-3. `/qn` against `/passive`, on screen, success and failure.
+   them enabled, the system proxy, an offline machine and a DNS failure,
+   each as seen from the menu and the log.
+2. A self-launched upgrade mid-game: `msiexec /qn` detached,
+   `StopForUpgrade` handing the session over, `RegisterTask` bringing the
+   new version back, the session resumed with nothing run — and the
+   failure path, with a package built to fail after `InstallValidate`,
+   restarting the old one, which resumes too.
+3. `/qn` on screen, success and failure.
 4. The updates folder emptied at start while Windows Installer's cache
    still serves a repair.
-5. The zip path: the check, the notice, the page opening, and nothing else
-   happening.
-
-## Size
-
-A module of a few hundred lines — the requests, the hash, the version
-comparison, the launch — with the comparison and the `SHA256SUMS.txt` parse
-under unit tests, one menu entry and one tooltip state in the tray, and a
-`setup` line for each step. Verifying it needs a real release pair: it is
-built against `v0.1.0` and proved by installing whatever `v0.1.1` becomes.
+5. The zip path, on an unpacked copy: the files replaced under the logon
+   task, `.old` kept until the new version starts, and what happens when
+   the task fires in the middle of it.
