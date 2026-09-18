@@ -1,17 +1,18 @@
 # Lot 14 — Release notes people can read
 
-**Status: in progress since 2026-09-18, the same day it was proposed**, on
-the maintainer's remark after the first update ran through the menu:
-*What changed in 0.1.0* opened the release page, and the page said *First
-public release* over a list of commits. That is a changelog for the people
-who wrote the commits, not for the person who clicked. Taken before 0.2.0,
-so that release reads well from the moment it is published.
+**Status: done 2026-09-18, the day it was proposed**, on the maintainer's
+remark after the first update ran through the menu: *What changed in
+0.1.0* opened the release page, and the page said *First public release*
+over a list of commits. That is a changelog for the people who wrote the
+commits, not for the person who clicked. Taken before 0.2.0, so that
+release read well from the moment it was published — it did, and 0.1.0's
+page was rewritten the same evening.
 
 - [x] `CHANGELOG.md`, with the sections for 0.1.0 and what 0.2.0 will carry — 2026-09-18
 - [x] `release-notes.ps1` takes the section for the tag and refuses a version without one; `build.ps1 release` refuses it first, on the machine that can still write it — 2026-09-18
 - [x] The rules of a section, in `AGENTS.md` — 2026-09-18
-- [ ] `v0.1.0`'s notes rewritten once with its section, on approval
-- [ ] The first release published this way: 0.2.0
+- [x] `v0.1.0`'s notes rewritten once with its section, on approval — 2026-09-18, the platform line corrected with it
+- [x] The first release published this way: 0.2.0 — 2026-09-18, the workflow's first run with a dated section, green
 
 **Goal.** Every release page reads, in a few lines, what changed for the
 person running the program — and the same lines are what the updater's

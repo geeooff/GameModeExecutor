@@ -113,6 +113,20 @@ both tasks. From any PowerShell window, in this folder:
 .\install-tasks.ps1
 ```
 
+**If Windows refuses to run it** — *running scripts is disabled on this
+system*, which is what a Windows PC says out of the box, and what it says
+of anything downloaded — run it this way instead, which changes nothing on
+the machine and needs no administrator rights:
+
+```powershell
+Unblock-File .\*.ps1
+powershell -ExecutionPolicy Bypass -File .\install-tasks.ps1
+```
+
+The first line removes the mark Windows puts on downloaded files; the
+second lets this one command run scripts. The elevated part relaunches
+itself the same way, so the whole chain goes through.
+
 It asks for administrator rights itself — one prompt. On Windows 11 with
 `sudo` enabled in *inline* mode it carries on in the same window; otherwise
 a second window opens for the elevated part and waits for Enter before
@@ -254,7 +268,11 @@ this does not work, nothing further will, and the problem is on this side.
 
 ## 5. The configuration
 
-Copy [`config.toml`](config.toml) over your own. It is the complete file:
+Replace your `config.toml` with [this one](config.toml): copy it over,
+whole, rather than merging the two — the starter file the installer wrote
+has nothing in it worth keeping. Only if you already run commands of your
+own should you add these two actions to your file instead. It is the
+complete file:
 
 ```toml
 [general]
@@ -341,6 +359,9 @@ the same way the install script does:
 ```powershell
 .\uninstall-tasks.ps1
 ```
+
+Or, where Windows refuses scripts, `powershell -ExecutionPolicy Bypass
+-File .\uninstall-tasks.ps1`, as for the install.
 
 It removes the two tasks it knows — *FanControl Idle* and *FanControl Game* —
 and leaves everything else: FanControl and its configurations, the

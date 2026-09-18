@@ -4,9 +4,9 @@
 workflow alone, from the tag's commit, with the installer, the zip and their
 checksums — which is the "done when" below. The lot was taken 2026-09-17/18
 in the order listed; `scripts/build.ps1` was written first on purpose, since
-a release that cannot be made by hand is not one CI can make either. One
-field check is still outstanding and is recorded when it happens: the first
-install on a second machine.
+a release that cannot be made by hand is not one CI can make either. The
+last field check, the first install on a second machine, came in on the
+evening of 2026-09-18 with its log; what it taught is below.
 
 - [x] Create the public GitHub repository and push — done 2026-09-17, with approval
 - [x] The three measurements below, on a minimal package, before any table is written — done 2026-09-17
@@ -17,9 +17,11 @@ install on a second machine.
   the checklist, build the **MSI** and the **zip archive**, and publish a
   GitHub Release carrying both with their SHA-256 — nothing built or uploaded
   by hand. Written 2026-09-17 (`release.yml`, `scripts/release-notes.ps1`);
-  first run 2026-09-18 on the `v0.1.0` tag, green, three assets published
+  first run 2026-09-18 on the `v0.1.0` tag, green, three assets published;
+  second run the same day on `v0.2.0`, with the notes from the changelog
+  ([Lot 14](14-release-notes.md))
 - [x] The documentation: *Getting started* and the README point at the release rather than at `cargo build`, the reference gains `purge`, *How it works* gains removal — 2026-09-17
-- [ ] Verified in the field: the MSI on two machines, one real upgrade, one purge round trip — the maintainer's machine done 2026-09-17/18, below: install, upgrade, uninstall, purge; the second machine's first install still to come
+- [x] Verified in the field: the MSI on two machines, one real upgrade, one purge round trip — the maintainer's machine done 2026-09-17/18, below: install, upgrade, uninstall, purge, and the 0.1.0 → 0.2.0 upgrade through the updater; the second machine's first install, 0.2.0, done 2026-09-18 in the evening by the maintainer and reported with the log, below
 
 **Done when** a tag alone produces a release a stranger can install from, and
 the two artefacts on it were built by the workflow from that tag's commit.
@@ -242,6 +244,65 @@ worked, and four remarks came back, all taken the same evening:
   creation time, which Explorer otherwise takes from the file — and NTFS
   tunnels a creation time across a delete-and-recreate seconds apart, so
   it read as the build from the day before.
+
+## What the second machine taught
+
+The maintainer installed 0.2.0 on the second machine on the evening of
+2026-09-18, the way anyone would: the installer downloaded from the release
+page with Chrome, the recipe folder fetched from GitHub, *Getting started*
+and the recipe's page followed on a machine that had never seen the
+program. The log came back with five remarks.
+
+The log first. The three `setup` lines within 300 ms of each other at
+20:27:57 — *Starter configuration written*, *Logon task registered*,
+*Watcher started through its task* — then *0.2.0 (f33cb006) starting*; a
+*Quit* at 20:43 once the recipe's configuration was in, and the task run
+by hand from Task Scheduler sixteen seconds later; a first session,
+`cs2.exe`, eighteen minutes; a second one named `chrome.exe` first and
+`Overwatch.exe` twenty-one seconds later, on which
+[Lot 9](09-robustness.md#stop-timing-the-refinement) has the note. The
+package did on that machine what it had done on this one, which closes
+the field box above.
+
+The remarks are the friction a first-time user meets *around* the package
+rather than in it. None needed an action that night; they are recorded so
+the next lots can weigh them, with what was taken at once and what is
+only proposed:
+
+- **SmartScreen stopped the installer.** Expected — code signing is
+  declined below, with the reasons — and *More info*, then *Run anyway*,
+  gets through; but nothing had said so. *Getting started* now does, in a
+  line beside the checksum, taken 2026-09-18.
+- **Windows refused the recipe's scripts:** the default execution policy,
+  plus the mark Chrome puts on a downloaded file. The recipe's page now
+  gives the two lines that get past it without changing the machine
+  (`Unblock-File`, then `-ExecutionPolicy Bypass` for the one command),
+  taken 2026-09-18; `elevate.ps1` already relaunched its elevated half that
+  way. A `.cmd` beside each script, running it with that switch, would
+  spare the typing altogether — proposed, weighed with the next point.
+- **GitHub offers no way to download one folder.** The recipe was reached
+  by downloading the whole repository as a zip and digging the folder out
+  of it. The release could carry the recipes as a third artefact,
+  `GameModeExecutor-recipes-x.y.z.zip`, built by the same workflow from
+  the same commit and linked from `README.txt` — files to run, not pages
+  to read, so the argument in
+  [Documentation is linked, not shipped](#documentation-is-linked-not-shipped)
+  does not hold against it. Proposed, not decided.
+- **The configuration was merged rather than replaced.** The recipe's
+  `config.toml` is the whole file and the starter one has nothing worth
+  keeping, but the page said *copy over your own*, which someone careful
+  reads as a merge. It now says to replace the file whole, and when
+  merging is the right thing instead — taken 2026-09-18.
+- **Starting it again after a change to the configuration.** *Quit* is one
+  click; starting the watcher again meant Task Scheduler, and a first-time
+  user does not know the task is there. Two answers, not exclusive: live
+  reload, designed in
+  [Lot 9](09-robustness.md#configuration-faults-shown-where-the-program-already-lives),
+  makes the restart unnecessary; and a Start menu entry from the package —
+  a `Shortcut` row to `gamemode-executorw.exe`, which starts the watcher
+  or does nothing if one is running — gives *Quit* an obvious undo. The
+  shortcut is a package change and would go with the recipes artefact if
+  that is taken; the reload is the next lot's.
 
 ## Versioning
 

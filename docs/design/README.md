@@ -24,8 +24,8 @@ session rather than when the code compiles. Each has its own page.
 | 10 | [Configuration window](10-configuration-window.md) | proposed |
 | 11 | [Documentation for the people who use it](11-user-documentation.md) | done |
 | 12 | [Editing the configuration without breaking it](12-editing-on-a-copy.md) | proposed |
-| 13 | [Updating](13-updating.md) | in progress |
-| 14 | [Release notes people can read](14-release-notes.md) | in progress |
+| 13 | [Updating](13-updating.md) | shipped in 0.2.0; closes on the first update from it |
+| 14 | [Release notes people can read](14-release-notes.md) | done |
 
 **Dependency order:** 1 → 2 → 4 → 5 → 6 → 7, with 3 independent and 7 needing
 both 3 and 6. Logging sits before the icon deliberately — the icon logs too,

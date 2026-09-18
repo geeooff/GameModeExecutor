@@ -159,6 +159,15 @@ or the counters cannot be read. Each bail-out spends the one attempt. Two
 Battlefield 6 sessions an hour apart lost it and won it: the second read 0.0 %
 for every candidate at T+10 s and 75 % at T+20 s. A margin, not a calibration.
 
+A third session, on the second machine on 2026-09-18 at 21:15, shows the
+other side of the lottery. Windows' per-user list there carries `chrome.exe`
+— the list grows with whatever the Game Bar was once used over, as far as
+this record understands it — so the session was named after Chrome first,
+and the one attempt at T+21 s read `Overwatch.exe` at 3 %, a loading
+screen's worth, and renamed it. Enough that time; had the game rendered
+nothing yet at T+21 s, the session would have stayed *chrome.exe* to the
+end, in the log and in the placeholders.
+
 Two changes worth weighing, in order of appetite:
 
 - **Only count an attempt that reached a verdict.** "Nothing is rendering yet"

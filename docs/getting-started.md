@@ -20,8 +20,12 @@ The `w` just means *windowless*, the same convention as `python.exe` and
 
 The release page offers two files that hold the same two executables.
 
-**The installer, `GameModeExecutor-<version>.msi`.** Run it. It asks for no
-administrator rights and installs for you alone, into
+**The installer, `GameModeExecutor-<version>.msi`.** Run it. Windows may
+stop you first with *Windows protected your PC*, because the installer is
+not signed with a certificate it knows: *More info*, then *Run anyway*. The
+release page lists the file's SHA-256 if you want to check what you
+downloaded. It asks for no administrator rights and installs for you alone,
+into
 `%LOCALAPPDATA%\Programs\GameModeExecutor`. It also writes a starter
 configuration if you have none, registers the logon task, and starts the
 watcher: the confirmation that it worked is the **grey controller icon**
