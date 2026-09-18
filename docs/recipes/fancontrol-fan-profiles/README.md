@@ -307,12 +307,14 @@ FanControl records the active configuration in a file called `CACHE`, in its
   ConvertFrom-Json).CurrentConfigFileName
 ```
 
-When both work:
+When both work, restart the watcher so it reads the file:
 
 ```bash
+gamemode-executor stop
 gamemode-executor install-task
 ```
 
+From the zip, the second line also registers the logon task, the first time.
 Done. Play a game and the fans follow.
 
 ## Worth knowing

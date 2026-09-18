@@ -118,11 +118,14 @@ user's commands. It is the whole chain, end to end, with no game:
 cargo test -- --ignored a_real_activation_drives_a_session
 ```
 
-Verifying a change means running it as the user does: deploy the two
-executables to the install folder, restart the logon task
-(`schtasks /Run /TN "GameModeExecutor\Watcher"`), and read the log at `debug`
-through a real game session. Restarting the watcher while a game is running
-fires the stop commands; do not.
+Verifying a change means running it as the user does: `gamemode-executor
+stop`, copy the two release executables over the installed ones,
+`gamemode-executor install-task`, and read the log at `debug` through a real
+game session. A change to the package itself is verified by uninstalling
+from *Programs and Features* and installing the new `dist\` package — the
+product code is fixed per version, so the same version cannot install over
+itself. Restarting the watcher while a game is running fires the stop
+commands; do not.
 
 ## Pitfalls that have already cost time
 

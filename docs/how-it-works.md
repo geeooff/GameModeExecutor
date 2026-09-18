@@ -224,7 +224,7 @@ added.
 
 | What | Where |
 | --- | --- |
-| The program | wherever you put it. `%LOCALAPPDATA%\Programs\GameModeExecutor` is the Windows convention for a per-user install, and it stays writable, which `C:\Program Files` would not |
+| The program | `%LOCALAPPDATA%\Programs\GameModeExecutor` from the installer — the Windows convention for a per-user install, and it stays writable, which `C:\Program Files` would not. From the zip, wherever you put it |
 | Configuration | `config.toml` next to the executable if there is one, otherwise `%APPDATA%\GameModeExecutor\config.toml` |
 | Log | `%LOCALAPPDATA%\GameModeExecutor\logs\gamemode-executor.log`, one file, local timestamps |
 | Scheduled tasks | a `GameModeExecutor` folder in Task Scheduler, holding `Watcher` and anything a recipe added |

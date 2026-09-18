@@ -170,8 +170,8 @@ The log keeps the history of every session. It lives in
 
 It starts earlier than the first session: the lines marked `setup` say when
 the configuration was written and the logon task registered, whether you
-typed the command or the installer did it. `init`, `install-task` and
-`uninstall-task` print those same lines as they run.
+typed the command or the installer did it. `init`, `install-task`,
+`uninstall-task` and `stop` print those same lines as they run.
 
 ## Using the game's name in your command
 
@@ -260,7 +260,9 @@ gamemode-executor uninstall-task
 ```
 
 The first stops the one running now; the second removes the logon task, so
-nothing starts at the next logon.
+nothing starts at the next logon. To take the program off the machine, see
+[Removing it](how-it-works.md#removing-it): *Programs and Features* for the
+installer's copy, or `purge` for every trace whichever way it came.
 
 ## Everything else
 

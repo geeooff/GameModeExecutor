@@ -12,11 +12,12 @@
 //! nothing this binary prints goes anywhere. That is why people type the
 //! console one and why the documentation only ever names it. This one is for
 //! the two callers that have no console to give: the logon task, which runs
-//! the watcher, and the installer, which runs `init` and `install-task` --
-//! Windows Installer starts an executable action without hiding its console,
-//! and the console binary flashed a window twice at the end of every install,
-//! seen on 2026-09-18. The commands log what they did, so nothing is lost by
-//! not printing it; the exit code is what the caller records.
+//! the watcher, and the installer, which runs `stop`, `init`, `install-task`
+//! and `uninstall-task` -- Windows Installer starts an executable action
+//! without hiding its console, and the console binary flashed a window twice
+//! at the end of every install, seen on 2026-09-18. The commands log what
+//! they did, so nothing is lost by not printing it; the exit code is what the
+//! caller records.
 
 use clap::Parser;
 
