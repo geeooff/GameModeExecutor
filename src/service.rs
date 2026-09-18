@@ -13,9 +13,14 @@
 //! still runs the stop commands, because it is right for a `Quit` and costs
 //! nothing, but restoring the profile after a session end is Lot 9's marker
 //! file, not this.
+//!
+//! `stop` is *Quit* from outside: `WM_CLOSE` on the session window, then a
+//! wait on the single-instance mutex, which the watcher releases only after
+//! its last log line. `purge` and the installer both use it, so the files
+//! are never pulled from under a running watcher.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
@@ -28,6 +33,16 @@ use crate::{engine, logging, sensor, tray, win};
 /// wedged command cannot hold up the user's logoff indefinitely -- Windows has
 /// its own, shorter patience anyway.
 const SESSION_END_GRACE: Duration = Duration::from_secs(20);
+
+/// The single-instance mutex, session-local. The watcher holds it for its
+/// whole life; `stop` and `purge` read it to know whether one is running and
+/// when it has gone.
+pub const INSTANCE: &str = "GameModeExecutor";
+
+/// How long `stop` waits for the watcher to have gone. The stop commands run
+/// on the way out, so this must outlast a slow one, and it only bounds a
+/// watcher that is wedged.
+const STOP_PATIENCE: Duration = Duration::from_secs(30);
 
 /// Run the watcher until it is stopped.
 ///
@@ -51,7 +66,7 @@ pub fn serve(
     // Installed as early as the log exists, so a panic anywhere after this
     // leaves a FATAL line behind rather than a process that simply vanished.
     logging::install_panic_hook();
-    let _instance = SingleInstance::acquire("GameModeExecutor")?;
+    let _instance = SingleInstance::acquire(INSTANCE)?;
 
     // Before any window exists, or the process stays DPI-unaware for its whole
     // life and the notification icon is built at the wrong size.
@@ -137,4 +152,45 @@ pub fn serve(
 
     tracing::info!(target: logging::target::WATCHER, "Stopped");
     Ok(())
+}
+
+/// What `stop` found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stopped {
+    /// A watcher was running; it has gone.
+    Stopped,
+    /// None was running.
+    NotRunning,
+}
+
+/// Ask the running watcher to quit the way its menu does and wait for it to
+/// have gone. Mid-game that runs the stop commands, as *Quit* would. No
+/// watcher is not an error: the caller wanted none running, and none is.
+///
+/// A watcher that is still starting holds the mutex before it has a window,
+/// so the close is retried until the mutex is free. Logged at `info` under
+/// `setup`, whether a person or the installer asked.
+pub fn stop() -> Result<Stopped> {
+    if !SingleInstance::is_held(INSTANCE) {
+        tracing::info!(target: logging::target::SETUP, "No watcher was running");
+        return Ok(Stopped::NotRunning);
+    }
+    let asked = Instant::now();
+    loop {
+        // May find no window yet, or none any more: the mutex is the verdict.
+        let _ = win::close_session_window();
+        if !SingleInstance::is_held(INSTANCE) {
+            tracing::info!(
+                target: logging::target::SETUP,
+                waited = ?asked.elapsed(),
+                "Watcher stopped, as asked"
+            );
+            return Ok(Stopped::Stopped);
+        }
+        anyhow::ensure!(
+            asked.elapsed() < STOP_PATIENCE,
+            "the watcher did not stop within {STOP_PATIENCE:?}"
+        );
+        std::thread::sleep(Duration::from_millis(250));
+    }
 }

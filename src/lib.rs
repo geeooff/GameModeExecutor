@@ -9,12 +9,14 @@ compile_error!("GameModeExecutor only targets Windows");
 
 pub mod actions;
 pub mod build_info;
+pub mod cli;
 pub mod config;
 pub mod detect;
 pub mod engine;
 pub mod exit;
 pub mod logging;
 pub mod marker;
+pub mod purge;
 pub mod registry;
 pub mod sensor;
 pub mod service;

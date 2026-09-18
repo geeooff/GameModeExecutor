@@ -12,17 +12,22 @@ Self-contained, no runtime dependencies.
 | Executable | What it is for |
 | --- | --- |
 | `gamemode-executor.exe` | Everything you type. A console program, so a shell waits for it, pipes work and exit codes come back. |
-| `gamemode-executorw.exe` | Watching, and nothing else. No console at all — this is what the logon task runs. |
+| `gamemode-executorw.exe` | The same commands with no console at all: it prints nothing, and a shell does not wait for it. What the logon task runs, and what the installer runs. |
 | `presence-probe.exe` | Diagnostics, not shipped in the bundle. See [Detection](design/00-detection.md#the-instrument). |
 
 The `w` suffix is the same convention as `python.exe` and `pythonw.exe`, for
 the same reason: a program cannot be both a console and a windowless one in a
-single file. Both share one library, so the watcher they run is the same code.
+single file. Both share one library, so the commands they run are the same code.
 
 ## Commands
 
-All belong to `gamemode-executor.exe`. `gamemode-executorw.exe` takes only
-`--config` and `--log-level`, and watches.
+Both executables take the same command line. Type it into
+`gamemode-executor.exe`: it answers where you can read it and a shell waits
+for it. `gamemode-executorw.exe` accepts the same line but prints nothing and
+nobody waits for it, which suits its two callers — the logon task, which
+runs `run`, and the installer, which runs `stop`, `init`, `install-task`
+and `uninstall-task`. What those commands do is written in the log either
+way.
 
 | Command | What it does |
 | --- | --- |
@@ -31,9 +36,11 @@ All belong to `gamemode-executor.exe`. `gamemode-executorw.exe` takes only
 | `check <path>` | Ask whether Windows knows a given executable as a game. |
 | `trigger start\|stop` | Run one set of actions immediately, ignoring detection. Handy to test your commands. |
 | `validate` | Parse and check the configuration. The command to script against: it returns 3 or 4 without starting anything. |
-| `init [--force]` | Write a starter configuration file. |
-| `install-task [--delay HHHH:MM]` | Register a per-user logon task that runs `gamemode-executorw.exe`, with no window. The configuration path is stored absolute. |
-| `uninstall-task` | Remove that task. |
+| `init [--force]` | Write the starter configuration file into `%APPDATA%\GameModeExecutor`. One that is already there is kept unless `--force`. The installer runs this. What happened is logged under `setup`. |
+| `install-task [--delay 15s] [--force]` | Register a per-user logon task that runs `gamemode-executorw.exe` with no window, then start it now. A task already registered is kept unless `--force`. The configuration path is stored absolute. The installer runs this too. Logged under `setup`. |
+| `uninstall-task` | Remove that task. No task is not an error. The installer runs this on an uninstall, not on an upgrade. Logged under `setup`. |
+| `stop` | Stop the running watcher the way *Quit* in its menu does — mid-game, the stop commands run on the way out — and wait until it has gone. None running is not an error. The task is left alone; `install-task` starts it again. The installer runs this before removing or replacing the executables. Logged under `setup`. |
+| `purge [--yes]` | Remove every trace of the program: the logon task, the configuration, the log, the session marker, the executables. It lists what it will remove and asks; `--yes` is for scripts. Refuses while a game is running. See [Removing it](how-it-works.md#removing-it). |
 
 Global options: `--config <PATH>`, `--log-level <LEVEL>`, `--version`.
 
@@ -156,17 +163,32 @@ One log serves two readers, and `log_level` is the dial between them:
 | `trace` | technician | Raw measurements. |
 
 `info` is reserved for what the program is for: a game detected, named or
-gone, the watcher starting or stopping, a session recovered at start. Nothing
-else competes with those lines.
+gone, the watcher starting or stopping, a session recovered at start — and
+what was done to this machine to set it up, which is the same story one
+chapter earlier. Nothing else competes with those lines.
 
 Each line is `time  LEVEL  category  message`, with the category one of
-`watcher`, `game` or `commands`:
+`watcher`, `game`, `commands` or `setup`:
 
 ```
+2026-09-18 00:51:36.740  INFO  setup     Starter configuration written
+2026-09-18 00:51:37.102  INFO  setup     Logon task registered: it starts the watcher at every logon, with no execution time limit
 2026-09-10 17:51:02.433  INFO  watcher   GameModeExecutor 0.1.0 starting
 2026-09-10 17:53:14.080  INFO  game      Game detected: bf6.exe
 2026-09-10 17:58:41.833  INFO  game      Game no longer detected: bf6.exe
 ```
+
+`setup` is written by `init`, `install-task`, `uninstall-task` and `stop`,
+whether a person typed them or the installer ran them: a configuration
+written, kept or replaced; a task registered, kept, replaced or removed; the
+watcher started or stopped. Two processes then write the one file — `stop`
+and the watcher it stops — and their lines interleave whole: the file is
+opened for appending only, so Windows itself places each write at the end,
+and a line is one write.
+Those commands open the log where the watcher would — the configuration's
+`log_dir` when a configuration can be read, the default location otherwise —
+so a fresh install's first lines say what the installer did, and a machine
+that misbehaves can be read back to the day it was set up.
 
 `debug` does not give a different log. It gives the same one annotated — the
 technical detail rides along as fields rather than in lines of its own:
@@ -188,17 +210,19 @@ syntax — `RUST_LOG=game=debug` for the detection lines alone.
 | Configuration | next to the executable, or `%APPDATA%\GameModeExecutor\config.toml` | yours; roams with the profile |
 | Log | `%LOCALAPPDATA%\GameModeExecutor\logs\` | disposable |
 | Session marker | `%LOCALAPPDATA%\GameModeExecutor\pending-stop-actions` | present while a game session is open; left behind by a logoff, shutdown or crash, and honoured at the next start. `status` reports it. |
-| Logon task | `\GameModeExecutor\Watcher` in Task Scheduler | records the absolute path of the executable |
+| Logon task | `\GameModeExecutor\Watcher` in Task Scheduler | records the absolute path of the executable; removed with the package, kept through an upgrade |
 
 ## Building and releasing
 
 Requires the Rust toolchain, stable, edition 2024. The Windows SDK's `rc.exe`
-embeds the icon; without it the build warns and continues.
+embeds the icon and the version block each executable carries — the one the
+Properties dialog shows, with the commit in *File version*; without it the
+build warns and continues.
 
 ```powershell
 .\scripts\build.ps1            # test
 .\scripts\build.ps1 build      # test, then a release build
-.\scripts\build.ps1 release    # test, build, and the zip archive in dist\
+.\scripts\build.ps1 release    # test, build, the zip archive and the installer in dist\
 ```
 
 Each mode runs everything the one before it does. `test` is more than
@@ -216,10 +240,22 @@ Each mode runs everything the one before it does. `test` is more than
 header**: a console program and a windowless one cannot be the same file, and
 getting that backwards is invisible until someone sees a black window at logon.
 
+A release proper is a tag. The version is bumped in `Cargo.toml` in the
+release commit, that commit is tagged `vX.Y.Z`, and pushing the tag makes
+the release workflow run this same script on a GitHub runner, then publish
+the installer, the zip and their SHA-256 checksums as a GitHub release, with
+notes listing the commits since the previous tag. Nothing is built or
+uploaded by hand.
+
 `release` refuses a dirty tree, checks the commit stamped into the binaries is
-the commit being built, stages the bundle, zips it into `dist\`, and refuses to
-finish if the archive names the building account or if a task template has
-lost the placeholders that make it reusable.
+the commit being built, checks the version block each executable carries,
+stages the bundle, zips it into `dist\`, builds the Windows Installer package
+next to it and runs the SDK's every ICE over that package — a warning fails
+the build — and refuses to finish if the archive names the building account
+or if a task template has lost the placeholders that make it reusable. The
+package is written by `scripts\msi.ps1` from Windows Installer's own
+automation; nothing but the SDK is needed, and the validation tools are
+unpacked from the SDK on first use.
 
 **From VS Code:** `Ctrl+Shift+B` builds, and *Terminal → Run Task* offers the
 same three plus two for driving an installed watcher — restart it, or follow

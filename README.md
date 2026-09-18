@@ -31,31 +31,37 @@ small icon in the notification area.
 
 ## Status
 
-Version 0.1.0, in daily use on its author's machine; no release has been
-published yet. Developed and measured on Windows 11 25H2. It relies on the Game
-Bar component Windows ships by default, so a machine where Game Bar has been
+In daily use on its author's machine, and released from
+[the releases page](https://github.com/Geeooff/GameModeExecutor/releases).
+Developed and measured on Windows 11 25H2. It relies on the Game Bar
+component Windows ships by default, so a machine where Game Bar has been
 removed will not detect anything.
 
 ## Install
 
 Two self-contained executables, no runtime dependencies. `gamemode-executor.exe`
-is the one you type commands into; `gamemode-executorw.exe` is the same watcher
+is the one you type commands into; `gamemode-executorw.exe` is the same program
 with no console, started at logon by a task it registers for you.
 
-Until a release exists, build from source with the stable Rust toolchain:
+From the [latest release](https://github.com/Geeooff/GameModeExecutor/releases/latest),
+take the **`.msi`** and run it: per user, no administrator prompt, into
+`%LOCALAPPDATA%\Programs\GameModeExecutor`. It writes a starter
+configuration, registers the logon task and starts the watcher — the icon
+appearing beside the clock is the confirmation. Right-click it, *Edit
+configuration*, and say what to run.
+
+The **`.zip`** holds the same executables for anyone who would rather unpack
+them by hand; then:
 
 ```powershell
-.\scripts\build.ps1 release
+gamemode-executor init          # write the starter config.toml
+gamemode-executor install-task  # start the watcher now and at every logon
 ```
 
-That runs the checks, builds, and leaves a zip archive in `dist\`. Unzip it
-in `%LOCALAPPDATA%\Programs\GameModeExecutor`, then:
-
-```powershell
-gamemode-executor init          # write a starter config.toml
-gamemode-executor validate      # check it
-gamemode-executor install-task  # start the watcher at every logon
-```
+To remove it, *Programs and Features* takes the executables and the logon
+task away and leaves your configuration; `gamemode-executor purge` removes
+every trace. Building
+from source is in the [reference](docs/reference.md#building-and-releasing).
 
 ## License
 

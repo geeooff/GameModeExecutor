@@ -10,22 +10,33 @@ console window, the other has none.
 
 | Executable | Role |
 | --- | --- |
-| **`gamemode-executorw.exe`** | The one that works. It starts by itself when you log on and never shows anything — no window, no icon. You never launch it yourself. |
+| **`gamemode-executorw.exe`** | The one that works. It starts by itself when you log on and never shows anything — no window, no output. You never launch it yourself; the logon task and the installer do. |
 | **`gamemode-executor.exe`** | The one you talk to. Open it in a terminal to set things up, test, or check. It answers, then it is done. It does not keep watching. |
 
 The `w` just means *windowless*, the same convention as `python.exe` and
 `pythonw.exe`.
 
-## Where to put the folder
+## Installing
 
-There is nothing to install: unzip it and keep it somewhere. Two things make
-the choice worth a moment's thought.
+The release page offers two files that hold the same two executables.
+
+**The installer, `GameModeExecutor-<version>.msi`.** Run it. It asks for no
+administrator rights and installs for you alone, into
+`%LOCALAPPDATA%\Programs\GameModeExecutor`. It also writes a starter
+configuration if you have none, registers the logon task, and starts the
+watcher: the confirmation that it worked is the **grey controller icon**
+that appears in the notification area, beside the clock. No window to click
+through, and *Programs and Features* lists it afterwards. A newer release
+installs over it the same way: it stops the running watcher, replaces the
+files, leaves your configuration and your task where they are, and starts
+the watcher again. Skip to [Say what to run](#say-what-to-run).
+
+**The zip, `GameModeExecutor-<version>.zip`,** for anyone who would rather
+not run an installer: unzip it and keep it somewhere. Two things make the
+choice of somewhere worth a moment's thought.
 
 **It has to stay put.** The logon task records the full path to the executable,
-so moving the folder afterwards means running `install-task` again.
-
-**It needs to be a folder you can write to**, because your `config.toml` sits
-next to the executable.
+so moving the folder afterwards means running `install-task --force` again.
 
 The tidiest place, and the Windows convention for a program installed for one
 user, is:
@@ -42,16 +53,15 @@ avoid:
 | `C:\Program Files` | Needs administrator rights to write, and then your own configuration sits in a folder you cannot edit. This program is built to never ask for those rights. |
 | A OneDrive or Dropbox folder | Synced folders move files, lock them mid-sync, and can turn them into online-only placeholders. For something that starts at logon, that is a bad bet. |
 
-## Three steps
+## Say what to run
 
-### 1. Write down what you want to run
+The starter configuration runs nothing: as installed, the watcher detects
+games, names them and logs them, and that is all — which is a fine way to see
+it work before deciding what it should do. Right-click the icon and choose
+**Edit configuration**, or open `%APPDATA%\GameModeExecutor\config.toml`
+yourself. (From the zip, `gamemode-executor init` writes that file first.)
 
-```bash
-gamemode-executor init
-```
-
-That writes a starter `config.toml` into `%APPDATA%\GameModeExecutor` and tells
-you where. Open it in any text editor. The part that matters looks like this:
+The part that matters looks like this:
 
 ```toml
 [[on_game_start.actions]]
@@ -65,7 +75,9 @@ program = "powercfg.exe"
 args = ["/setactive", "SCHEME_BALANCED"]
 ```
 
-One block per command. Add as many as you like to either event.
+One block per command. Add as many as you like to either event. The starter
+file carries two commands that beep, commented out: uncomment them to *hear*
+a game being detected before you write anything real.
 
 Write paths between **single quotes** — that way Windows backslashes need no
 doubling:
@@ -74,7 +86,7 @@ doubling:
 program = 'C:\Program Files\Something\tool.exe'
 ```
 
-### 2. Check it
+## Check it
 
 ```bash
 gamemode-executor validate
@@ -90,14 +102,16 @@ gamemode-executor trigger start
 gamemode-executor trigger stop
 ```
 
-### 3. Turn it on
+The watcher reads the file when it starts, so after editing it, restart it:
 
 ```bash
+gamemode-executor stop
 gamemode-executor install-task
 ```
 
-This registers a task that starts the watcher every time you log on. No
-administrator rights, no password, no window.
+The first is **Quit** from the icon's menu, typed. The second starts it again
+— and, from the zip, registers the task that starts it at every logon, once.
+No administrator rights, no password, no window.
 
 **That is the end of the setup.** Play. The commands fire by themselves.
 
@@ -153,6 +167,11 @@ The log keeps the history of every session. It lives in
 2026-09-10 17:53:14.080  INFO  game      Game detected: bf6.exe
 2026-09-10 17:58:41.833  INFO  game      Game no longer detected: bf6.exe
 ```
+
+It starts earlier than the first session: the lines marked `setup` say when
+the configuration was written and the logon task registered, whether you
+typed the command or the installer did it. `init`, `install-task` and
+`uninstall-task` print those same lines as they run.
 
 ## Using the game's name in your command
 
@@ -236,10 +255,12 @@ where the time went if you set `log_level = "debug"`.
 ## Turning it off
 
 ```bash
+gamemode-executor stop
 gamemode-executor uninstall-task
 ```
 
-Removes the logon task. Nothing else is left running.
+The first stops the one running now; the second removes the logon task, so
+nothing starts at the next logon.
 
 ## Everything else
 

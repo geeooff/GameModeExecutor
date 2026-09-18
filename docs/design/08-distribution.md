@@ -1,19 +1,24 @@
 # Lot 8 — Distribution
 
-**Status: proposed.** Partly done: `scripts/build.ps1` runs the whole checklist
-and produces the zip archive in `dist/`, and `.vscode/tasks.json` drives
-it. The script was written first on purpose — a release that cannot be made by
-hand is not one CI can make either. What is left needs a public repository:
+**Status: in progress since 2026-09-17.** Already there: `scripts/build.ps1`
+runs the whole checklist and produces the zip archive in `dist/`,
+`.vscode/tasks.json` drives it, and the repository is public with CI green
+on a stock runner. The script was written first on purpose — a release that
+cannot be made by hand is not one CI can make either. What is left, in the
+order it is taken:
 
-- Create the public GitHub repository and push — **with explicit approval**
-- The whole delivery chain, unattended: pushing a `vX.Y.Z` tag makes CI run
+- [x] Create the public GitHub repository and push — done 2026-09-17, with approval
+- [x] The three measurements below, on a minimal package, before any table is written — done 2026-09-17
+- [x] `VERSIONINFO` metadata in the executables, through the same `rc.exe` step that embeds the icon — done 2026-09-17, checked by the checklist
+- [x] An MSI, per-user, into `%LOCALAPPDATA%\Programs\GameModeExecutor`, with the user's files outside its components — built 2026-09-17, ICE clean, the round trip measured below
+- [x] `gamemode-executor purge`, the same command in every mode — built 2026-09-17, below
+- [x] The whole delivery chain, unattended: pushing a `vX.Y.Z` tag makes CI run
   the checklist, build the **MSI** and the **zip archive**, and publish a
   GitHub Release carrying both with their SHA-256 — nothing built or uploaded
-  by hand
-- An installer, per-user, into `%LOCALAPPDATA%\Programs\GameModeExecutor`
-- `gamemode-executor purge`, the same command in every mode — below
-- `VERSIONINFO` metadata in the executables, through the same `rc.exe` step that embeds the icon
-- The install section of the documentation pointing at a release rather than at `cargo build`
+  by hand. Written 2026-09-17 (`release.yml`, `scripts/release-notes.ps1`);
+  its first run is the first tag
+- [x] The documentation: *Getting started* and the README point at the release rather than at `cargo build`, the reference gains `purge`, *How it works* gains removal — 2026-09-17
+- [ ] Verified in the field: the MSI on two machines, one real upgrade, one purge round trip — the maintainer's machine done 2026-09-17, below
 
 **Done when** a tag alone produces a release a stranger can install from, and
 the two artefacts on it were built by the workflow from that tag's commit.
@@ -53,11 +58,12 @@ tasks, all of it — and nothing removes any of it without being asked.
 - **Upgrades never purge.** An upgrade replaces the executables and nothing
   else. For the MSI that is a constraint on the package, not a courtesy:
   `config.toml`, the log and the marker are user data, not components, so no
-  repair, upgrade or uninstall can touch them. The installer writes no
-  configuration; `init` does, when asked.
+  repair, upgrade or uninstall can touch them. The installer runs `init` at
+  the end, and `init` writes only where there is no file.
 - **Uninstalling does not purge either.** The MSI's uninstall removes what
-  the MSI installed — the executables — which is what Windows applications
-  ordinarily do. The zip has no uninstaller; the user deletes the folder.
+  the MSI installed — the executables and, since 2026-09-18, the logon task
+  it registered — which is what Windows applications ordinarily do. The zip
+  has no uninstaller; the user deletes the folder and runs `uninstall-task`.
 - **The purge is a command, `gamemode-executor purge`, not a script.** The
   program already knows every location — where the configuration was found,
   where the log is written, the local folder, the task names — and a script
@@ -88,10 +94,142 @@ tasks, all of it — and nothing removes any of it without being asked.
   alternative, no dialog and the documented command, and decides with the
   number in hand.
 
-**To measure, with the installer:** the self-removal of a hand-installed
-folder from a detached shell, and the cost of the uninstall-time prompt, in
-tables. The watcher's own task is registered with `LeastPrivilege`, so the
-purge needs no elevation to remove it.
+**Built 2026-09-17, `src/purge.rs`.** The plan is computed from a `Layout`
+that says what exists, separately from discovering the machine, so seven
+tests drive it on scratch folders — including the hand-installed case,
+where the executables are handed to a hidden Windows PowerShell that
+`Wait-Process`es on this process's id and then removes them; the test
+hands it the id of a process that has already exited. That replaced a
+first version built on `cmd.exe` with the batch idiom `ping -n 3
+127.0.0.1` as its pause, which the maintainer rightly found curious: a
+guessed delay, a shell whose quoting `std::process::Command` gets wrong
+(it escapes quotes as `\"` for `CommandLineToArgvW`, which `cmd.exe` does
+not read), and a program that promises to connect to nothing pinging
+anything at all. Waiting for the exact process is what was wanted. The
+installed case is told apart by `MsiEnumRelatedProducts` on the upgrade
+code, and a test checks
+the Rust constant against the one `scripts/msi.ps1` writes. The watcher is
+stopped with `WM_CLOSE` on its session window, found by `EnumWindows`
+because `FindWindow` cannot see a class another process registered, and
+the single-instance mutex says when it has gone. Still to measure: the
+cost of an uninstall-time prompt, in tables — not built, and not missed
+so far.
+
+**Run for real on 2026-09-17**, on the maintainer's hand-installed copy,
+after the recipe's `uninstall-tasks.ps1` and `uninstall-task`: it listed
+ten things and did them. Two lessons, both fixed the same evening: the
+shell that finishes the removal opened a console window — a process
+started with `DETACHED_PROCESS` has no console, so its first console child
+made a visible one; `CREATE_NO_WINDOW` alone gives it a hidden one to pass
+down — and the program's folder stayed because the PowerShell the command
+was typed into sat inside it, which the command now says. And one thing left
+behind by the rule: a log dated 2026-09-09 in `%APPDATA%\GameModeExecutor\logs`,
+from a layout no release ever shipped. The purge does not learn layouts
+nobody else has; the file was deleted by hand.
+
+## What the first install taught
+
+The maintainer purged the hand-installed copy, ran the package and followed
+*Getting started* as a stranger would, on 2026-09-17. It installed and
+worked, and four remarks came back, all taken the same evening:
+
+- **Nothing said it had worked.** A per-user package with no UI ends in
+  silence. Rather than a dialog — the design record says why the program
+  has none — the install now ends by starting the watcher, and the icon
+  appearing beside the clock is the confirmation.
+- **The package should write a configuration, only where there is none.**
+  Two custom actions, both the program's own commands: `init`, then
+  `install-task`, each keeping what exists unless `--force`, which the
+  package never passes. Type 1042 — an executable from the File table,
+  deferred, impersonated, as a per-user package must — sequenced after
+  `InstallFiles` and conditioned on `NOT Installed`, so they run on an
+  install and on an upgrade and never on a repair or removal. Measured
+  with a package of a separate test family beside the real one: both ran,
+  both kept what was there, the watcher was untouched. `init` used to fail
+  when the file existed, which would have failed every upgrade. A window
+  after all: a probe watching the actions' processes on 2026-09-18 saw a
+  console host with no title and no window and this record said so; the
+  maintainer, watching the screen, saw a console flash twice at the end of
+  the install. The probe was blind — a console host's window belongs to the
+  host, not to the process it serves — and the eye was right. Windows
+  Installer does not hide an executable action's console. Hiding the
+  `schtasks` child with `CREATE_NO_WINDOW` was not enough, because the
+  flash was the action's own console. The actions now run through
+  `gamemode-executorw.exe`, which has none; the maintainer saw no window on
+  the next install. To carry two commands, the twin took the whole command
+  line rather than two hidden verbs of its own, and the setup commands
+  write what they did to the log — recorded in
+  [the windowless watcher](05-windowless-watcher.md#two-binaries-the-w-convention).
+- **The starter configuration named FanControl.** It now names nothing:
+  two commands that beep, commented out, and a pointer to the recipes. That
+  needed a configuration with no commands to be valid, which it was not;
+  the watcher then detects, names and logs sessions and runs nothing, which
+  is the right first hour. The zip no longer ships a `config.toml` either;
+  `init` writes the same file the installer does, so both ways in leave
+  the same machine.
+- **After `install-task`, nothing said how to start it.** It starts the
+  task now, and says the icon is coming.
+- **The purge, first run:** it did what it listed; the two fixes are above.
+- **The first uninstall asked to close "GameModeExecutor watcher".** The
+  Restart Manager, at `InstallValidate`, lists every process holding a file
+  the install is about to remove, by its window title, and puts up its
+  dialog. Clicking through was clean — the handshake the session window
+  keeps for a *Quit* answered `WM_QUERYENDSESSION` and the log read
+  *Stopped* — but a dialog is a dialog. The package now stops the watcher
+  itself: `stop`, a command that is *Quit* from outside (`WM_CLOSE` on the
+  session window, then a wait on the single-instance mutex), run as an
+  immediate action before `InstallValidate` on an uninstall and on an
+  upgrade. It runs the executable already installed, since an upgrade has
+  not replaced it yet, and carries on if that fails — a version too old to
+  know `stop` gets the dialog back, visibly and harmlessly. `purge` uses
+  the same command. Two processes write the log at that moment, the
+  watcher's *Stopped* and the command's *Watcher stopped, as asked*; the
+  file is opened for appending only, so each write lands at the end by the
+  file system's doing, and 80 processes writing at once on 2026-09-18 left
+  80 whole lines. Whether an immediate action of a per-user package runs
+  in the interactive session, where `EnumWindows` can see the window, was
+  inferred from the deferred ones — which had — and measured on the first
+  uninstall of a package that carries it, 2026-09-18 01:27: *Stopped* from
+  the watcher, *Watcher stopped, as asked* 252 ms later from the action,
+  no *Windows asked to end the session* line — the Restart Manager never
+  had to ask — and, from the maintainer's own eyes this time, no dialog.
+  The reinstall fifty seconds later found the configuration and the task
+  where they were and started the watcher.
+- **The first upgrade of the real package,** 01:31 the same night, with a
+  0.1.1 built from the same binaries: *Stopped*, *Watcher stopped, as
+  asked*, then the old product's own stop action reporting *No watcher
+  was running* as `RemoveExistingProducts` ran its removal, then the
+  configuration and the task kept and the watcher started — 700 ms from
+  stop to start, the icon gone and back too fast to be seen, one product
+  listed afterwards. No dialog. The second stop was a wasted run and a
+  confusing line, so the action is now skipped in a product being removed
+  by an upgrade (`UPGRADINGPRODUCTCODE`); a package with that condition
+  has yet to be upgraded from, which the next release will do.
+- **The uninstall left the logon task behind, armed.** The rule above had
+  put the task with the user's data, and the maintainer's remark on the
+  reinstalled machine corrected it: a task that starts a missing executable
+  at every logon is not data kept for a reinstall, it is infrastructure
+  the package set up and must take down, and it fails visibly in Task
+  Scheduler until someone does. `UnregisterTask` now runs `uninstall-task`
+  on an uninstall, deferred, before `RemoveFiles` takes the executable it
+  runs; not on the removal an upgrade performs, so a delay or a
+  configuration path chosen with `install-task` survives the upgrade as
+  before. `purge` still removes the task itself, first, and the package's
+  action then finds none to remove. Measured the same night at 01:54: the
+  uninstall logged *Watcher stopped, as asked* then *Logon task removed*
+  133 ms later, the task was gone from Task Scheduler with the recipe's
+  tasks left beside where it had been, no dialog; the reinstall a minute
+  later logged *Logon task registered* with the user, the program, the
+  configuration path and the 15 s delay — the first time that line, rather
+  than *kept*, had been seen from the package.
+- **The package's own metadata.** Explorer's Details tab showed *Title:
+  Installation Database* — the phrase the SDK suggests, which tells a tool
+  what the file is and a person nothing. The summary now names the product
+  and its version in the title, says what it does in the subject, carries
+  the commit and the documentation link in the comments, and sets the
+  creation time, which Explorer otherwise takes from the file — and NTFS
+  tunnels a creation time across a delete-and-recreate seconds apart, so
+  it read as the build from the day before.
 
 ## Versioning
 
@@ -217,18 +355,34 @@ record of what it was weighed against. How the MSI is authored — the SDK
 tools, given what is said of WiX below — is confirmed when the lot starts
 and the tables are actually written, not before.
 
-**To measure first, before a single table is written.** Everything above
-about per-user MSI comes from Microsoft's documentation, not from this
-project; a minimal package settles it in an afternoon:
+**Measured 2026-09-17, three yeses.** A minimal package — one text file,
+no UI, built in PowerShell with nothing but Windows Installer's own COM
+automation and `makecab` — was installed, upgraded and removed from an
+unelevated shell, `/passive`, with a verbose log each time:
 
-1. A per-user MSI installs from an unelevated account **with no prompt**.
-2. A second MSI with a higher version, run `/passive` by an unelevated
-   process, replaces the files **with no prompt**, and *Programs and
-   Features* shows the new version.
-3. Uninstalling asks nothing and leaves the user's scheduled task alone.
+| | Result | The log's word for it |
+| --- | --- | --- |
+| Install 0.1.0 | exit 0 in 7 s, no prompt; the file in `%LOCALAPPDATA%\Programs\<name>\`, the product registered per-user (`AssignmentType=0`) and listed in *Programs and Features* | `MSI_LUA: Package is marked as LUA installation capable with no elevation required` |
+| Upgrade to 0.2.0 | exit 0 in 6 s, no prompt; file replaced, the old product gone, one product left at 0.2.0 | `Nested installation UAC elevation tracks that of parent (is not elevated)` — `RemoveExistingProducts` at 1510 removed 0.1.0 first |
+| Uninstall | exit 0 in 6 s, no prompt; folder gone, registration gone; the neighbouring folders, the watcher's install and its scheduled tasks untouched | `Removal completed successfully` |
 
-Three yeses close the choice. One no says exactly what to weigh against
-Inno Setup.
+Two things the documentation had not made plain. **The summary stream's
+"elevated privileges not required" bit (WordCount bit 3) is the whole
+mechanism**: with it set, Windows Installer treats the package as per-user
+outright, redirects `ProgramFilesFolder` to `%LOCALAPPDATA%\Programs`, and
+logs `MSIINSTALLPERUSER property is not valid for UAC compliant package.
+Ignoring` — so `ALLUSERS=2` and `MSIINSTALLPERUSER=1`, the dual-purpose
+recipe, are not needed for a program with no per-machine story, and the
+package is simpler without them. And **no SDK tool is needed to build the
+database**: the COM automation creates tables, inserts rows and embeds the
+cabinet, which means the release script can produce the MSI on a stock
+runner the same way it produces the zip. `MsiDb`, `MsiFiler` and `Orca`
+remain what they are, tools to inspect one. What the probe did not do and
+the real package must: carry versioned files with `VERSIONINFO`, and pass
+ICE validation (`MsiVal2`, from the SDK).
+
+The choice is closed: **MSI, authored from PowerShell through Windows
+Installer's automation, per-user by the summary bit.**
 
 Both candidates can offer per-user *or* per-machine from one installer, but
 **this program has no per-machine story**: the logon task, the configuration
@@ -283,29 +437,9 @@ The **zip** is the opposite case: nothing else owns the files, so there the
 updater swaps them itself. `MsiEnumRelatedProducts` on the package's
 UpgradeCode tells the two apart.
 
-Two things this settles for the updater, whenever it comes:
-
-- *The running executable.* The watcher holds its own `.exe`; MSI's Restart
-  Manager would show a files-in-use dialog even under `/passive`. So: refuse to
-  update while a game is on, then launch the installer *and quit*, with
-  `msiexec … & schtasks /Run Watcher` in a detached `cmd` to relaunch — no
-  custom action.
-- *The "no network" non-goal.* An automatic release check breaks it. The
-  compatible shape is a **Check for updates…** entry that connects only when
-  clicked, or an explicit opt-in — never a silent poll. Over **WinHTTP**, a
-  Microsoft library using the system certificate store. The download verified
-  against a SHA-256 published with the release, which guards against
-  corruption and not against a compromised account.
-
-**GitHub allows and provides for the check, with no key.** Either the REST
-API — `GET /repos/{owner}/{repo}/releases/latest`, 60 requests an hour per IP
-unauthenticated, `User-Agent` mandatory — or no API at all:
-`github.com/{owner}/{repo}/releases/latest` answers 302 with the tag in
-`Location`, and `…/releases/latest/download/{asset}` serves the latest asset,
-via a redirect that changes host to `objects.githubusercontent.com`. The second
-suffices: a `HEAD`, a `Location`, a tag compared with `build_info::VERSION`,
-nothing to parse. A token would only matter for a private repository, and
-embedding one in a public executable would be a fault.
+The updater itself — the menu entry, the check against GitHub, the
+download, the relaunch — is [Lot 13](13-updating.md), decided on 2026-09-17
+to be a lot of its own. What stays here is what it demands of the package.
 
 **Does it decide Inno against MSI?** No. Both need the same updater. It adds
 two cheap requirements to MSI — `VERSIONINFO`, wanted anyway, and the early

@@ -1,6 +1,7 @@
 [package]
 name = "game-mode-executor"
 version = "0.1.0"
+authors = ["Geoffrey Vancoetsem"]
 edition = "2024"
 # Let chains, stable since 1.88.
 rust-version = "1.88"
@@ -37,6 +38,9 @@ windows = { version = "0.62", features = [
     # CreateEventW and CreateMutexW take SECURITY_ATTRIBUTES, even as None.
     "Win32_Security",
     "Win32_Storage_Packaging_Appx",
+    # MsiEnumRelatedProducts: whether the installer owns the executables, which
+    # decides how `purge` removes them.
+    "Win32_System_ApplicationInstallationAndServicing",
     # WNDCLASSEXW names HBRUSH, HICON and HCURSOR, so the window class needs Gdi
     # even though this program never draws anything.
     "Win32_Graphics_Gdi",

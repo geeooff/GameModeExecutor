@@ -70,6 +70,52 @@ function Get-Version {
     $line.Matches[0].Groups[1].Value
 }
 
+# Runs the Windows SDK's Internal Consistency Evaluators over a package.
+#
+# MsiVal2 ships in the SDK as an installer of its own; an administrative
+# install (msiexec /a) unpacks it into target\ without elevation. Its ICE
+# evaluator, evalcom2.dll, is a COM server the tool creates by ProgID, and
+# the SDK's own package registers it under the CLSID of the *old* evalcom.dll,
+# which the new one refuses -- measured 2026-09-17; Orca's package has the
+# right one. So the CLSID is registered here, for this user only, under
+# HKCU\Software\Classes, which needs no elevation. Returns the findings
+# (errors and warnings) and how many evaluators ran.
+function Invoke-Ice([string] $Package) {
+    $kits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+    $source = Get-ChildItem (Join-Path $kits '10.0.*\x86\MsiVal2-x86_en-us.msi') -ErrorAction SilentlyContinue |
+              Sort-Object FullName | Select-Object -Last 1
+    if (-not $source) { Fail "the Windows SDK's MsiVal2 package is not under $kits" }
+
+    $val2 = Join-Path $root 'target\msival2'
+    $tool = Join-Path $val2 'MsiVal2\MsiVal2.exe'
+    if (-not (Test-Path $tool)) {
+        $extract = Start-Process msiexec.exe -Wait -PassThru `
+                   -ArgumentList @('/a', "`"$($source.FullName)`"", '/qn', "TARGETDIR=`"$val2`"")
+        if ($extract.ExitCode -ne 0 -or -not (Test-Path $tool)) { Fail "cannot unpack MsiVal2 (msiexec /a exited $($extract.ExitCode))" }
+    }
+
+    $dll = Join-Path $val2 'MsiVal2\evalcom2.dll'
+    $clsid = '{6E5E1910-8053-4660-B795-6B612E29BC58}'
+    foreach ($classes in 'HKCU:\Software\Classes', 'HKCU:\Software\Classes\WOW6432Node') {
+        $server = "$classes\CLSID\$clsid\InProcServer32"
+        if ((Get-ItemProperty $server -ErrorAction SilentlyContinue).'(default)' -ne $dll) {
+            New-Item -Path $server -Force | Out-Null
+            New-Item -Path "$classes\CLSID\$clsid\ProgID" -Force | Out-Null
+            New-Item -Path "$classes\MSI.EVALCOM2.1\CLSID" -Force | Out-Null
+            Set-ItemProperty -Path $server -Name '(default)' -Value $dll
+            Set-ItemProperty -Path $server -Name 'ThreadingModel' -Value 'Apartment'
+            Set-ItemProperty -Path "$classes\CLSID\$clsid\ProgID" -Name '(default)' -Value 'MSI.EVALCOM2.1'
+            Set-ItemProperty -Path "$classes\MSI.EVALCOM2.1\CLSID" -Name '(default)' -Value $clsid
+        }
+    }
+
+    $output = & $tool $Package (Join-Path $val2 'MsiVal2\darice.cub') 2>&1 | ForEach-Object { "$_" }
+    if ($output -match 'Fatal Error') { Fail "MsiVal2 could not run: $($output -join ' ')" }
+    $ran = @($output | ForEach-Object { if ($_ -match '^(ICE\d+)\s') { $Matches[1] } } | Sort-Object -Unique).Count
+    $findings = @($output | Where-Object { $_ -match '^ICE\d+\s+(ERROR|WARNING)' } | ForEach-Object { $_.Trim() })
+    [pscustomobject] @{ Ran = $ran; Findings = $findings }
+}
+
 # --- the checks -------------------------------------------------------------
 
 function Invoke-Tests {
@@ -186,6 +232,22 @@ function Invoke-Build {
         Write-Host ("    {0,-24} {1}" -f $name, $label[$subsystem])
     }
 
+    # build.rs writes a version block into each executable: the Properties
+    # dialog reads it, and Windows Installer's repair and upgrade rules need
+    # versioned files. A miss is only a warning at build time, so it is
+    # checked here instead.
+    Step "Version resources"
+    $version = Get-Version
+    foreach ($name in 'gamemode-executor.exe', 'gamemode-executorw.exe') {
+        $info = (Get-Item (Join-Path $root "target\release\$name")).VersionInfo
+        if ($info.ProductVersion -ne $version) { Fail "$name carries product version '$($info.ProductVersion)', expected $version" }
+        if ($info.FileVersionRaw -ne [version] "$version.0") { Fail "$name carries file version $($info.FileVersionRaw), expected $version.0" }
+        if ($info.OriginalFilename -ne $name) { Fail "$name says its original name is '$($info.OriginalFilename)'" }
+        if (-not $info.FileDescription) { Fail "$name has no file description" }
+        $flag = if ($info.IsPrivateBuild) { '  (private build: uncommitted changes)' } else { '' }
+        Write-Host ("    {0,-24} {1}{2}" -f $name, $info.FileVersion, $flag)
+    }
+
     # The release profile -- opt-level z, LTO, strip, panic = abort -- keeps
     # each binary near 1.1 MB. Losing it is silent: everything still builds and
     # runs, only twice as large and unwinding on panic, which the FATAL hook was
@@ -213,10 +275,8 @@ function Invoke-Release {
     Copy-Item (Join-Path $root 'target\release\gamemode-executor.exe')  $stage
     Copy-Item (Join-Path $root 'target\release\gamemode-executorw.exe') $stage
     Copy-Item (Join-Path $root 'LICENSE') $stage
-    # The FanControl recipe's configuration is the shipped default: it is the
-    # case this program was built for, and it is inert until its tasks exist.
-    Copy-Item (Join-Path $root 'docs\recipes\fancontrol-fan-profiles\config.toml') `
-              (Join-Path $stage 'config.toml')
+    # No configuration in the zip: `init` writes the starter one where the
+    # installer would, so both ways in leave the same machine behind.
     # The docs ship as they are, rather than being rewritten for the bundle.
     # One copy means the bundle cannot describe a version that no longer exists.
     Copy-Item (Join-Path $root 'docs') $stage -Recurse
@@ -239,22 +299,18 @@ Runs the programs you configure when a game starts, and others when it stops.
 There is no list of games to maintain: detection is Windows' own.
 
 Nothing to install. Keep this folder where you put it -- the scheduled task
-will remember this path.
+will remember this path. Then, from a terminal in this folder:
+
+    gamemode-executor init            writes a starter configuration
+    gamemode-executor install-task    starts the watcher now and at every logon
+
+The starter configuration runs nothing; the icon that appears shows the
+watcher is working. What to run is yours to write -- docs\recipes\ has
+worked examples, one folder each.
 
 START HERE
     docs\getting-started.md, next to this file -- or the documentation link
     above, which is the same page at the exact commit this was built from.
-
-THE RECIPE THIS BUNDLE IS SET UP FOR
-    docs\recipes\fancontrol-fan-profiles\
-    Quiet fans outside games, a game profile while playing, with FanControl.
-    config.toml here is already that recipe. It does nothing until you
-    register its two scheduled tasks -- that folder has a script for it.
-
-    You need two FanControl configurations saved on this machine -- one for
-    everyday use, one for games, named however you like. The script asks
-    which is which. They are not shipped and cannot be: a fan curve depends
-    on the machine's own hardware.
 
 THE TWO EXECUTABLES
     gamemode-executor.exe    the one you talk to. Every command. It answers,
@@ -274,6 +330,30 @@ https://github.com/Geeooff/GameModeExecutor
     Step "Packaging"
     if (Test-Path $zip) { Remove-Item $zip }
     Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
+
+    # The installer: the same two executables and the license, per-user, no
+    # elevation, built by scripts\msi.ps1 from Windows Installer's own
+    # automation. The commit and the documentation link come from the
+    # binary, as the readme's do.
+    Step "Windows Installer package"
+    $msi = Join-Path $root "dist\GameModeExecutor-$version.msi"
+    $docLink = ($stamp | Select-String -Pattern '^documentation:\s+(\S+)').Matches[0].Groups[1].Value
+    $commit = ($stamp | Select-String -Pattern '^commit:\s+([0-9a-f]{8})').Matches[0].Groups[1].Value
+    $package = & (Join-Path $root 'scripts\msi.ps1') -Stage $stage -Version $version -Out $msi `
+                 -Commit $commit -DocumentationUrl $docLink `
+                 -Icon (Join-Path $root 'assets\icons\gamemode-active-light.ico')
+    Write-Host "    product $($package.ProductCode)"
+    Write-Host "    package $($package.PackageCode)"
+
+    # Every ICE the SDK ships, and nothing tolerated: a warning here is a
+    # package that behaves oddly on someone else's machine.
+    Step "Package validation"
+    $ice = Invoke-Ice -Package $msi
+    if ($ice.Findings) {
+        $ice.Findings | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+        Fail "the package has ICE findings"
+    }
+    Write-Host "    $($ice.Ran) evaluators ran, no errors, no warnings"
 
     # A personal path baked into a public artefact is the kind of thing nobody
     # looks for until it is already published.
@@ -301,6 +381,7 @@ https://github.com/Geeooff/GameModeExecutor
 
     Write-Host ""
     Write-Host "dist\GameModeExecutor-$version.zip  ($([math]::Round((Get-Item $zip).Length / 1KB)) KB)" -ForegroundColor Green
+    Write-Host "dist\GameModeExecutor-$version.msi  ($([math]::Round((Get-Item $msi).Length / 1KB)) KB)" -ForegroundColor Green
 }
 
 # --- go ---------------------------------------------------------------------

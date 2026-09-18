@@ -97,9 +97,15 @@ It is not a setting you flip afterwards. So a program that must both sit
 silently in the background *and* answer you when you type commands cannot be one
 file.
 
-Hence the pair. `gamemode-executorw.exe` watches and says nothing;
-`gamemode-executor.exe` is everything you type. Python solves the same problem
-the same way, with `python.exe` and `pythonw.exe`.
+Hence the pair. Both understand the same commands. `gamemode-executor.exe`
+is the one you type them into, because it answers where you can read it and
+a shell waits for it to finish. `gamemode-executorw.exe` prints nothing and
+nobody waits for it, which is exactly right for the two things that run it:
+the logon task, which runs the watcher, and the installer, which writes your
+starter configuration and registers the task through it — a console program
+would flash a black window in the middle of the install. What it did is
+written in the log instead. Python solves the same problem the same way, with
+`python.exe` and `pythonw.exe`.
 
 The alternative — one windowless program that borrows the terminal it was
 launched from — was tried on paper and rejected: a shell does not wait for a
@@ -107,7 +113,8 @@ windowless program, so the prompt comes back before the output, and commands
 like `validate` would stop reporting success or failure to any script using
 them. Silently, which is the worst way for that to break.
 
-Both files are built from the same code, so the watcher they run is identical.
+Both files are built from the same code, so the watcher they run is identical,
+and so is every command.
 
 ## Only one watcher at a time
 
@@ -117,7 +124,13 @@ rather than doubling up your commands.
 
 ## What starts it, and why not a service
 
-A **per-user scheduled task**, triggered at logon, fifteen seconds in.
+A **per-user scheduled task**, triggered at logon, fifteen seconds in. The
+installer registers it and starts it once the files are in place, which is
+why the icon appears as the install ends; from the zip, `install-task` does
+the same by hand. Before an upgrade or an uninstall replaces or removes the
+executables, the installer runs `stop` — *Quit*, typed — so Windows never
+finds the watcher holding a file it is about to touch and never has to ask
+you to close it.
 
 A Windows service was considered and dropped. Services run before anyone logs
 on, in a separate session, where they cannot see the desktop the game is on —
@@ -165,6 +178,36 @@ is off.
 leaves your profile alone, and so does the next logon.
 
 `gamemode-executor status` shows whether that file is there, and where.
+
+## Removing it
+
+Uninstalling from *Programs and Features* removes what the installer put
+there — the executables and the logon task it registered, which would
+otherwise try to start a missing program at every logon — and nothing else,
+as Windows applications ordinarily do: your configuration, the log and the
+session marker stay, so that installing again finds everything as you left
+it. Upgrading touches none of them, the task included.
+
+When you want every trace gone, ask for it:
+
+```
+gamemode-executor purge
+```
+
+It lists what it is about to remove and waits for a `yes`: the logon task,
+the configuration wherever it found it, the log wherever it was written, the
+session marker, its two profile folders once they are empty, and last the
+executables — through Windows Installer when they were installed from the
+package, or by deleting them once the command has exited when they were
+unpacked from the zip. It refuses while a game is running, because a purge
+then would leave your gaming configuration on with nothing left to restore
+it; and it stops the running watcher first, the way *Quit* does.
+
+It removes only what it recognises as its own. A scheduled task it did not
+register — the ones a recipe had you create, say — stays, and so does the
+`\GameModeExecutor` folder in Task Scheduler around it; a folder that holds
+anything else stays too. The recipes carry their own way out for what they
+added.
 
 ## What it does not do
 

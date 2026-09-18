@@ -60,9 +60,9 @@ deleted.
   `ALL CAPS` categories, no `camelCase` in prose. Conversation with the
   maintainer is in French.
 - **Log lines follow the contract in `docs/reference.md`.** `info` is
-  reserved for detection and the watcher's own start and stop; everything
-  else is `debug` unless it is a degradation (`warn`) or needs the user
-  (`error`). The message is the sentence, the fields are the technical annex,
+  reserved for detection, the watcher's own start and stop, and what the
+  setup commands did to the machine; everything else is `debug` unless it is
+  a degradation (`warn`) or needs the user (`error`). The message is the sentence, the fields are the technical annex,
   and every call names a `target:` — a test fails the build otherwise.
 - Module-level doc comments carry the rules a module is shaped by (the tray's
   re-entrancy rule, the marker's location, the engine's callback). Read them
@@ -88,7 +88,7 @@ deleted.
 ```powershell
 .\scripts\build.ps1 test       # fmt, clippy -D warnings, tests, every shipped config.toml validated, every doc link resolved
 .\scripts\build.ps1 build      # + release build, PE subsystem check
-.\scripts\build.ps1 release    # + refuses a dirty tree, checks the stamped commit, zips into dist\
+.\scripts\build.ps1 release    # + refuses a dirty tree, checks the stamped commit, zips into dist\, builds and validates the MSI
 ```
 
 Run `test` before every commit and read its result — a `FAILED` scrolling
@@ -96,6 +96,13 @@ past a `git commit` in the same block has happened. `release` requires a clean
 tree because the binaries carry the commit they were built from, and
 `--version` links to that commit's `docs/getting-started.md`: build a release
 from the commit that carries the final documentation, never before it.
+
+**Publishing a release** is a tag, and the tag needs explicit approval like
+any push: bump `version` in `Cargo.toml` in the release commit, merge it,
+tag that commit `vX.Y.Z`, push the tag. The release workflow runs the same
+script on a runner and publishes the installer, the zip and their checksums.
+Versions follow `docs/design/08-distribution.md`: the number moves only in
+a release commit, and 1.0.0 waits for the criteria written there.
 
 Three tests read this machine's registry — the Known Game List, the Game Bar
 registration, the real sensor — which a GitHub-hosted Windows Server runner

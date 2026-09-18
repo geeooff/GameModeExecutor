@@ -22,10 +22,11 @@ by this mechanism — measured on 2026-09-16, below, and taken up in
 | Binary | Subsystem | For |
 | --- | --- | --- |
 | `gamemode-executor.exe` | `WINDOWS_CUI` | everything typed: `status`, `validate`, `check`, `trigger`, `init`, `install-task`, and `run` |
-| `gamemode-executorw.exe` | `WINDOWS_GUI` | watching, and nothing else. What the logon task runs. |
+| `gamemode-executorw.exe` | `WINDOWS_GUI` | the same command line, printing nothing. What the logon task runs, and since 2026-09-18 what the installer runs. |
 
-Both are a few lines over the same library; `src/service.rs` holds the one
-implementation of "run the watcher" they share. Verified by reading the
+Both are a few lines over the same library; `src/cli.rs` holds the one
+command line they share and `src/service.rs` the one implementation of "run
+the watcher". Verified by reading the
 subsystem field out of each PE header rather than by trusting build settings.
 
 Three ways to keep the CLI were weighed:
@@ -44,6 +45,21 @@ Three ways to keep the CLI were weighed:
    Does not meet "nothing on screen".
 
 The first was taken.
+
+**Amended 2026-09-18.** The twin took the whole command line. Until then it
+accepted `--config` and `--log-level` and watched, and everything typed
+belonged to the console binary alone — a rule that held until the installer
+needed to run `init` and `install-task` with no console to flash (see
+[Distribution](08-distribution.md#what-the-first-install-taught)). Two
+hidden verbs on the twin would have done it, and would have been a second,
+undocumented command line to keep in step with the first. Instead the two
+binaries parse the same `Cli` from the library and differ in one boolean,
+whether there is a console to print to. What people are told does not
+change: type the console one, the twin says nothing. What the setup commands
+do is written in the log under `setup`, so the twin running them loses no
+information — until then their confirmations were printed and recorded
+nowhere else, and a machine that misbehaved could not be read back to the
+day it was set up.
 
 ## The window, and why it is here rather than with the icon
 

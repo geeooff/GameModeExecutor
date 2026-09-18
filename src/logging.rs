@@ -46,9 +46,13 @@ pub mod target {
     pub const GAME: &str = "game";
     /// Running the executables from the configuration.
     pub const COMMANDS: &str = "commands";
+    /// Setting the program up and taking it down: the starter configuration,
+    /// the logon task. Written by the commands and by the installer alike,
+    /// so the log says who did what to this machine and when.
+    pub const SETUP: &str = "setup";
 
     /// Every category, in the order they appear in a session.
-    pub const ALL: &[&str] = &[WATCHER, GAME, COMMANDS];
+    pub const ALL: &[&str] = &[WATCHER, GAME, COMMANDS, SETUP];
 
     /// Width of the category column, so messages line up whatever the category.
     pub(super) const WIDTH: usize = 8;
@@ -286,6 +290,14 @@ pub fn init(level: &str, log_dir: Option<&Path>, console: bool) -> Result<()> {
             // thread would save nothing at this volume and costs the only lines
             // that really matter: the release profile aborts on panic, so
             // nothing is dropped and a buffered crash report is never flushed.
+            //
+            // Two processes write this file at once when `stop` or the
+            // installer asks a running watcher to quit. Append mode opens it
+            // with FILE_APPEND_DATA and not FILE_WRITE_DATA, so Windows
+            // places every WriteFile at the end of the file itself, and the
+            // formatter hands a whole line to one write: lines interleave,
+            // never tear. Measured on 2026-09-18 with 80 processes writing at
+            // once -- 80 lines, all intact.
             let path = dir.join(LOG_FILE_NAME);
             let file = std::fs::OpenOptions::new()
                 .create(true)
