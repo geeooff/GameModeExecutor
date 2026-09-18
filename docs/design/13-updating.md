@@ -347,9 +347,12 @@ task pointed at the unpacked copy; then the package.
   pending file the previous one wrote; the published `0.1.0` predates the
   file, so after these runs no notification followed the click. From the
   first release that carries this code, every update ends with the new
-  version saying it runs — to be seen on the first real release pair. An
-  *Installing* notice had filled the gap that afternoon; the maintainer
-  found it one too many, and it went.
+  version saying it runs. The notification itself was seen at 18:05, on
+  a `0.0.9` build started with a pending file planted by hand: *Updated
+  to 0.0.9* in the log and on screen. The chain — one version writes, the
+  next reads — waits for the first real release pair. An *Installing*
+  notice had filled the gap that afternoon; the maintainer found it one
+  too many, and it went.
 - **A word swallowed in the resume line**: the source carried a run of
   spaces where a line continuation had been meant, and the log showed it.
   Fixed; the pitfall was the editing tool, not the code.
