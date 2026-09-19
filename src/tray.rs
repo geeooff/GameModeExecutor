@@ -43,7 +43,8 @@ use crate::win::StopSignal;
 /// Our callback message. `WM_APP + 1` is the watcher-finished message in `win`.
 const WM_TRAY: u32 = WM_APP + 2;
 
-/// Posted by the watcher thread when the session changed.
+/// Posted by the watcher thread when the session changed, or the
+/// configuration became unusable or usable again.
 const WM_SESSION: u32 = WM_APP + 3;
 
 /// Posted by the updater's worker when an outcome left a notice to show.
@@ -72,11 +73,31 @@ enum Session {
 
 static SESSION: std::sync::Mutex<Session> = std::sync::Mutex::new(Session::Idle);
 
-fn session() -> Session {
-    SESSION
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .clone()
+/// Why the configuration cannot be used, in one line, or `None` while it
+/// can. The second axis the icon is drawn from, written by the supervisor
+/// in `service` through [`fault_sink`]. Nothing is watched while it is
+/// `Some`, so it takes precedence over the session on every surface.
+static FAULT: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// The two facts every surface is drawn from, read together so the icon,
+/// the tooltip and the menu cannot disagree about either.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Facts {
+    session: Session,
+    fault: Option<String>,
+}
+
+fn facts() -> Facts {
+    Facts {
+        session: SESSION
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone(),
+        fault: FAULT
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone(),
+    }
 }
 
 /// Hand this to the engine so it reports session changes here.
@@ -101,6 +122,33 @@ pub fn session_sink(window: isize) -> crate::engine::SessionSink {
             *held = next;
         }
         // Wake the thread that owns the window; it reads the value itself.
+        // SAFETY: posting carries no pointers, and a window that is gone makes
+        // the call fail, which is ignored.
+        unsafe {
+            let _ = PostMessageW(
+                Some(HWND(window as *mut std::ffi::c_void)),
+                WM_SESSION,
+                WPARAM(0),
+                LPARAM(0),
+            );
+        }
+    })
+}
+
+/// Hand this to the supervisor so it reports the configuration's faults
+/// here: the summary is stored and the window's thread redraws from it.
+pub fn fault_sink(window: isize) -> crate::config::FaultSink {
+    Arc::new(move |fault: Option<&crate::config::LoadError>| {
+        let next = fault.map(crate::config::LoadError::summary);
+        {
+            let mut held = FAULT
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if *held == next {
+                return;
+            }
+            *held = next;
+        }
         // SAFETY: posting carries no pointers, and a window that is gone makes
         // the call fail, which is ignored.
         unsafe {
@@ -260,11 +308,16 @@ mod dark {
 
 /// What the icon should be showing, derived rather than stored.
 fn current_state() -> State {
-    state_for(&session())
+    state_for(&facts())
 }
 
-fn state_for(session: &Session) -> State {
-    match session {
+/// A fault is the error state whatever the session: nothing is watched
+/// while the configuration is unusable, so a green icon would be a lie.
+fn state_for(facts: &Facts) -> State {
+    if facts.fault.is_some() {
+        return State::Error;
+    }
+    match facts.session {
         Session::Idle => State::Idle,
         Session::Playing(_) => State::Active,
     }
@@ -273,24 +326,33 @@ fn state_for(session: &Session) -> State {
 /// Windows truncates `szTip` at 128 units including the terminator, and a
 /// game's name is not always short.
 fn tooltip() -> String {
-    truncate(&tooltip_for(&session()), 127)
+    truncate(&tooltip_for(&facts()), 127)
 }
 
-fn tooltip_for(session: &Session) -> String {
-    match session {
+fn tooltip_for(facts: &Facts) -> String {
+    if facts.fault.is_some() {
+        return "GameModeExecutor - configuration error".to_owned();
+    }
+    match &facts.session {
         Session::Idle => "GameModeExecutor - no game detected".to_owned(),
         Session::Playing(Some(name)) => format!("GameModeExecutor - playing {name}"),
         Session::Playing(None) => format!("GameModeExecutor - {UNNAMED}"),
     }
 }
 
-/// The disabled first line of the menu: the same fact, room for more words.
+/// The disabled first line of the menu: the same fact, room for more words
+/// -- and, for a fault, the words that say what to fix, next to the *Edit
+/// configuration* entry that opens the file. Cut where a menu would run
+/// off the screen; the log has the whole line.
 fn menu_header() -> String {
-    menu_header_for(&session())
+    truncate(&menu_header_for(&facts()), 160)
 }
 
-fn menu_header_for(session: &Session) -> String {
-    match session {
+fn menu_header_for(facts: &Facts) -> String {
+    if let Some(fault) = &facts.fault {
+        return format!("Configuration error: {fault}");
+    }
+    match &facts.session {
         Session::Idle => "No game detected".to_owned(),
         Session::Playing(Some(name)) => format!("Playing {name}"),
         Session::Playing(None) => UNNAMED.to_owned(),
@@ -369,9 +431,10 @@ pub enum State {
     Idle,
     /// A game is detected.
     Active,
-    /// Reserved: nothing sets this yet, and the engine has no notion of a
-    /// standing error. The artwork exists so the meaning is already spoken for
-    /// and nobody reaches for the slash to mean something else.
+    /// The configuration cannot be used and nothing is watched until it is
+    /// fixed; the menu's first line says what is wrong. The one standing
+    /// error the program has, since 2026-09-19; the artwork was reserved
+    /// for it so nobody reached for the slash to mean something else.
     Error,
 }
 
@@ -554,7 +617,8 @@ impl Tray {
             }
             WM_SETTINGCHANGE if setting_is(lparam, "ImmersiveColorSet") => Plan::Reload,
             WM_DPICHANGED => Plan::Reload,
-            // The engine says a game started, was renamed, or ended.
+            // The engine says a game started, was renamed, or ended; or the
+            // supervisor says the configuration broke or was fixed.
             WM_SESSION => Plan::Reload,
             WM_UPDATE => Plan::Notify,
             _ => Plan::Ignore,
@@ -1066,22 +1130,44 @@ mod tests {
     /// checked against one another rather than one at a time.
     #[test]
     fn the_three_surfaces_agree() {
-        let playing = Session::Playing(Some("bf6.exe".to_owned()));
+        let playing = sound(Session::Playing(Some("bf6.exe".to_owned())));
         assert_eq!(state_for(&playing), State::Active);
         assert!(tooltip_for(&playing).contains("bf6.exe"));
         assert!(menu_header_for(&playing).contains("bf6.exe"));
 
-        let idle = Session::Idle;
+        let idle = sound(Session::Idle);
         assert_eq!(state_for(&idle), State::Idle);
         assert!(tooltip_for(&idle).contains("no game"));
         assert!(menu_header_for(&idle).contains("No game"));
+    }
+
+    /// A configuration that cannot be used is the error state on every
+    /// surface, whatever the session: nothing is watched meanwhile. The
+    /// menu carries the reason, next to the entry that opens the file.
+    #[test]
+    fn a_configuration_fault_overrides_the_session_on_every_surface() {
+        for session in [Session::Idle, Session::Playing(Some("bf6.exe".to_owned()))] {
+            let faulty = Facts {
+                session,
+                fault: Some("line 3: unknown field `log_levl`".to_owned()),
+            };
+            assert_eq!(state_for(&faulty), State::Error);
+            assert_eq!(
+                tooltip_for(&faulty),
+                "GameModeExecutor - configuration error"
+            );
+            assert_eq!(
+                menu_header_for(&faulty),
+                "Configuration error: line 3: unknown field `log_levl`"
+            );
+        }
     }
 
     /// A title Windows tracks but does not describe. All three have to say
     /// something, and the same something -- an empty space would read as a bug.
     #[test]
     fn an_unnamed_game_still_reads_sensibly() {
-        let unnamed = Session::Playing(None);
+        let unnamed = sound(Session::Playing(None));
         assert_eq!(state_for(&unnamed), State::Active);
         assert_eq!(menu_header_for(&unnamed), UNNAMED);
         assert!(tooltip_for(&unnamed).contains(UNNAMED));
@@ -1091,7 +1177,7 @@ mod tests {
     /// not always short. Windows truncates silently, so we do it visibly.
     #[test]
     fn a_very_long_name_is_cut_to_fit() {
-        let long = Session::Playing(Some("x".repeat(400)));
+        let long = sound(Session::Playing(Some("x".repeat(400))));
         let text = truncate(&tooltip_for(&long), 127);
         assert!(text.encode_utf16().count() <= 127, "{}", text.len());
         assert!(text.ends_with('\u{2026}'), "{text}");
@@ -1105,6 +1191,40 @@ mod tests {
         assert!(text.chars().all(|c| c == 'é' || c == '\u{2026}'), "{text}");
     }
 
+    /// A session with no configuration fault.
+    fn sound(session: Session) -> Facts {
+        Facts {
+            session,
+            fault: None,
+        }
+    }
+
+    /// The two sinks write process-wide state, so the tests that drive them
+    /// take turns.
+    static SURFACES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// The fault sink stores the summary, the surfaces switch to the error
+    /// state over whatever the session is, and `None` gives them back.
+    /// Window `0`, as below.
+    #[test]
+    fn the_fault_sink_overlays_the_session_and_lifts_again() {
+        let _turn = SURFACES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let path = std::path::Path::new("config.toml");
+        let fault = crate::config::Config::parse("[general]\nlog_levl = 1\n", path).unwrap_err();
+        let sink = fault_sink(0);
+
+        sink(Some(&fault));
+        assert_eq!(current_state(), State::Error);
+        assert!(tooltip().contains("configuration error"));
+        assert!(menu_header().starts_with("Configuration error: line 2: unknown field"));
+
+        sink(None);
+        assert_eq!(current_state(), State::Idle);
+        assert!(tooltip().contains("no game"));
+    }
+
     /// The engine reports on every refinement, and most of those land on the
     /// same name. Without the early return the shell would be asked to redraw
     /// an identical icon each time.
@@ -1113,6 +1233,9 @@ mod tests {
     /// is what lets the plumbing be tested without a window.
     #[test]
     fn the_sink_carries_changes_and_swallows_repeats() {
+        let _turn = SURFACES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let sink = session_sink(0);
         let signal = crate::detect::GameSignal {
             source: "test",
@@ -1124,22 +1247,28 @@ mod tests {
         use crate::engine::Session as Engine;
 
         sink(&Engine::Playing(Some(signal.clone())));
-        assert_eq!(session(), Session::Playing(Some("bf6.exe".to_owned())));
+        assert_eq!(
+            facts().session,
+            Session::Playing(Some("bf6.exe".to_owned()))
+        );
         assert_eq!(current_state(), State::Active);
         assert!(tooltip().contains("bf6.exe"));
 
         // The same thing again changes nothing.
         sink(&Engine::Playing(Some(signal)));
-        assert_eq!(session(), Session::Playing(Some("bf6.exe".to_owned())));
+        assert_eq!(
+            facts().session,
+            Session::Playing(Some("bf6.exe".to_owned()))
+        );
 
         // A game Windows tracks but does not name is still a game.
         sink(&Engine::Playing(None));
-        assert_eq!(session(), Session::Playing(None));
+        assert_eq!(facts().session, Session::Playing(None));
         assert_eq!(current_state(), State::Active);
         assert!(tooltip().contains("does not name"));
 
         sink(&Engine::Idle);
-        assert_eq!(session(), Session::Idle);
+        assert_eq!(facts().session, Session::Idle);
         assert_eq!(current_state(), State::Idle);
         assert!(tooltip().contains("no game"));
     }

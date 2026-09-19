@@ -179,6 +179,12 @@ pub fn run(cli: Cli, console: bool) -> Result<()> {
     }
 
     let path = resolve_config_path(cli.config)?;
+    // The watcher loads the file itself: one it cannot use is shown in the
+    // icon and waited on, not a reason to exit. The commands below need a
+    // usable one and say so with the exit code.
+    if matches!(cli.command, None | Some(Command::Run { .. })) {
+        return service::serve(&path, cli.log_level.as_deref(), console);
+    }
     let config = Config::load(&path)?;
     let level = cli
         .log_level
@@ -204,7 +210,7 @@ pub fn run(cli: Cli, console: bool) -> Result<()> {
             actions::run_all(actions, &actions::ActionContext::new(label, None));
             Ok(())
         }
-        _ => service::serve(config, &path, &level, console),
+        _ => unreachable!("every other command returned above"),
     }
 }
 

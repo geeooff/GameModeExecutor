@@ -134,7 +134,8 @@ impl<S: Sensor> Engine<S> {
     ///
     /// The other case, decided 2026-09-18: the writer is still running, so the
     /// game never ended -- the last watcher handed the session over for an
-    /// update, or crashed under it. Then nothing runs, neither stop nor start,
+    /// update, the last engine of this process stopped for a reload, or a
+    /// watcher crashed under it. Then nothing runs, neither stop nor start,
     /// and the session is taken up where it was. Looking for the writer
     /// *before* recovering is what keeps a game still on from getting the
     /// idle and then the gaming configuration seconds apart. Returns the
@@ -153,17 +154,21 @@ impl<S: Sensor> Engine<S> {
                 Some(game) => tracing::info!(
                     target: target::GAME,
                     since = pending.since.as_deref(),
-                    "The last watcher left a session open with {game} still running, so it resumes where it was"
+                    "A session was left open with {game} still running, so it resumes where it was"
                 ),
                 None => tracing::info!(
                     target: target::GAME,
                     since = pending.since.as_deref(),
-                    "The last watcher left a session open with a game still running, so it resumes where it was"
+                    "A session was left open with a game still running, so it resumes where it was"
                 ),
             }
             self.report(&Session::Playing(signal.clone()));
             return Some((pid, signal));
         }
+        // The session is over. Said before the commands, as `fire_stop` does,
+        // and said at all because the icon may still show the session the
+        // engine before this one -- stopped for a reload -- left open.
+        self.report(&Session::Idle);
         match &pending.game {
             Some(game) => tracing::info!(
                 target: target::GAME,
@@ -270,13 +275,24 @@ impl<S: Sensor> Engine<S> {
                 // A handover: the watcher that follows resumes this session,
                 // so nothing runs and the marker stays open. The commands
                 // would only have swapped the configuration twice in the
-                // middle of a game.
-                if stop.reason() == StopReason::Handover {
-                    tracing::info!(
-                        target: target::WATCHER,
-                        "Stopping for an update; the game session is handed to the next watcher"
-                    );
-                    return Ok(());
+                // middle of a game. A reload is the same handover, to the
+                // engine the supervisor builds next on the changed file.
+                match stop.reason() {
+                    StopReason::Handover => {
+                        tracing::info!(
+                            target: target::WATCHER,
+                            "Stopping for an update; the game session is handed to the next watcher"
+                        );
+                        return Ok(());
+                    }
+                    StopReason::Reload => {
+                        tracing::debug!(
+                            target: target::WATCHER,
+                            "Stopping for a reload; the game session is kept open for the next engine"
+                        );
+                        return Ok(());
+                    }
+                    StopReason::Restore => {}
                 }
                 if self.config.general.stop_actions_on_exit {
                     // Stays at info: without it the reader sees a session end

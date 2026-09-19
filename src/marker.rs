@@ -29,6 +29,7 @@ use std::path::{Path, PathBuf};
 /// comment lines inside are for whoever opens it anyway.
 pub const FILE_NAME: &str = "pending-stop-actions";
 
+#[derive(Clone)]
 pub struct Marker {
     path: PathBuf,
 }

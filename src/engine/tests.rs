@@ -39,6 +39,9 @@ struct Scripted {
     /// A stop reported by `wait_for_writer_exit` is a handover, as
     /// `stop --handover` from an update makes it.
     stops_by_handover: bool,
+    /// A stop reported by `wait_for_writer_exit` is a reload, as a change
+    /// to the configuration file makes it.
+    stops_by_reload: bool,
     stop: Arc<StopSignal>,
 }
 
@@ -54,12 +57,18 @@ impl Scripted {
             counters_unreadable: false,
             session_ends_with_writer: false,
             stops_by_handover: false,
+            stops_by_reload: false,
             stop: Arc::clone(stop),
         }
     }
 
     fn stops_by_handover(mut self) -> Self {
         self.stops_by_handover = true;
+        self
+    }
+
+    fn stops_by_reload(mut self) -> Self {
+        self.stops_by_reload = true;
         self
     }
 
@@ -133,6 +142,9 @@ impl Sensor for Scripted {
         }
         if self.stops_by_handover && outcome == WaitOutcome::Stopped {
             self.stop.signal_handover();
+        }
+        if self.stops_by_reload && outcome == WaitOutcome::Stopped {
+            self.stop.signal_reload();
         }
         Ok(outcome)
     }
@@ -651,6 +663,44 @@ fn a_handover_mid_game_runs_nothing_and_leaves_the_session_open() {
 }
 
 #[test]
+fn a_reload_mid_game_is_a_handover_to_the_next_engine() {
+    // The configuration changed while a game is on. The engine stops as for
+    // an update -- nothing runs, the session stays open -- and the signal
+    // says so, so the supervisor knows to build the next engine rather than
+    // return; taking the reload clears it for that engine's run.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let sensor = Scripted::new(&stop)
+        .writer(&[Some(7)])
+        .waits(&[WaitOutcome::Stopped])
+        .stops_by_reload()
+        .candidates(&[&[game(10, "game.exe")]]);
+    let dir = scratch();
+    let ran = dir.join("stop-ran");
+    let mut config = quick_config();
+    config.on_game_stop = stop_event(vec![touch(&ran)]);
+    let (sink, log) = recorder();
+
+    let mut engine = Engine::new(config, sensor)
+        .reporting_to(sink)
+        .remembering(Marker::in_dir(&dir));
+    engine.run(&stop).unwrap();
+
+    assert!(!ran.exists(), "the stop commands did not run");
+    assert!(
+        Marker::in_dir(&dir).pending().is_some(),
+        "the session stays open"
+    );
+    assert_eq!(
+        seen(&log),
+        vec![Session::Playing(Some(game(10, "game.exe")))],
+        "the session was never reported as ended"
+    );
+    assert_eq!(stop.reason(), StopReason::Reload);
+    assert!(stop.take_reload(), "the reload is the supervisor's to take");
+    assert!(!stop.is_set(), "and the next engine waits afresh");
+}
+
+#[test]
 fn a_session_handed_over_is_resumed_without_running_anything() {
     // The next watcher starts with the marker open and the writer alive: it
     // takes the session up -- name from the marker, icon active -- and runs
@@ -718,7 +768,11 @@ fn a_session_handed_over_whose_game_ended_meanwhile_is_closed_at_start() {
 
     assert!(stopped.exists(), "the stop commands ran at start");
     assert!(Marker::in_dir(&dir).pending().is_none());
-    assert!(seen(&log).is_empty(), "recovery is not a session");
+    assert_eq!(
+        seen(&log),
+        vec![Session::Idle],
+        "the session left open is reported closed, and that is all"
+    );
 }
 
 // ------------------------------------------------------------- recovery --
@@ -746,7 +800,11 @@ fn a_marker_left_behind_runs_the_stop_commands_before_watching() {
         Marker::in_dir(&dir).pending().is_none(),
         "and the marker is gone"
     );
-    assert!(seen(&log).is_empty(), "recovery is not a session");
+    assert_eq!(
+        seen(&log),
+        vec![Session::Idle],
+        "the session left open is reported closed; recovery is not a session"
+    );
 }
 
 #[test]
