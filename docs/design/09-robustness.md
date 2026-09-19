@@ -1,10 +1,11 @@
 # Lot 9 — Robustness
 
 **Status: partly done.** The session marker is built and verified; the
-configuration-fault design is decided and waiting; two smaller items remain.
+configuration faults and the live reload are built and measured, waiting
+for a real game session; two smaller items remain.
 
 - [x] Restore at the next start what a logoff could not — done 2026-09-16, a race fixed and re-verified 2026-09-17
-- [ ] Configuration faults shown in the tray, and live reload — designed, below
+- [ ] Configuration faults shown in the tray, and live reload — built 2026-09-19 and measured without a game, below; closes on a reload during a real game session
 - [ ] Stop timing the refinement; let the OS say when — below
 - [ ] `ShutdownBlockReasonCreate`, so Windows' shutdown screen says what is being restored rather than naming the process
 - [ ] Behaviour across two games launched back to back
@@ -144,11 +145,71 @@ editing goes through a staged copy, the only way to put an invalid file on
 disk is to edit it by hand outside the program, and then a frozen program with
 a red icon is the honest answer.
 
-**Mechanics.** `serve` loads the configuration itself and takes the path rather
-than a `Config`; the engine reads an `Arc<RwLock<Config>>` at each use, so a
-swap needs no wake-up. The tray gains a fault overlay on top of the session —
-two different axes — and finally sets `State::Error`. Written so Lot 12 is
-small: the watcher takes a path and an "apply" action.
+**Mechanics, as planned.** `serve` loads the configuration itself and takes
+the path rather than a `Config`; the engine reads an `Arc<RwLock<Config>>`
+at each use, so a swap needs no wake-up. The tray gains a fault overlay on
+top of the session — two different axes — and finally sets `State::Error`.
+Written so Lot 12 is small: the watcher takes a path and an "apply" action.
+
+**Mechanics, as built — 2026-09-19.** The `RwLock` was not built. Reading
+the configuration at each use would have covered a *valid* change and left
+the *invalid* one to new engine states: frozen while idle, frozen mid-game
+with the writer's exit meaning nothing, then a recovery to re-run once the
+file is valid again — each a branch in the loop and a scenario nobody had
+written. The handover from [Lot 13](13-updating.md) already had every one of
+those: an engine that stops with the session left open in the marker, and a
+start that looks for the writer before recovering. So a change to the file
+is a **handover from one engine to the next in the same process**:
+
+- `service` runs a supervisor on the worker thread — one engine per usable
+  configuration, built on the file as it is. The engine is unchanged but
+  for one line: a stop whose reason is `Reload` returns the way `Handover`
+  does, marker kept, nothing run.
+- `StopSignal` gained a third reason and a **child**: a signal that is set
+  when either its own event or its parent's is, with the parent's reason
+  winning. The engine runs on a child of the process-wide stop; the child's
+  own event carries the reload and is reset between engines
+  (`take_reload`); the parent carries *Quit*, the logoff and `stop`, and is
+  never reset. That is what keeps a *Quit* arriving during a reload from
+  being lost, without a lock around the wait.
+- `config::watch` is the thread: `FindFirstChangeNotificationW` on the
+  folder, waited on with the process stop, a 250 ms settle after the last
+  notification because editors write in several steps, and a comparison of
+  the file's *bytes* with what is running — a folder touched or a file
+  written back unchanged is not a reload, a file that no longer parses is.
+- A file that cannot be used is a `LoadError` with a one-line `summary`
+  — `line 3: unknown field `log_levl`, expected one of …`, `the file is
+  missing`, `detection.poll_interval must be greater than zero` — reported
+  to the tray through a `FaultSink` beside the session sink. The tray reads
+  both facts together: a fault is `State::Error` on every surface, the
+  tooltip *configuration error*, the menu's first line `Configuration
+  error: ` and the summary, cut at 160 characters. The supervisor then parks
+  on the child signal: the next change or the process stop ends that, and
+  nothing else.
+- What a reload applies to the log itself: `log_level` follows live through
+  a `reload::Layer` around the filter and an atomic for the fields, unless
+  `--log-level` or `RUST_LOG` fixed it at start; `log_dir` cannot follow —
+  the file is open — and is said at `warn` to wait for the next start.
+- `Config::load` no longer makes the watcher exit: the command line runs
+  `serve` on the path alone, and the exit codes 3 and 4 are the other
+  commands'. The recovery that closes a session now reports *Idle* to the
+  tray, since after a reload the icon may still show the session the last
+  engine left open; a first start swallows it as a repeat.
+
+**Measured 2026-09-19, 01:58–02:00**, a development build on a scratch
+configuration while the installed watcher was stopped, with no game: a
+misspelt key at `T`, the `ERROR` line and the icon refreshed to `Error` at
+`T + 250 ms` on the nose, the settle; the file fixed with `log_level` moved
+to `info`, *Configuration reloaded* and the fields gone from the lines that
+followed; back to `debug`, *Log level changed* and the fields back; a
+`poll_interval` of zero, the validation's own sentence in the menu line;
+the file deleted, *the file is missing*; the file back with `log_dir`
+moved, the reload and the `warn` that the log waits; then `stop`, *Stopped*.
+Six changes, six reloads, one process, 54 seconds. What is not measured is
+the case the design is for: a reload while a game is running, which is a
+real session with the marker resumed by the next engine — the scenario
+`a_reload_mid_game_is_a_handover_to_the_next_engine` pins it, the field
+run closes the item.
 
 ## Stop timing the refinement
 

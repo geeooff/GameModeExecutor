@@ -73,9 +73,9 @@ deleted.
   otherwise.
 - **The tray renders state and holds no rule.** What the icon, the tooltip
   and the menu show comes from objects that own the rules — the engine's
-  session, `update`'s phase — and the tray asks them what to draw and which
-  action a click means. A rule written in the menu code is in the wrong
-  place and cannot be tested.
+  session, `update`'s phase, the supervisor's verdict on the configuration
+  — and the tray asks them what to draw and which action a click means. A
+  rule written in the menu code is in the wrong place and cannot be tested.
 - **The setup commands are a contract with three callers.** `stop`, `init`,
   `install-task` and `uninstall-task` are sequenced by the package
   (`scripts/msi.ps1`), by the zip's after-exit shell in `update`, and by

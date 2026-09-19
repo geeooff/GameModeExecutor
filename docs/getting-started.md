@@ -106,20 +106,31 @@ gamemode-executor trigger start
 gamemode-executor trigger stop
 ```
 
-The watcher reads the file when it starts, so after editing it, restart it:
+Save the file, and that is all: the watcher notices within a second, reads
+it again and writes `Configuration reloaded` in the log. Nothing to restart,
+and a game in progress is not disturbed — the commands that run when it ends
+are the ones you just saved. The one setting that waits for the next start
+is `log_dir`, since the log is already open; the log says so.
+
+If the file cannot be used, the icon turns **red, with a slash**, and the
+first line of its menu says what is wrong — the line number and the
+parser's words, such as `Configuration error: line 3: unknown field
+'log_levl'`. Nothing runs until you fix it: not the old commands, not their
+stop half. **Edit configuration** still opens the file, and saving a good
+one brings the icon back to grey. The same words are in the log, marked
+`ERROR`.
+
+**That is the end of the setup.** Play. The commands fire by themselves.
+
+From the zip, one more command the first time, to register the task that
+starts the watcher at every logon and to start it now:
 
 ```bash
-gamemode-executor stop
 gamemode-executor install-task
 ```
 
-The first is **Quit** from the icon's menu, typed. The second starts it again
-— and, from the zip, registers the task that starts it at every logon, once.
-No administrator rights, no password, no window. Doing this while a game is
-running? `stop --handover` instead of `stop`: the game session is left to the
-new watcher, which takes it up where it was without running anything.
-
-**That is the end of the setup.** Play. The commands fire by themselves.
+No administrator rights, no password, no window. The installer did this for
+you.
 
 Want a complete worked example rather than a blank page? [Recipes](recipes/) has
 one per job, each with a `config.toml` you can copy straight over.
@@ -133,6 +144,7 @@ the clock. It is the only thing this program ever puts on screen.
 | --- | --- |
 | **grey controller** | running, no game. What you will see almost all the time. |
 | **green controller** | a game is detected |
+| **red controller, slashed** | the configuration cannot be used and nothing is watched until it is fixed; the menu's first line says what is wrong |
 
 Hover it and the tooltip names the game. Right-click and the first line of the
 menu says the same — it is greyed out because it is an answer, not a button.
@@ -271,6 +283,14 @@ second one, which is refused so your commands cannot fire twice.
 Check the log. A command that fails to start is recorded with the reason, and it
 never prevents the others from running. The usual cause is a wrong path, or a
 program that needs administrator rights (see above).
+
+**The icon is red, with a slash.**
+The configuration file cannot be used, and the first line of the icon's menu
+says why — a line number and what the parser found there, or *the file is
+missing*. Nothing runs until it is fixed: **Edit configuration** opens the
+file, and the moment a usable one is saved the icon is grey again and the
+log says `Configuration reloaded`. `gamemode-executor validate` tells the
+same story in a terminal, with the parser's full account.
 
 **I logged off during a game and the fans stayed loud.**
 They calm down at your next logon. Windows does not let the stop commands run

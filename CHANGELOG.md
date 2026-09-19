@@ -15,7 +15,24 @@ a section is written.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- The watcher reads `config.toml` again whenever you save it, within a
+  second: no more stopping and restarting it after a change. A game in
+  progress is not disturbed, and the commands that run when it ends are the
+  ones you just saved. `log_dir` is the one setting that waits for the next
+  start; the log says so.
+- A configuration that cannot be used shows as a **red, slashed icon**, and
+  the first line of the icon's menu says what is wrong — the line number and
+  the parser's words, or *the file is missing*. Nothing runs until it is
+  fixed; *Edit configuration* opens the file, and saving a good one brings
+  the icon back.
+
+### Changed
+
+- The watcher starts whatever the configuration file says, rather than
+  exiting with a code and no icon when the file is wrong at logon. `validate`
+  still reports the exit codes 3 and 4 for scripts.
 
 ## [0.2.0] - 2026-09-18
 

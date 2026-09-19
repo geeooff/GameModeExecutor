@@ -128,7 +128,8 @@ because the size is logged at all.
 The idle icon first carried a diagonal slash, which in Windows iconography
 reads as *disabled* — and idle is the state the program spends nearly all its
 time in. The slash moved to a distinct **error** state, reserved and unused
-until [Lot 9](09-robustness.md) gives it a meaning, so nobody borrows it for
-anything else. The frames were checked rather than trusted: eight PNG frames
+until [Lot 9](09-robustness.md) gave it a meaning on 2026-09-19 — the
+configuration cannot be used and nothing is watched — so nobody borrowed it
+for anything else meanwhile. The frames were checked rather than trusted: eight PNG frames
 per `.ico` at 32-bit alpha, no C2PA payload, and the four luminance figures
 from the design notes reproduce exactly.
