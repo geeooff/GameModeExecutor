@@ -27,7 +27,8 @@ a section is written.
   line number, the parser's words and what it expected — and the first line
   of the icon's menu keeps the short of it. Nothing runs until it is fixed;
   *Edit configuration* opens the file, and saving a good one brings the
-  icon back, with a notification saying the watcher is watching again.
+  icon back, with a notification saying the watcher is watching again —
+  also when the fix came while the watcher was stopped.
 
 ### Changed
 

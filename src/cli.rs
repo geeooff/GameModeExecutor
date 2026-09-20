@@ -401,6 +401,18 @@ fn status() -> Result<()> {
         },
         None => println!("Session marker       : unavailable, no local profile"),
     }
+    // Left by a watcher that found the file unusable; a usable read removes
+    // it. Present here, the watcher is frozen or was when it last looked.
+    if let Some(marker) = marker::FaultMarker::in_local_dir() {
+        if marker.path().is_file() {
+            println!(
+                "Configuration fault  : PRESENT - the watcher found the file unusable when it                  last read it ({})",
+                marker.path().display()
+            );
+        } else {
+            println!("Configuration fault  : none ({})", marker.path().display());
+        }
+    }
 
     // Naming only, never detection.
     let known = KnownGames::load();

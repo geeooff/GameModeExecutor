@@ -165,6 +165,7 @@ pub fn serve(config_path: &Path, level: Option<&str>, console: bool) -> Result<(
     // State, so it lives with the local profile and not with the log, which
     // the user may have sent elsewhere and is entitled to empty.
     let marker = crate::marker::Marker::in_local_dir();
+    let fault_marker = crate::marker::FaultMarker::in_local_dir();
     // One engine run stops on this; the process stops on `stop`, which it
     // answers to as well.
     let run_stop = Arc::new(StopSignal::child_of(&stop)?);
@@ -195,6 +196,7 @@ pub fn serve(config_path: &Path, level: Option<&str>, console: bool) -> Result<(
         sink,
         faults,
         marker,
+        fault_marker,
     };
     let worker = std::thread::spawn(move || {
         let outcome =
@@ -254,6 +256,9 @@ struct Supervised {
     sink: engine::SessionSink,
     faults: FaultSink,
     marker: Option<crate::marker::Marker>,
+    /// Remembers a fault across processes, so a start on a file fixed while
+    /// the watcher was stopped still says the fault is over.
+    fault_marker: Option<crate::marker::FaultMarker>,
 }
 
 impl Supervised {
@@ -270,7 +275,8 @@ impl Supervised {
     ///
     /// The tray is told which transition each read is -- a fault, the end
     /// of one, or a usable file that was usable before -- because it says
-    /// the first two with a notification and not the third.
+    /// the first two with a notification and not the third. "Before"
+    /// includes the last process: the fault marker carries it across.
     fn run(
         &mut self,
         sensor: &sensor::Windows,
@@ -282,7 +288,19 @@ impl Supervised {
         loop {
             match loaded {
                 Ok(config) => {
-                    (self.faults)(if faulty {
+                    let remembered = match &self.fault_marker {
+                        Some(marker) => marker.clear().unwrap_or_else(|error| {
+                            tracing::warn!(
+                                target: logging::target::WATCHER,
+                                path = %marker.path().display(),
+                                error = %error,
+                                "Cannot remove the configuration-fault marker"
+                            );
+                            false
+                        }),
+                        None => false,
+                    };
+                    (self.faults)(if faulty || remembered {
                         Report::Restored
                     } else {
                         Report::Usable
@@ -308,6 +326,17 @@ impl Supervised {
                 Err(fault) => {
                     (self.faults)(Report::Faulty(&fault));
                     faulty = true;
+                    if let Some(marker) = &self.fault_marker
+                        && let Err(error) = marker.note(&fault.summary(), &logging::local_now())
+                    {
+                        tracing::warn!(
+                            target: logging::target::WATCHER,
+                            path = %marker.path().display(),
+                            error = %error,
+                            "Cannot write the configuration-fault marker, so a start after the \
+                             fix will not say the fault is over"
+                        );
+                    }
                     tracing::error!(
                         target: logging::target::WATCHER,
                         path = %self.path.display(),

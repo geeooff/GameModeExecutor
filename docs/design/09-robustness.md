@@ -243,7 +243,12 @@ fields. This is the second thing the program ever says unasked, beside the
 answer to a click; the principle in `AGENTS.md` names both. The tray
 decides the wording, the supervisor decides which transition it is — a
 `Report` of *faulty*, *restored* or *usable* — since the notice depends on
-what came before, which only the supervisor knows.
+what came before, which only the supervisor knows. What came before
+includes the last process: the maintainer broke the file, stopped, fixed
+it, started again and got no word, so a fault is noted in a second file
+beside the session marker, `configuration-fault`, removed when a usable
+file is read, and a start that removes one says the fault is over. `purge`
+removes it with the rest.
 
 Two defects the run found, both fixed the same day:
 
