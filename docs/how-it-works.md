@@ -26,8 +26,20 @@ exists.
   that process ends. Zero activity while you play — which is rather the point of
   a program that runs during games.
 
-The result is that anything Windows treats as a game triggers it, including
-titles released after this program was written.
+The result is that anything Windows knows as a game triggers it, including
+titles released after this program was written — Windows keeps its list of
+games up to date on its own.
+
+**One class it does not see yet**, found on 2026-09-20: a title Windows did
+not recognise, that you taught it by opening the Game Bar over it and
+ticking *Remember this is a game*. Windows treats it as a game from then on
+— overlay, capture, Game Mode — but does not start the process this
+program watches for it, because that process exists to tell Xbox what you
+are playing and a title you named by hand has no Xbox identity to tell. So
+the watcher stays quiet on such a title, whatever the toggle says. The next
+piece of work, [Lot 15](design/15-marked-games.md), makes the watcher read
+Windows' list as well, so that a title you marked counts — at its launch,
+or at the moment you tick it.
 
 Which process to watch is read from the registry at startup rather than
 hard-coded, so a machine where that registration differs still works.

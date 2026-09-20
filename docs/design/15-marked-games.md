@@ -1,0 +1,126 @@
+# Lot 15 — Games Windows knows only from you
+
+**Status: proposed 2026-09-20, taken next, ahead of everything else
+pending** — the maintainer's decision the same morning, on the finding
+below. It waits only for [Lot 9](09-robustness.md)'s configuration work to
+close its field run.
+
+- [ ] The instrument: a `watch-games` command in `presence-probe` that logs registry change notifications on Windows' game list and which entry's `LastAccessed` moved, through the launch of several hand-marked titles
+- [ ] The measurements below, before any line of the watcher changes
+- [ ] Detection from Windows' list as well as from the presence writer: a hand-marked title is a session from its launch
+- [ ] A title marked *while it runs* becomes a session within the settle time, and the start commands run then
+- [ ] The idle cost measured and written down: no polling of the registry, and whatever polling of processes remains, with its figure
+- [ ] Verified in the field on DS2 and the other hand-marked titles on the maintainer's machine
+
+**Done when** a game the Game Bar knows only because the person ticked
+*Remember this is a game* is detected at its launch, or at the tick if that
+comes mid-game, with the same start and stop commands as any other title —
+and the watcher still does nothing measurable while no game runs.
+
+## What was found, 2026-09-20
+
+The maintainer started *Death Stranding 2: On the Beach* from Steam at
+11:33:57 and the watcher, running since 10:09, never said a word. The
+machine, read at 11:38–11:42 while the game ran:
+
+- `DS2.exe` up, `GameBar.exe` up from 11:34:07 — the maintainer had opened
+  the overlay to check the toggle. The toggle was on; it had been ticked
+  days before, so the list already knew the game when it was launched.
+- Windows had *seen* the game: `GameDVR\LastGameActivity` read 11:34:00,
+  three seconds after the launch, the same relation the record measured for
+  Starfield and Farming Simulator in [Detection](00-detection.md); the game
+  list entry's own `LastAccessed` carried the same second; `bcastdvr` had
+  rebuilt its encoder topology at 11:34:00.990.
+- **`GameBarPresenceWriter.exe` never started.** Not at 11:38, not after a
+  minute's watch at 11:39. And the maintainer's own Xbox profile, in the
+  screenshot they sent, read *Online* — not *Playing DEATH STRANDING 2* —
+  while a friend's read *Palworld*.
+- The entry itself, against the entries of titles the watcher has
+  detected:
+
+  | | DS2 | cs2, Skyrim, bf6, RDR2 |
+  | --- | --- | --- |
+  | `Revision` | 1 | 2691, the revision of the list Microsoft distributes |
+  | `TitleId` | none | an Xbox title id |
+  | `GameDVR_GameGUID` | none | a guid |
+  | `Flags`, `Type` | 17, 1 | 17 or 19, 1 |
+
+So the presence writer — *presence*, as in the Xbox status "playing such
+and such" — is activated for titles Windows knows by their Xbox identity,
+and a title the person taught it by hand has none: a game to the Game Bar,
+to GameDVR, to Game Mode, and nothing for the writer to write. Inferred from
+the three facts above, not read in any documentation; the figures are the
+record. It also explains the nephew's machine on 2026-09-18: `chrome.exe`
+was a hand-made entry there, the writer had been started by Overwatch, and
+Chrome only supplied the first name.
+
+The detection page promised that "anything Windows treats as a game"
+triggers the watcher. That was true of every title measured before this
+one, and it is false for this class; corrected in place there and in the
+user pages the same day.
+
+## What is decided
+
+- **The signal stays Windows' verdict, and gains Windows' list.** The
+  program already reads `HKCU\System\GameConfigStore\Children` to *name*
+  the game; it is Windows' own list, grown by Microsoft's revisions and by
+  the person's own ticks. A process on that list running is Windows saying
+  a game is running, as much as the writer is. No list of our own, no
+  fullscreen or GPU heuristics: a title neither Windows nor the person has
+  named a game stays invisible, and that is right.
+- **Marking mid-game counts.** The person starts a title Windows does not
+  know, the fans stay on idle, they open the Game Bar and tick the box: the
+  session starts *then*, as soon as the change reaches the watcher, and the
+  start commands run. Nothing to relaunch.
+- **No polling of the registry.** `RegNotifyChangeKeyValue` on the list's
+  key, subtree, for names and values, gives a kernel event the watcher can
+  park on beside the stop event — documented, unelevated for `HKCU`, and the
+  same shape as the writer's handle. The Game Bar writes several values into
+  a new entry, so the wake-up settles for a moment before the list is read
+  again, as the configuration reload does with its folder.
+- **The cost while idle is the budget.** Today it is one process lookup
+  every `poll_interval`. Whatever the design below adds while no game runs
+  is measured and written here before it is accepted.
+
+## To measure first, in this order
+
+1. **Does the list's `LastAccessed` move at every launch, for every kind of
+   entry?** It did for DS2 today (a hand-made entry) and it agrees with
+   `LastGameActivity` for listed titles. If Windows touches the entry of
+   *every* game it detects at launch, then a registry notification on the
+   subtree is a wake-up for *every* game start, listed or hand-made — and
+   the idle poll for the writer could go with it, leaving the watcher parked
+   on two kernel objects and nothing else. That would be the best outcome
+   and it is the first thing the probe looks at.
+2. **What `RegNotifyChangeKeyValue` delivers**: one-shot, so re-armed after
+   each wake; whether a new subkey (the tick) and a value set on an existing
+   one (the launch) both fire with `REG_NOTIFY_CHANGE_NAME |
+   REG_NOTIFY_CHANGE_LAST_SET`; how many wake-ups one tick produces, for
+   the settle; `REG_NOTIFY_THREAD_AGNOSTIC`, so the event can be waited on
+   from the engine's thread rather than the one that armed it.
+3. **Which process.** The entry names the executable's full path; the
+   running process is found the way naming finds it today, from a Toolhelp
+   snapshot matched against the list. Measure what a snapshot costs on this
+   machine — it is what an idle poll would pay if step 1 disappoints.
+4. **Waiting on the game's own handle.** `OpenProcess(SYNCHRONIZE)` on the
+   matched process, so the session ends when it exits with nothing polled
+   meanwhile — the writer's shape again. Measure whether an elevated game
+   (a launcher that asks for administrator rights) grants `SYNCHRONIZE` to
+   an unelevated watcher; if not, that title is named in the log as one
+   the watcher can only poll.
+5. **The end of a session** when both signals exist: the writer's grace
+   (`stop_delay`) is for the writer's blinking; a process exit is an exit.
+   And the odd case: the person unticks the box mid-game. The entry goes,
+   Windows no longer calls it a game; the session ends and the stop
+   commands run, which is what the person asked for. To confirm on the
+   probe.
+
+## What it changes in the program, once measured
+
+The engine's sensor gains a second question — which listed processes are
+running, and a handle to wait on for one of them — and its loop treats
+"the writer runs" and "a listed process runs" as one session with two
+possible anchors. The refinement, the marker, the handover and the reload
+are untouched: a session is a session. `status` says which signal it sees.
+The user pages say plainly what *Remember this is a game* does for this
+program, once it does something.

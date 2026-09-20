@@ -276,7 +276,11 @@ too.
 **Nothing happens when I start a game.**
 Run `gamemode-executor status` while the game is running. If it says no game is
 running, Windows itself is not flagging that title — see
-[How it works](how-it-works.md).
+[How it works](how-it-works.md). One case to know about: a game Windows
+did not recognise, that you had to mark yourself with *Remember this is a
+game* in the Game Bar, is not seen by this program yet even with the box
+ticked. [How it works](how-it-works.md#how-it-knows-a-game-is-running) says
+why, and what is being done about it.
 
 **It says another instance is already running.**
 The background watcher is doing its job. That message means you tried to start a
