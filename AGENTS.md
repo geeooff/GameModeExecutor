@@ -30,10 +30,11 @@ These decide most questions before they are asked.
   option first and argue for a fallback only if it protects something
   concrete.
 - **Discreet.** No dialogs, no windows, no sounds. The icon, its tooltip and
-  its menu are the whole user interface, plus a silent notification to
-  answer something the user clicked -- a menu closes on a click, as every
-  Windows menu does, and the answer has to reach them somewhere; the log is
-  the rest.
+  its menu are the whole user interface, plus a silent notification in two
+  cases only: to answer something the user clicked -- a menu closes on a
+  click, as every Windows menu does, and the answer has to reach them
+  somewhere -- and to say that the configuration cannot be used, and then
+  that it can again, the one state that needs them. The log is the rest.
 - **No elevation, no service, no telemetry, and no network the user did
   not ask for.** Recorded as non-goals in the design record with their
   reasons. The one connection the program ever opens is *Check for updates*,

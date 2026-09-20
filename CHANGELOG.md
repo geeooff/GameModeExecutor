@@ -22,11 +22,12 @@ a section is written.
   progress is not disturbed, and the commands that run when it ends are the
   ones you just saved. `log_dir` is the one setting that waits for the next
   start; the log says so.
-- A configuration that cannot be used shows as a **red, slashed icon**, and
-  the first line of the icon's menu says what is wrong — the line number and
-  the parser's words, or *the file is missing*. Nothing runs until it is
-  fixed; *Edit configuration* opens the file, and saving a good one brings
-  the icon back.
+- A configuration that cannot be used shows as a **red, slashed icon**, a
+  silent notification with the error glyph says what is wrong in full — the
+  line number, the parser's words and what it expected — and the first line
+  of the icon's menu keeps the short of it. Nothing runs until it is fixed;
+  *Edit configuration* opens the file, and saving a good one brings the
+  icon back, with a notification saying the watcher is watching again.
 
 ### Changed
 

@@ -240,12 +240,40 @@ impl LoadError {
             Self::Invalid { reason, .. } => reason.clone(),
         }
     }
+
+    /// The summary without the parser's list of what it expected instead --
+    /// `line 3: unknown field `log_levl`` -- for the one menu line, where
+    /// the list ran off the screen. The notification and the log keep the
+    /// whole of it. Asked for by the maintainer on 2026-09-20.
+    pub fn headline(&self) -> String {
+        let summary = self.summary();
+        match summary.find(", expected one of") {
+            Some(cut) => summary[..cut].to_owned(),
+            None => summary,
+        }
+    }
 }
 
-/// Told when the configuration becomes unusable, with why, and when it is
-/// usable again, with `None`. The tray draws it; the supervisor in
-/// `service` decides it.
-pub type FaultSink = Arc<dyn Fn(Option<&LoadError>) + Send + Sync>;
+/// What the supervisor tells the tray about the configuration, each time
+/// it reads the file. The tray draws the state and says the transitions;
+/// which transition it is, is the supervisor's to know.
+#[derive(Debug, Clone, Copy)]
+pub enum Report<'a> {
+    /// The file cannot be used: the icon shows it and a notification says
+    /// why, at start and at every reload that fails -- the one thing in
+    /// the program that needs the person, so the one thing that is said
+    /// unasked. Decided 2026-09-20.
+    Faulty(&'a LoadError),
+    /// The file is usable again after a fault: the icon back, and a
+    /// notification says the watcher is watching again.
+    Restored,
+    /// The file is usable and was before: the icon as it is, nothing said.
+    Usable,
+}
+
+/// Told what the supervisor found each time it read the file. The tray
+/// draws it; the supervisor in `service` decides it.
+pub type FaultSink = Arc<dyn Fn(Report<'_>) + Send + Sync>;
 
 impl Config {
     pub fn load(path: &Path) -> Result<Self, LoadError> {
@@ -631,6 +659,11 @@ log_levl = 1
             "{summary}"
         );
         assert!(!summary.contains('\n'), "one line: {summary:?}");
+        assert!(
+            summary.contains("expected one of"),
+            "the whole of it: {summary}"
+        );
+        assert_eq!(error.headline(), "line 3: unknown field `log_levl`");
         // The console still gets the parser's own account, caret and all.
         assert!(format!("{:#}", anyhow::Error::new(error)).contains("not usable"));
     }

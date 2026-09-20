@@ -112,13 +112,16 @@ and a game in progress is not disturbed — the commands that run when it ends
 are the ones you just saved. The one setting that waits for the next start
 is `log_dir`, since the log is already open; the log says so.
 
-If the file cannot be used, the icon turns **red, with a slash**, and the
-first line of its menu says what is wrong — the line number and the
-parser's words, such as `Configuration error: line 3: unknown field
-'log_levl'`. Nothing runs until you fix it: not the old commands, not their
-stop half. **Edit configuration** still opens the file, and saving a good
-one brings the icon back to grey. The same words are in the log, marked
-`ERROR`.
+If the file cannot be used, the icon turns **red, with a slash**, a
+notification with the error glyph says what is wrong in full — the line
+number and the parser's words, and what it expected instead — and the
+first line of the icon's menu keeps the short of it, such as
+`Configuration error: line 3: unknown field 'log_levl'`. Nothing runs until
+you fix it: not the old commands, not their stop half. **Edit
+configuration** still opens the file, and saving a good one brings the icon
+back to grey, with a notification saying the watcher is watching again.
+The same words are in the log, marked `ERROR`. The notifications are
+silent, and Windows keeps them in its notification centre.
 
 **That is the end of the setup.** Play. The commands fire by themselves.
 
@@ -285,12 +288,14 @@ never prevents the others from running. The usual cause is a wrong path, or a
 program that needs administrator rights (see above).
 
 **The icon is red, with a slash.**
-The configuration file cannot be used, and the first line of the icon's menu
-says why — a line number and what the parser found there, or *the file is
-missing*. Nothing runs until it is fixed: **Edit configuration** opens the
-file, and the moment a usable one is saved the icon is grey again and the
-log says `Configuration reloaded`. `gamemode-executor validate` tells the
-same story in a terminal, with the parser's full account.
+The configuration file cannot be used. A notification said why when it
+happened — it is still in Windows' notification centre — and the first line
+of the icon's menu keeps the short of it: a line number and what the parser
+found there, or *the file is missing*. Nothing runs until it is fixed:
+**Edit configuration** opens the file, and the moment a usable one is saved
+the icon is grey again, a notification says so, and the log says
+`Configuration reloaded`. `gamemode-executor validate` tells the same story
+in a terminal, with the parser's full account.
 
 **I logged off during a game and the fans stayed loud.**
 They calm down at your next logon. Windows does not let the stop commands run

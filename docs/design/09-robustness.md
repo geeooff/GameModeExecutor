@@ -232,6 +232,19 @@ the installed copy, with the release build of the branch copied over it:
   had left in the tray, until the recovery reported *Idle* — which is the
   reason that report exists.
 
+**Said with a notification, decided 2026-09-20** on the maintainer's
+remark after the run: the red icon is easy to miss at logon and the menu
+line was too long to read. So a fault is said, silently, with the shell's
+error glyph and the whole summary — at start and at every reload that
+fails — and the end of a fault is said too, so the person knows the
+watcher is back; a reload that stays usable says nothing. The menu line
+keeps a headline, the summary cut before the parser's list of expected
+fields. This is the second thing the program ever says unasked, beside the
+answer to a click; the principle in `AGENTS.md` names both. The tray
+decides the wording, the supervisor decides which transition it is — a
+`Report` of *faulty*, *restored* or *usable* — since the notice depends on
+what came before, which only the supervisor knows.
+
 Two defects the run found, both fixed the same day:
 
 - `log_level = "debg"` was **not** a fault. `validate` did not look at the

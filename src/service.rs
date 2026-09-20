@@ -37,7 +37,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
-use crate::config::{self, Config, FaultSink, LoadError};
+use crate::config::{self, Config, FaultSink, LoadError, Report};
 use crate::win::{SessionWindow, SingleInstance, StopReason, StopSignal};
 use crate::{engine, logging, sensor, tray, update, win};
 
@@ -267,6 +267,10 @@ impl Supervised {
     /// cannot be used is shown and waited on; nothing runs meanwhile, not
     /// even the stop commands of a session that ends, which is what
     /// "disabled outright" means and why the marker is the right memory.
+    ///
+    /// The tray is told which transition each read is -- a fault, the end
+    /// of one, or a usable file that was usable before -- because it says
+    /// the first two with a notification and not the third.
     fn run(
         &mut self,
         sensor: &sensor::Windows,
@@ -274,10 +278,16 @@ impl Supervised {
         stop: &StopSignal,
     ) -> Result<()> {
         let mut first = true;
+        let mut faulty = false;
         loop {
             match loaded {
                 Ok(config) => {
-                    (self.faults)(None);
+                    (self.faults)(if faulty {
+                        Report::Restored
+                    } else {
+                        Report::Usable
+                    });
+                    faulty = false;
                     // The log first, so the line below is written the way
                     // the new file asks.
                     self.follow(&config);
@@ -296,7 +306,8 @@ impl Supervised {
                     engine.run(stop)?;
                 }
                 Err(fault) => {
-                    (self.faults)(Some(&fault));
+                    (self.faults)(Report::Faulty(&fault));
+                    faulty = true;
                     tracing::error!(
                         target: logging::target::WATCHER,
                         path = %self.path.display(),
