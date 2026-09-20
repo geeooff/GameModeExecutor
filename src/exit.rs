@@ -14,17 +14,16 @@ pub const CONFIG_MISSING: u8 = 3;
 pub const CONFIG_INVALID: u8 = 4;
 pub const ALREADY_RUNNING: u8 = 5;
 
-/// Pick the code that describes a failure, by looking for the markers the
-/// relevant errors carry as context.
+/// Pick the code that describes a failure, by looking for the errors that
+/// have one of their own anywhere in the chain.
 pub fn code_for(error: &anyhow::Error) -> u8 {
-    if error.downcast_ref::<config::Missing>().is_some() {
-        CONFIG_MISSING
-    } else if error.downcast_ref::<config::Invalid>().is_some() {
-        CONFIG_INVALID
-    } else if error.downcast_ref::<win::AlreadyRunning>().is_some() {
-        ALREADY_RUNNING
-    } else {
-        FAILURE
+    match error.downcast_ref::<config::LoadError>() {
+        Some(config::LoadError::Missing { .. }) => CONFIG_MISSING,
+        Some(config::LoadError::Syntax { .. } | config::LoadError::Invalid { .. }) => {
+            CONFIG_INVALID
+        }
+        None if error.downcast_ref::<win::AlreadyRunning>().is_some() => ALREADY_RUNNING,
+        None => FAILURE,
     }
 }
 
@@ -35,11 +34,19 @@ mod tests {
 
     #[test]
     fn a_missing_file_is_told_apart_from_an_unusable_one() {
-        let missing = anyhow::Error::new(std::io::Error::other("no such file"))
-            .context(config::Missing(PathBuf::from("a.toml")));
-        let invalid =
-            anyhow::anyhow!("bad value").context(config::Invalid(PathBuf::from("a.toml")));
+        let path = PathBuf::from("a.toml");
+        let missing = anyhow::Error::new(config::LoadError::Missing {
+            path: path.clone(),
+            source: std::io::Error::other("no such file"),
+        })
+        .context("while starting");
+        let syntax = anyhow::Error::new(config::Config::parse("[general", &path).unwrap_err());
+        let invalid = anyhow::Error::new(config::LoadError::Invalid {
+            path,
+            reason: "bad value".to_owned(),
+        });
         assert_eq!(code_for(&missing), CONFIG_MISSING);
+        assert_eq!(code_for(&syntax), CONFIG_INVALID);
         assert_eq!(code_for(&invalid), CONFIG_INVALID);
     }
 

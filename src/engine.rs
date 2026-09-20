@@ -134,7 +134,8 @@ impl<S: Sensor> Engine<S> {
     ///
     /// The other case, decided 2026-09-18: the writer is still running, so the
     /// game never ended -- the last watcher handed the session over for an
-    /// update, or crashed under it. Then nothing runs, neither stop nor start,
+    /// update, the last engine of this process stopped for a reload, or a
+    /// watcher crashed under it. Then nothing runs, neither stop nor start,
     /// and the session is taken up where it was. Looking for the writer
     /// *before* recovering is what keeps a game still on from getting the
     /// idle and then the gaming configuration seconds apart. Returns the
@@ -153,17 +154,21 @@ impl<S: Sensor> Engine<S> {
                 Some(game) => tracing::info!(
                     target: target::GAME,
                     since = pending.since.as_deref(),
-                    "The last watcher left a session open with {game} still running, so it resumes where it was"
+                    "A session was left open with {game} still running, so it resumes where it was"
                 ),
                 None => tracing::info!(
                     target: target::GAME,
                     since = pending.since.as_deref(),
-                    "The last watcher left a session open with a game still running, so it resumes where it was"
+                    "A session was left open with a game still running, so it resumes where it was"
                 ),
             }
             self.report(&Session::Playing(signal.clone()));
             return Some((pid, signal));
         }
+        // The session is over. Said before the commands, as `fire_stop` does,
+        // and said at all because the icon may still show the session the
+        // engine before this one -- stopped for a reload -- left open.
+        self.report(&Session::Idle);
         match &pending.game {
             Some(game) => tracing::info!(
                 target: target::GAME,
@@ -243,7 +248,7 @@ impl<S: Sensor> Engine<S> {
                         continue;
                     }
                     WaitOutcome::WriterExited => {
-                        self.log_writer_exit(session_start, signal.as_ref());
+                        self.log_writer_exit(session_start, signal.as_ref(), fresh);
                     }
                 }
                 match self.writer_returns(stop) {
@@ -270,13 +275,24 @@ impl<S: Sensor> Engine<S> {
                 // A handover: the watcher that follows resumes this session,
                 // so nothing runs and the marker stays open. The commands
                 // would only have swapped the configuration twice in the
-                // middle of a game.
-                if stop.reason() == StopReason::Handover {
-                    tracing::info!(
-                        target: target::WATCHER,
-                        "Stopping for an update; the game session is handed to the next watcher"
-                    );
-                    return Ok(());
+                // middle of a game. A reload is the same handover, to the
+                // engine the supervisor builds next on the changed file.
+                match stop.reason() {
+                    StopReason::Handover => {
+                        tracing::info!(
+                            target: target::WATCHER,
+                            "Stopping for an update; the game session is handed to the next watcher"
+                        );
+                        return Ok(());
+                    }
+                    StopReason::Reload => {
+                        tracing::debug!(
+                            target: target::WATCHER,
+                            "Stopping for a reload; the game session is kept open for the next engine"
+                        );
+                        return Ok(());
+                    }
+                    StopReason::Restore => {}
                 }
                 if self.config.general.stop_actions_on_exit {
                     // Stays at info: without it the reader sees a session end
@@ -362,26 +378,39 @@ impl<S: Sensor> Engine<S> {
     /// log jumps straight from the start to the stop, and telling "Windows was
     /// slow" from "we were slow" needs Steam's own logs. So say whether the
     /// game we identified was already gone when Windows finally let go.
-    fn log_writer_exit(&self, session_start: Instant, signal: Option<&GameSignal>) {
+    ///
+    /// A resumed session has a name from the marker and no process id, and
+    /// this engine only saw the end of it: said as such, with the time since
+    /// the resume rather than a session length it cannot know. Seen on
+    /// 2026-09-20, when a session resumed after a reload was logged as
+    /// never named, 34 s long.
+    fn log_writer_exit(&self, session_start: Instant, signal: Option<&GameSignal>, fresh: bool) {
         let elapsed = session_start.elapsed();
         let named = signal
             .and_then(|signal| signal.process_id)
             .map(|pid| (pid, self.sensor.is_running(pid)));
-        match named {
-            Some((pid, true)) => tracing::debug!(
+        match (named, signal) {
+            (Some((pid, true)), _) => tracing::debug!(
                 target: target::GAME,
                 pid,
                 session = ?elapsed,
                 "Windows released the presence writer while the identified game is still running"
             ),
-            Some((pid, false)) => tracing::debug!(
+            (Some((pid, false)), _) => tracing::debug!(
                 target: target::GAME,
                 pid,
                 session = ?elapsed,
                 "Windows released the presence writer; the identified game had already \
                  exited, so the wait since then was Windows, not this program"
             ),
-            None => tracing::debug!(
+            (None, Some(signal)) if !fresh => tracing::debug!(
+                target: target::GAME,
+                since_resumed = ?elapsed,
+                "Windows released the presence writer; {} was known by name only, from the \
+                 session this engine resumed, so whether it had already exited was not checked",
+                signal.name()
+            ),
+            (None, _) => tracing::debug!(
                 target: target::GAME,
                 session = ?elapsed,
                 "Windows released the presence writer; the game was never named"

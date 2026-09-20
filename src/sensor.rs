@@ -46,6 +46,36 @@ pub trait Sensor {
     fn rendering_load(&self, sample: Duration) -> Result<HashMap<u32, f64>>;
 }
 
+/// A borrowed sensor answers as the sensor does: the supervisor keeps one
+/// `Windows` for the life of the process and builds an engine on it for
+/// each configuration.
+impl<S: Sensor + ?Sized> Sensor for &S {
+    fn writer_pid(&self) -> Option<u32> {
+        (**self).writer_pid()
+    }
+
+    fn wait_for_writer_exit(
+        &self,
+        pid: u32,
+        stop: &StopSignal,
+        timeout: Option<Duration>,
+    ) -> Result<WaitOutcome> {
+        (**self).wait_for_writer_exit(pid, stop, timeout)
+    }
+
+    fn candidates(&self) -> Result<Vec<GameSignal>> {
+        (**self).candidates()
+    }
+
+    fn is_running(&self, pid: u32) -> bool {
+        (**self).is_running(pid)
+    }
+
+    fn rendering_load(&self, sample: Duration) -> Result<HashMap<u32, f64>> {
+        (**self).rendering_load(sample)
+    }
+}
+
 /// The real machine.
 pub struct Windows {
     /// Resolved from the registry once at startup, never hard-coded.

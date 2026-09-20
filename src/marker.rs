@@ -29,6 +29,15 @@ use std::path::{Path, PathBuf};
 /// comment lines inside are for whoever opens it anyway.
 pub const FILE_NAME: &str = "pending-stop-actions";
 
+/// The second file at the same root: "the configuration could not be used
+/// when the watcher last looked". Written when a fault is found, removed
+/// when a usable file is read -- and *that* removal, at a start, is what
+/// tells the watcher to say the fault is over rather than start in silence.
+/// The maintainer broke the file, stopped, fixed it, started again, and got
+/// no word on 2026-09-20; a fault outlives the process, so its memory must.
+pub const FAULT_FILE_NAME: &str = "configuration-fault";
+
+#[derive(Clone)]
 pub struct Marker {
     path: PathBuf,
 }
@@ -92,6 +101,54 @@ impl Marker {
     }
 }
 
+/// "The configuration could not be used when the watcher last looked":
+/// presence is the signal, the contents are for whoever opens the file.
+#[derive(Clone)]
+pub struct FaultMarker {
+    path: PathBuf,
+}
+
+impl FaultMarker {
+    pub fn in_dir(dir: &Path) -> Self {
+        Self {
+            path: dir.join(FAULT_FILE_NAME),
+        }
+    }
+
+    /// Beside the session marker, or `None` when Windows offers no local
+    /// profile.
+    pub fn in_local_dir() -> Option<Self> {
+        crate::config::local_dir().map(|dir| Self::in_dir(&dir))
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Record a fault. Overwrites, so the file says the latest one.
+    pub fn note(&self, summary: &str, since: &str) -> io::Result<()> {
+        let text = format!(
+            "# GameModeExecutor: the configuration could not be used, so nothing is watched.\n\
+             # Removed by the watcher once a usable file is read.\n\
+             fault = {summary}\nsince = {since}\n"
+        );
+        if let Some(dir) = self.path.parent() {
+            fs::create_dir_all(dir)?;
+        }
+        fs::write(&self.path, text)
+    }
+
+    /// The configuration is usable: forget the fault. Says whether there
+    /// was one to forget, which is what a start needs to know.
+    pub fn clear(&self) -> io::Result<bool> {
+        match fs::remove_file(&self.path) {
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+}
+
 /// Lenient on purpose: the file is written by this program, but a person may
 /// have opened it, and its presence matters more than its contents.
 fn parse(text: &str) -> Pending {
@@ -123,6 +180,20 @@ mod tests {
         ));
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// A fault is remembered across processes: noted, then cleared once,
+    /// and the clearing says whether there was anything to clear.
+    #[test]
+    fn a_fault_is_remembered_until_a_usable_file_clears_it() {
+        let marker = FaultMarker::in_dir(&scratch().join("fresh"));
+        assert!(!marker.clear().unwrap(), "nothing to forget at first");
+        marker.note("line 3: unknown field `x`", "now").unwrap();
+        assert!(marker.path().is_file());
+        let text = fs::read_to_string(marker.path()).unwrap();
+        assert!(text.contains("fault = line 3: unknown field `x`"), "{text}");
+        assert!(marker.clear().unwrap(), "there was a fault to forget");
+        assert!(!marker.clear().unwrap(), "and only once");
     }
 
     #[test]

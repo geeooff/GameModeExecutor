@@ -15,6 +15,8 @@
 use std::fmt::Write as _;
 use std::io::IsTerminal;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use anyhow::{Context, Result};
 use tracing::field::{Field, Visit};
@@ -23,9 +25,9 @@ use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::FormatTime;
 use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields};
 use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::registry::{LookupSpan, Registry};
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{EnvFilter, fmt};
+use tracing_subscriber::{EnvFilter, fmt, reload};
 use windows::Win32::System::SystemInformation::GetLocalTime;
 
 /// The categories a line can belong to.
@@ -111,8 +113,15 @@ fn level_colour(level: &Level) -> &'static str {
 struct Line {
     /// Print the structured fields. They are the technical annex to a line, so
     /// they appear only when the reader asked for that level of detail.
-    verbose: bool,
+    /// Shared with [`set_level`], which moves it with the level.
+    verbose: Arc<AtomicBool>,
     ansi: bool,
+}
+
+impl Line {
+    fn verbose(&self) -> bool {
+        self.verbose.load(Ordering::Relaxed)
+    }
 }
 
 impl<S, N> FormatEvent<S, N> for Line
@@ -157,7 +166,7 @@ where
         let mut collected = Collected::default();
         event.record(&mut collected);
         write!(writer, "  {}", collected.message)?;
-        if self.verbose && !collected.fields.is_empty() {
+        if self.verbose() && !collected.fields.is_empty() {
             if self.ansi {
                 write!(writer, "  {DIM}{}{RESET}", collected.fields)?;
             } else {
@@ -266,6 +275,46 @@ fn verbose_for(level: &str) -> bool {
     asked.contains("debug") || asked.contains("trace")
 }
 
+/// The two things a change of `log_level` moves after `init`: the filter,
+/// through its reload handle, and whether the fields are printed.
+struct Live {
+    filter: reload::Handle<EnvFilter, Registry>,
+    verbose: Arc<AtomicBool>,
+    /// `RUST_LOG` was set at start, and keeps winning.
+    from_env: bool,
+}
+
+static LIVE: OnceLock<Live> = OnceLock::new();
+
+/// Change the level after `init`, when the configuration's `log_level`
+/// changed under a running watcher. `RUST_LOG`, when set, still wins, as it
+/// did at start.
+pub fn set_level(level: &str) {
+    let Some(live) = LIVE.get() else {
+        return;
+    };
+    if live.from_env {
+        tracing::debug!(
+            target: target::WATCHER,
+            level,
+            "log_level changed, but RUST_LOG is set and keeps deciding"
+        );
+        return;
+    }
+    match live.filter.reload(EnvFilter::new(directives(level))) {
+        Ok(()) => {
+            live.verbose.store(verbose_for(level), Ordering::Relaxed);
+            tracing::debug!(target: target::WATCHER, level, "Log level changed");
+        }
+        Err(error) => tracing::warn!(
+            target: target::WATCHER,
+            level,
+            error = %error,
+            "The log level could not be changed; the previous one stays"
+        ),
+    }
+}
+
 /// Initialise logging. `RUST_LOG` overrides `level` when set.
 ///
 /// `console` says whether this process has a console at all, which is a
@@ -278,9 +327,11 @@ fn verbose_for(level: &str) -> bool {
 /// visible, and whether anything is written to it. The result was a visible
 /// window that stayed blank forever.
 pub fn init(level: &str, log_dir: Option<&Path>, console: bool) -> Result<()> {
-    let verbose = verbose_for(level);
+    let verbose = Arc::new(AtomicBool::new(verbose_for(level)));
+    let from_env = std::env::var_os("RUST_LOG").is_some();
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(directives(level)));
+    let (filter, handle) = reload::Layer::new(filter);
 
     let file_layer = match log_dir {
         Some(dir) => {
@@ -311,7 +362,7 @@ pub fn init(level: &str, log_dir: Option<&Path>, console: bool) -> Result<()> {
             Some(
                 fmt::layer()
                     .event_format(Line {
-                        verbose,
+                        verbose: Arc::clone(&verbose),
                         ansi: false,
                     })
                     .with_writer(std::sync::Mutex::new(file)),
@@ -325,7 +376,7 @@ pub fn init(level: &str, log_dir: Option<&Path>, console: bool) -> Result<()> {
     // or a pipe -- where they are noise rather than colour.
     let console_layer = console.then(|| {
         fmt::layer().event_format(Line {
-            verbose,
+            verbose: Arc::clone(&verbose),
             ansi: std::io::stdout().is_terminal(),
         })
     });
@@ -335,6 +386,12 @@ pub fn init(level: &str, log_dir: Option<&Path>, console: bool) -> Result<()> {
         .with(console_layer)
         .with(file_layer)
         .init();
+    // Set once; a second `init` would have failed just above.
+    let _ = LIVE.set(Live {
+        filter: handle,
+        verbose,
+        from_env,
+    });
 
     Ok(())
 }
@@ -368,7 +425,7 @@ mod tests {
         let buffer = Buffer::default();
         let layer = fmt::layer()
             .event_format(Line {
-                verbose,
+                verbose: Arc::new(AtomicBool::new(verbose)),
                 ansi: false,
             })
             .with_writer(buffer.clone());

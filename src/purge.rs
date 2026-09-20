@@ -56,6 +56,7 @@ pub struct Layout {
     pub config_candidates: Vec<PathBuf>,
     pub log: Option<PathBuf>,
     pub marker: Option<PathBuf>,
+    pub fault_marker: Option<PathBuf>,
     pub local_dir: Option<PathBuf>,
     pub roaming_dir: Option<PathBuf>,
     pub exe_dir: Option<PathBuf>,
@@ -95,6 +96,9 @@ impl Plan {
             push(log);
         }
         if let Some(marker) = &layout.marker {
+            push(marker);
+        }
+        if let Some(marker) = &layout.fault_marker {
             push(marker);
         }
 
@@ -216,6 +220,9 @@ pub fn discover(config: Option<&config::Config>, config_path: &Path) -> Layout {
         config_candidates: candidates,
         log: log_dir.map(|dir| dir.join(logging::LOG_FILE_NAME)),
         marker: local_dir.as_ref().map(|dir| dir.join(marker::FILE_NAME)),
+        fault_marker: local_dir
+            .as_ref()
+            .map(|dir| dir.join(marker::FAULT_FILE_NAME)),
         local_dir,
         roaming_dir: config::roaming_dir(),
         exe_dir: std::env::current_exe()
@@ -334,6 +341,7 @@ mod tests {
             config_candidates: vec![exe_dir.join("config.toml"), roaming.join("config.toml")],
             log: Some(local.join("logs").join("gamemode-executor.log")),
             marker: Some(local.join(marker::FILE_NAME)),
+            fault_marker: Some(local.join(marker::FAULT_FILE_NAME)),
             local_dir: Some(local.clone()),
             roaming_dir: Some(roaming.clone()),
             exe_dir: Some(exe_dir.clone()),

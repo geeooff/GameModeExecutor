@@ -1,14 +1,27 @@
 //! Configuration model, loaded from a TOML file.
+//!
+//! The watcher reads the file at start and again whenever it changes: a
+//! thread waits on the folder's change notification, and a change to the
+//! file's bytes stops the running engine for one built on the new file.
+//! A file that cannot be used does not stop the program -- the icon says
+//! what is wrong, in the words of [`LoadError::summary`], and nothing is
+//! watched until it is fixed. Decided in `docs/design/09-robustness.md`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::win::{FolderEvent, FolderWatch, StopSignal};
+
 pub const CONFIG_FILE_NAME: &str = "config.toml";
 pub const APP_DIR_NAME: &str = "GameModeExecutor";
+
+/// The five positions of `log_level`, the ones the log's filter reads.
+pub const LOG_LEVELS: [&str; 5] = ["error", "warn", "info", "debug", "trace"];
 
 /// Root of the configuration file.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -149,45 +162,161 @@ impl Action {
     }
 }
 
-/// The configuration file is missing. Carried as error context so the program
-/// can exit with a code that says which of the two failures happened.
+/// Why a configuration file cannot be used.
+///
+/// `Display` and the source chain are the whole story, for a console; the
+/// exit code tells the two failures apart for a script. [`summary`] is the
+/// one line the menu has room for.
+///
+/// [`summary`]: LoadError::summary
 #[derive(Debug)]
-pub struct Missing(pub PathBuf);
+pub enum LoadError {
+    /// The file cannot be read -- most often it is not there.
+    Missing {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    /// The file does not parse. `line` is where, when the parser says.
+    /// Boxed: the parser's error carries the whole input for its caret.
+    Syntax {
+        path: PathBuf,
+        line: Option<usize>,
+        source: Box<toml::de::Error>,
+    },
+    /// The file parses but asks for something the program cannot do.
+    Invalid { path: PathBuf, reason: String },
+}
 
-impl std::fmt::Display for Missing {
+impl std::fmt::Display for LoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "cannot read config file `{}`", self.0.display())
+        match self {
+            Self::Missing { path, .. } => write!(f, "cannot read config file `{}`", path.display()),
+            Self::Syntax { path, .. } => {
+                write!(f, "config file `{}` is not usable", path.display())
+            }
+            Self::Invalid { path, reason } => {
+                write!(
+                    f,
+                    "config file `{}` is not usable: {reason}",
+                    path.display()
+                )
+            }
+        }
     }
 }
 
-impl std::error::Error for Missing {}
-
-/// The configuration file is present but unusable, whether it failed to parse
-/// or failed validation.
-#[derive(Debug)]
-pub struct Invalid(pub PathBuf);
-
-impl std::fmt::Display for Invalid {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "config file `{}` is not usable", self.0.display())
+impl std::error::Error for LoadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Missing { source, .. } => Some(source),
+            Self::Syntax { source, .. } => Some(source.as_ref()),
+            Self::Invalid { .. } => None,
+        }
     }
 }
 
-impl std::error::Error for Invalid {}
+impl LoadError {
+    /// What is wrong, in one line and without the path, for a menu entry
+    /// next to *Edit configuration* and for the log: `line 3: unknown field
+    /// `log_levl`, expected one of ...`, `the file is missing`,
+    /// `detection.poll_interval must be greater than zero`.
+    pub fn summary(&self) -> String {
+        match self {
+            Self::Missing { source, .. } if source.kind() == std::io::ErrorKind::NotFound => {
+                "the file is missing".to_owned()
+            }
+            Self::Missing { source, .. } => format!("cannot read the file: {source}"),
+            Self::Syntax { line, source, .. } => {
+                let message = source
+                    .message()
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                match line {
+                    Some(line) => format!("line {line}: {message}"),
+                    None => message,
+                }
+            }
+            Self::Invalid { reason, .. } => reason.clone(),
+        }
+    }
+
+    /// The summary without the parser's list of what it expected instead --
+    /// `line 3: unknown field `log_levl`` -- for the one menu line, where
+    /// the list ran off the screen. The notification and the log keep the
+    /// whole of it. Asked for by the maintainer on 2026-09-20.
+    pub fn headline(&self) -> String {
+        let summary = self.summary();
+        match summary.find(", expected one of") {
+            Some(cut) => summary[..cut].to_owned(),
+            None => summary,
+        }
+    }
+}
+
+/// What the supervisor tells the tray about the configuration, each time
+/// it reads the file. The tray draws the state and says the transitions;
+/// which transition it is, is the supervisor's to know.
+#[derive(Debug, Clone, Copy)]
+pub enum Report<'a> {
+    /// The file cannot be used: the icon shows it and a notification says
+    /// why, at start and at every reload that fails -- the one thing in
+    /// the program that needs the person, so the one thing that is said
+    /// unasked. Decided 2026-09-20.
+    Faulty(&'a LoadError),
+    /// The file is usable again after a fault: the icon back, and a
+    /// notification says the watcher is watching again.
+    Restored,
+    /// The file is usable and was before: the icon as it is, nothing said.
+    Usable,
+}
+
+/// Told what the supervisor found each time it read the file. The tray
+/// draws it; the supervisor in `service` decides it.
+pub type FaultSink = Arc<dyn Fn(Report<'_>) + Send + Sync>;
 
 impl Config {
-    pub fn load(path: &Path) -> Result<Self> {
-        let text = std::fs::read_to_string(path)
-            .map_err(|error| anyhow::Error::new(error).context(Missing(path.to_path_buf())))?;
-        let config: Self = toml::from_str(&text)
-            .map_err(|error| anyhow::Error::new(error).context(Invalid(path.to_path_buf())))?;
-        config
-            .validate()
-            .map_err(|error| error.context(Invalid(path.to_path_buf())))?;
+    pub fn load(path: &Path) -> Result<Self, LoadError> {
+        Self::parse(&Self::read(path)?, path)
+    }
+
+    /// The file's text, or why it cannot be read.
+    pub fn read(path: &Path) -> Result<String, LoadError> {
+        std::fs::read_to_string(path).map_err(|source| LoadError::Missing {
+            path: path.to_path_buf(),
+            source,
+        })
+    }
+
+    /// `text` as read from `path`, parsed and validated.
+    pub fn parse(text: &str, path: &Path) -> Result<Self, LoadError> {
+        let config: Self = toml::from_str(text).map_err(|source| LoadError::Syntax {
+            path: path.to_path_buf(),
+            line: source
+                .span()
+                .map(|span| text[..span.start.min(text.len())].matches('\n').count() + 1),
+            source: Box::new(source),
+        })?;
+        config.validate().map_err(|error| LoadError::Invalid {
+            path: path.to_path_buf(),
+            reason: format!("{error:#}"),
+        })?;
         Ok(config)
     }
 
     pub fn validate(&self) -> Result<()> {
+        // A level the filter does not know used to be accepted and to leave
+        // an `error`-only log, silently -- found on 2026-09-20 with "debg".
+        // The dial has five positions and a sixth is a fault like any other.
+        if !LOG_LEVELS
+            .iter()
+            .any(|level| level.eq_ignore_ascii_case(&self.general.log_level))
+        {
+            anyhow::bail!(
+                "general.log_level must be one of error, warn, info, debug or trace, not `{}`",
+                self.general.log_level
+            );
+        }
         if self.detection.poll_interval.is_zero() {
             anyhow::bail!("detection.poll_interval must be greater than zero");
         }
@@ -245,6 +374,71 @@ pub fn roaming_dir() -> Option<PathBuf> {
 /// where Windows puts what belongs to the machine rather than the person.
 pub fn local_dir() -> Option<PathBuf> {
     std::env::var_os("LOCALAPPDATA").map(|local| PathBuf::from(local).join(APP_DIR_NAME))
+}
+
+/// How long after the last change notification the file is read again.
+/// Editors write in several steps -- a temporary file, a rename, a
+/// truncate and a write -- and each step is a notification; reading in
+/// the middle would see half a file.
+pub const RELOAD_SETTLE: Duration = Duration::from_millis(250);
+
+/// Watch `path` and signal `reload` -- with [`StopSignal::signal_reload`]
+/// -- each time the file's bytes change, until `stop` is set.
+///
+/// A thread parked on the folder's change notification and the stop event,
+/// so it costs nothing while nothing happens. What it compares is the
+/// bytes, not the parse: a file written back unchanged is not a reload, and
+/// a file that no longer parses is one, since the engine must stop. `last`
+/// is the text the caller loaded, so the first change seen is a change to
+/// what is running. Returns the thread, so the caller can wait for it to
+/// have gone.
+pub fn watch(
+    path: PathBuf,
+    last: Option<String>,
+    stop: Arc<StopSignal>,
+    reload: Arc<StopSignal>,
+) -> Result<std::thread::JoinHandle<()>> {
+    let dir = path
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+    let folder = FolderWatch::open(&dir)?;
+    tracing::debug!(
+        target: crate::logging::target::WATCHER,
+        folder = %dir.display(),
+        "Watching the configuration's folder for changes"
+    );
+    Ok(std::thread::spawn(move || {
+        let mut last = last;
+        let mut settling = false;
+        loop {
+            let timeout = settling.then_some(RELOAD_SETTLE);
+            match folder.wait(&stop, timeout) {
+                FolderEvent::Stopped => return,
+                // Anything in the folder; whether it was the file is
+                // settled by reading it once the editor has finished.
+                FolderEvent::Changed => settling = true,
+                FolderEvent::TimedOut => {
+                    settling = false;
+                    let now = std::fs::read_to_string(&path).ok();
+                    if now == last {
+                        tracing::debug!(
+                            target: crate::logging::target::WATCHER,
+                            "The configuration's folder changed, the file did not"
+                        );
+                        continue;
+                    }
+                    last = now;
+                    tracing::debug!(
+                        target: crate::logging::target::WATCHER,
+                        path = %path.display(),
+                        "The configuration file changed, reloading"
+                    );
+                    reload.signal_reload();
+                }
+            }
+        }
+    }))
 }
 
 /// The configuration `init` writes: `config.example.toml` at the root of the
@@ -414,6 +608,23 @@ mode = \"concurrent\"
         );
     }
 
+    /// "debg" used to pass validation and leave a log with nothing but
+    /// errors in it, which the person then read as the program having gone
+    /// quiet. The log's own filter is what decides the five words.
+    #[test]
+    fn a_misspelt_log_level_is_a_fault_not_a_silent_log() {
+        let path = Path::new("config.toml");
+        let error = Config::parse("[general]\nlog_level = \"debg\"\n", path).unwrap_err();
+        assert!(matches!(error, LoadError::Invalid { .. }), "{error:?}");
+        assert!(error.summary().contains("`debg`"), "{}", error.summary());
+        for level in LOG_LEVELS {
+            for spelling in [level.to_owned(), level.to_ascii_uppercase()] {
+                let text = format!("[general]\nlog_level = \"{spelling}\"\n");
+                Config::parse(&text, path).unwrap();
+            }
+        }
+    }
+
     #[test]
     fn unknown_keys_are_rejected() {
         assert!(
@@ -424,5 +635,114 @@ poll_intervall = \"2s\"
             )
             .is_err()
         );
+    }
+
+    // -------------------------------------------------- what the menu says --
+
+    /// The menu has one line and the person reading it has the file open
+    /// beside it: the line number and the parser's words, nothing else.
+    #[test]
+    fn a_syntax_error_is_summarised_with_its_line() {
+        let path = Path::new("config.toml");
+        let text = "[general]
+log_level = \"info\"
+log_levl = 1
+";
+        let error = Config::parse(text, path).unwrap_err();
+        assert!(
+            matches!(error, LoadError::Syntax { line: Some(3), .. }),
+            "{error:?}"
+        );
+        let summary = error.summary();
+        assert!(
+            summary.starts_with("line 3: unknown field `log_levl`"),
+            "{summary}"
+        );
+        assert!(!summary.contains('\n'), "one line: {summary:?}");
+        assert!(
+            summary.contains("expected one of"),
+            "the whole of it: {summary}"
+        );
+        assert_eq!(error.headline(), "line 3: unknown field `log_levl`");
+        // The console still gets the parser's own account, caret and all.
+        assert!(format!("{:#}", anyhow::Error::new(error)).contains("not usable"));
+    }
+
+    #[test]
+    fn a_missing_file_and_a_bad_value_are_summarised_in_their_own_words() {
+        let path = Path::new(r"C:\nowhere\GameModeExecutor\config.toml");
+        let missing = Config::load(path).unwrap_err();
+        assert!(matches!(missing, LoadError::Missing { .. }), "{missing:?}");
+        assert_eq!(missing.summary(), "the file is missing");
+
+        let invalid = Config::parse(
+            "[detection]
+poll_interval = \"0s\"
+",
+            path,
+        )
+        .unwrap_err();
+        assert!(matches!(invalid, LoadError::Invalid { .. }), "{invalid:?}");
+        assert_eq!(
+            invalid.summary(),
+            "detection.poll_interval must be greater than zero"
+        );
+    }
+
+    // ------------------------------------------------------- the reload --
+
+    fn scratch() -> PathBuf {
+        static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "gamemode-executor-config-{}-{n}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The watch signals a reload when the file's bytes change, and not
+    /// when the folder is touched or the same bytes are written back; the
+    /// process-wide stop ends it.
+    #[test]
+    fn the_watch_signals_a_change_to_the_file_and_nothing_else() {
+        let dir = scratch();
+        let path = dir.join(CONFIG_FILE_NAME);
+        std::fs::write(&path, "[general]\n").unwrap();
+        let stop = Arc::new(StopSignal::new().unwrap());
+        let reload = Arc::new(StopSignal::child_of(&stop).unwrap());
+        let thread = watch(
+            path.clone(),
+            Some("[general]\n".to_owned()),
+            Arc::clone(&stop),
+            Arc::clone(&reload),
+        )
+        .unwrap();
+
+        // Another file, and the same bytes again: the folder changed, the
+        // configuration did not.
+        std::fs::write(dir.join("other.txt"), "x").unwrap();
+        std::fs::write(&path, "[general]\n").unwrap();
+        assert!(
+            !reload.wait_timeout(RELOAD_SETTLE * 4),
+            "no reload for a folder change that left the file as it was"
+        );
+
+        std::fs::write(&path, "[general]\nlog_level = \"debug\"\n").unwrap();
+        assert!(
+            reload.wait_timeout(Duration::from_secs(5)),
+            "a change to the bytes is a reload"
+        );
+        assert_eq!(reload.reason(), crate::win::StopReason::Reload);
+        assert!(reload.take_reload());
+
+        // The same again, now that the watch remembers the new bytes.
+        std::fs::write(&path, "[general]\nlog_level = \"debug\"\n").unwrap();
+        assert!(!reload.wait_timeout(RELOAD_SETTLE * 4));
+
+        stop.signal();
+        thread.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

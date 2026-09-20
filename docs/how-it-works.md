@@ -188,6 +188,37 @@ commands instead, as after a logoff.
 
 `gamemode-executor status` shows whether that file is there, and where.
 
+## Changing the configuration
+
+The watcher does not read the file once and forget it. A small thread waits
+on the folder's change notification — Windows' own, nothing polled — and
+when the file's bytes change it stops the running engine and starts one on
+the new file. Editors save in several steps, so the read waits a quarter of
+a second after the last change; the log then says `Configuration reloaded`.
+A file written back unchanged is not a reload.
+
+A game in progress survives it, by the same handover an update uses: the
+engine stops without running anything, leaving the session open in the
+[marker](#logging-off-mid-game), and the next engine finds the presence
+writer still running and takes the session up where it was. The stop
+commands that run when the game ends are the new ones.
+
+A file that cannot be used — a typo, a value the program refuses, a file
+that is gone — does not stop the program and does not fall back to the last
+good one. It **disables it outright**: the icon turns red, a notification
+says what is wrong, the menu's first line keeps the short of it, and
+nothing is watched until a usable file is saved; when one is, a
+notification says the watcher is back. Frozen, deliberately. Falling back
+to the last good configuration
+would mean the program runs something other than what the file says, with
+nothing on screen to say so; frozen with a red icon is an unambiguous
+state, and *Edit configuration* is right there. While it is frozen a game
+that ends gets no stop commands, and the session marker remembers that: the
+moment a usable file is saved, the new engine settles what was left — the
+stop commands run if the game is gone, the session resumes if it is still
+on. `log_dir` is the one setting a reload cannot apply, because the log is
+already open; it takes effect at the next start, and the log says so.
+
 ## Removing it
 
 Uninstalling from *Programs and Features* removes what the installer put
@@ -238,10 +269,11 @@ release is honest; the program has no code signature, and the design record
 says why. A file it downloads carries no mark of the web, so Windows'
 SmartScreen never sees it: the program vouches for it, through the hash.
 
-The notification that answers *Check for updates* is the one time the
+The notification that answers *Check for updates* is one of two times the
 program shows anything beyond its icon: a menu closes when you click in it,
-so the answer has to reach you somewhere. It is silent, it respects your
-quiet hours, and it only ever answers something you clicked.
+so the answer has to reach you somewhere. The other is a configuration that
+cannot be used, and its end — the one thing that needs you. Both are
+silent and respect your quiet hours; nothing else is ever said.
 
 ## What it does not do
 

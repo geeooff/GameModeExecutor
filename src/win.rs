@@ -8,12 +8,16 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM, LRESULT, WAIT_OBJECT_0,
-    WPARAM,
+    WAIT_TIMEOUT, WPARAM,
+};
+use windows::Win32::Storage::FileSystem::{
+    FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE,
+    FindCloseChangeNotification, FindFirstChangeNotificationW, FindNextChangeNotification,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{
-    CreateEventW, CreateMutexW, INFINITE, OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE, SetEvent,
-    WaitForSingleObject,
+    CreateEventW, CreateMutexW, INFINITE, OpenMutexW, ResetEvent, SYNCHRONIZATION_SYNCHRONIZE,
+    SetEvent, WaitForMultipleObjects, WaitForSingleObject,
 };
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
@@ -36,18 +40,34 @@ pub enum StopReason {
     /// development loop. The session stays open in the marker and the next
     /// watcher resumes it, so nothing runs twice. Decided 2026-09-18.
     Handover,
+    /// The configuration file changed: the engine stops so that one built
+    /// on the new file can take its place, in the same process. A session
+    /// that is open stays open, as for a handover, and the next engine
+    /// resumes it. Only ever the reason of a signal made with
+    /// [`StopSignal::child_of`]. Decided 2026-09-19.
+    Reload,
 }
 
 /// A manual-reset event used to unblock every wait in the program at once.
 ///
 /// Waiting on a kernel event rather than checking a flag on a timer is what
 /// keeps the watcher at zero wake-ups while a game is running.
+///
+/// A signal can be the child of another: it is then set when either event
+/// is, and the parent's reason wins. That is how one engine run stops for
+/// a reload without the process-wide stop ever being reset -- the child's
+/// own event carries the reload and is reset between runs; the parent
+/// carries *Quit*, the logoff and `stop`, and stays set once set.
 pub struct StopSignal {
     event: HANDLE,
     /// Set before the event when the stop is a handover. The first reason to
     /// arrive wins: a *Quit* after a handover request still hands over, a
     /// handover after a *Quit* has nothing left to hand.
     handover: AtomicBool,
+    /// Set before the event when the stop is a reload of this run only.
+    reload: AtomicBool,
+    /// The signal this one also answers to.
+    parent: Option<Arc<StopSignal>>,
 }
 
 // SAFETY: a Win32 event handle is a kernel object; signalling and waiting on
@@ -65,7 +85,20 @@ impl StopSignal {
         Ok(Self {
             event,
             handover: AtomicBool::new(false),
+            reload: AtomicBool::new(false),
+            parent: None,
         })
+    }
+
+    /// A signal that is also set whenever `parent` is, and can be set on
+    /// its own for a reload and reset again with [`take_reload`], leaving
+    /// the parent as it was.
+    ///
+    /// [`take_reload`]: StopSignal::take_reload
+    pub fn child_of(parent: &Arc<StopSignal>) -> Result<Self> {
+        let mut child = Self::new()?;
+        child.parent = Some(Arc::clone(parent));
+        Ok(child)
     }
 
     /// Stop, and restore: the stop commands run if a game is on.
@@ -82,29 +115,80 @@ impl StopSignal {
         self.signal();
     }
 
+    /// Stop this run only, to start again on a changed configuration. Nothing
+    /// to do when a stop is already under way: the process is leaving, and
+    /// the file is read afresh at the next start.
+    pub fn signal_reload(&self) {
+        if self.is_set() {
+            return;
+        }
+        self.reload.store(true, Ordering::SeqCst);
+        self.signal();
+    }
+
+    /// Whether the stop under way is a reload, and if so, clear it so the
+    /// next run waits afresh. A parent that is set is never cleared: the
+    /// process is stopping, whatever this run was told.
+    pub fn take_reload(&self) -> bool {
+        if self.parent.as_ref().is_some_and(|parent| parent.is_set()) || !self.own_is_set() {
+            return false;
+        }
+        if !self.reload.swap(false, Ordering::SeqCst) {
+            return false;
+        }
+        // SAFETY: as for `signal`.
+        let _ = unsafe { ResetEvent(self.event) };
+        true
+    }
+
     pub fn reason(&self) -> StopReason {
+        if let Some(parent) = &self.parent
+            && parent.is_set()
+        {
+            return parent.reason();
+        }
         if self.handover.load(Ordering::SeqCst) {
             StopReason::Handover
+        } else if self.reload.load(Ordering::SeqCst) {
+            StopReason::Reload
         } else {
             StopReason::Restore
         }
     }
 
     pub fn is_set(&self) -> bool {
+        self.own_is_set() || self.parent.as_ref().is_some_and(|parent| parent.is_set())
+    }
+
+    fn own_is_set(&self) -> bool {
         // SAFETY: as for `signal`.
         unsafe { WaitForSingleObject(self.event, 0) == WAIT_OBJECT_0 }
+    }
+
+    /// Park until the stop is signalled.
+    pub fn wait(&self) {
+        while !self.wait_timeout(Duration::MAX) {}
     }
 
     /// Wait up to `timeout`. Returns true when the stop was signalled, which
     /// callers treat as "give up and return".
     pub fn wait_timeout(&self, timeout: Duration) -> bool {
         let millis = timeout.as_millis().min(u128::from(INFINITE - 1)) as u32;
-        // SAFETY: as for `signal`.
-        unsafe { WaitForSingleObject(self.event, millis) == WAIT_OBJECT_0 }
+        let handles = self.handles();
+        // SAFETY: every handle is an event open for as long as `self` -- and
+        // its parent, which it holds -- lives.
+        let result = unsafe { WaitForMultipleObjects(&handles, false, millis) };
+        result != WAIT_TIMEOUT && result.0 < WAIT_OBJECT_0.0 + handles.len() as u32
     }
 
-    pub(crate) fn handle(&self) -> HANDLE {
-        self.event
+    /// The events to wait on: this signal's own, and its parent's when it
+    /// has one. For a wait that also watches something else.
+    pub(crate) fn handles(&self) -> Vec<HANDLE> {
+        let mut handles = vec![self.event];
+        if let Some(parent) = &self.parent {
+            handles.extend(parent.handles());
+        }
+        handles
     }
 }
 
@@ -264,6 +348,9 @@ pub fn close_session_window(reason: StopReason) -> Result<()> {
         message: match reason {
             StopReason::Restore => WM_CLOSE,
             StopReason::Handover => WM_HANDOVER,
+            // A reload is the watcher's own business, between its engine
+            // runs; nothing asks it of another process.
+            StopReason::Reload => anyhow::bail!("a reload cannot be asked of a running watcher"),
         },
         found: false,
     };
@@ -474,5 +561,86 @@ impl Drop for SingleInstance {
     fn drop(&mut self) {
         // SAFETY: the handle came from `CreateMutexW` and is closed once.
         unsafe { _ = CloseHandle(self.handle) };
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+/// What a wait on a [`FolderWatch`] came back with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FolderEvent {
+    /// Something in the folder was written, renamed, created or removed.
+    Changed,
+    /// Nothing happened within the timeout.
+    TimedOut,
+    /// The stop signal was set.
+    Stopped,
+}
+
+/// A change notification on one folder: a handle Windows signals when a
+/// file in it is written, renamed, created or removed.
+///
+/// `FindFirstChangeNotificationW` rather than `ReadDirectoryChangesW`: the
+/// program does not need to know *which* file changed, only that the folder
+/// holding the configuration did, and a waitable handle is all that takes.
+/// The watch does not descend into subfolders.
+pub struct FolderWatch {
+    handle: HANDLE,
+}
+
+// SAFETY: a change notification handle is a kernel object; waiting on it
+// from the thread that watches, rather than the one that opened it, is what
+// it is for, and the struct holds nothing else.
+unsafe impl Send for FolderWatch {}
+
+impl FolderWatch {
+    pub fn open(dir: &std::path::Path) -> Result<Self> {
+        let name = HSTRING::from(dir.as_os_str());
+        // SAFETY: `name` is a NUL-terminated string that outlives the call;
+        // the handle that comes back is owned by `FolderWatch` and closed
+        // on drop.
+        let handle = unsafe {
+            FindFirstChangeNotificationW(
+                &name,
+                false,
+                FILE_NOTIFY_CHANGE_FILE_NAME
+                    | FILE_NOTIFY_CHANGE_LAST_WRITE
+                    | FILE_NOTIFY_CHANGE_SIZE,
+            )
+        }
+        .with_context(|| format!("cannot watch `{}` for changes", dir.display()))?;
+        Ok(Self { handle })
+    }
+
+    /// Park until the folder changes, `stop` is set, or `timeout` passes.
+    /// A change re-arms the handle before returning, so the next wait sees
+    /// the next change.
+    pub fn wait(&self, stop: &StopSignal, timeout: Option<Duration>) -> FolderEvent {
+        let millis = match timeout {
+            Some(timeout) => timeout.as_millis().min(u128::from(INFINITE - 1)) as u32,
+            None => INFINITE,
+        };
+        let mut handles = vec![self.handle];
+        handles.extend(stop.handles());
+        // SAFETY: the notification handle lives as long as `self`, the
+        // events as long as `stop`.
+        let result = unsafe { WaitForMultipleObjects(&handles, false, millis) };
+        if result == WAIT_OBJECT_0 {
+            // SAFETY: re-arms the handle opened in `open`, still open.
+            let _ = unsafe { FindNextChangeNotification(self.handle) };
+            FolderEvent::Changed
+        } else if result == WAIT_TIMEOUT {
+            FolderEvent::TimedOut
+        } else {
+            FolderEvent::Stopped
+        }
+    }
+}
+
+impl Drop for FolderWatch {
+    fn drop(&mut self) {
+        // SAFETY: the handle came from `FindFirstChangeNotificationW` and is
+        // closed once.
+        unsafe { _ = FindCloseChangeNotification(self.handle) };
     }
 }

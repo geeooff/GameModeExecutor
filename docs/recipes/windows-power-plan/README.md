@@ -81,14 +81,13 @@ powercfg /getactivescheme
 gamemode-executor trigger stop
 ```
 
-When both work, restart the watcher so it reads the file:
+When both work, save the file: the watcher reads it again by itself and
+the log says `Configuration reloaded`. From the zip, on a first install,
+one more command registers the logon task and starts the watcher:
 
 ```bash
-gamemode-executor stop
 gamemode-executor install-task
 ```
-
-From the zip, the second line also registers the logon task, the first time.
 
 ## Worth knowing
 

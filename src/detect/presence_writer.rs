@@ -113,9 +113,10 @@ pub fn wait_for_exit_until(
         Some(timeout) => timeout.as_millis().min(u128::from(INFINITE - 1)) as u32,
         None => INFINITE,
     };
-    let handles = [process, stop.handle()];
-    // SAFETY: both handles are valid for the whole wait -- `process` was just
-    // opened and is closed only afterwards, and the stop event lives as long
+    let mut handles = vec![process];
+    handles.extend(stop.handles());
+    // SAFETY: every handle is valid for the whole wait -- `process` was just
+    // opened and is closed only afterwards, and the stop events live as long
     // as `stop`.
     let result = unsafe { WaitForMultipleObjects(&handles, false, millis) };
     // SAFETY: closes the handle opened above, exactly once.

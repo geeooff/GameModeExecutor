@@ -179,6 +179,12 @@ pub fn run(cli: Cli, console: bool) -> Result<()> {
     }
 
     let path = resolve_config_path(cli.config)?;
+    // The watcher loads the file itself: one it cannot use is shown in the
+    // icon and waited on, not a reason to exit. The commands below need a
+    // usable one and say so with the exit code.
+    if matches!(cli.command, None | Some(Command::Run { .. })) {
+        return service::serve(&path, cli.log_level.as_deref(), console);
+    }
     let config = Config::load(&path)?;
     let level = cli
         .log_level
@@ -204,7 +210,7 @@ pub fn run(cli: Cli, console: bool) -> Result<()> {
             actions::run_all(actions, &actions::ActionContext::new(label, None));
             Ok(())
         }
-        _ => service::serve(config, &path, &level, console),
+        _ => unreachable!("every other command returned above"),
     }
 }
 
@@ -394,6 +400,18 @@ fn status() -> Result<()> {
             }
         },
         None => println!("Session marker       : unavailable, no local profile"),
+    }
+    // Left by a watcher that found the file unusable; a usable read removes
+    // it. Present here, the watcher is frozen or was when it last looked.
+    if let Some(marker) = marker::FaultMarker::in_local_dir() {
+        if marker.path().is_file() {
+            println!(
+                "Configuration fault  : PRESENT - the watcher found the file unusable when it                  last read it ({})",
+                marker.path().display()
+            );
+        } else {
+            println!("Configuration fault  : none ({})", marker.path().display());
+        }
     }
 
     // Naming only, never detection.

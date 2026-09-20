@@ -89,6 +89,14 @@ args = ["/setactive", "SCHEME_BALANCED"]
 Write Windows paths between single quotes: TOML takes those literally, so
 backslashes need no doubling.
 
+The watcher reads the file again whenever it changes — within about a
+second of a save, the log says `Configuration reloaded` — and applies
+everything but `log_dir`, which waits for the next start. A file it cannot
+use disables it until one it can is saved: the icon turns red and its
+menu's first line carries the reason; nothing runs meanwhile, and the exit
+codes below are for the commands, since the watcher no longer exits over
+the file.
+
 ### Actions
 
 Each event has a mode and a list of commands. `series` runs each command after
@@ -147,6 +155,10 @@ with no prompt.
 | 4 | configuration invalid: syntax or validation |
 | 5 | another instance is already running |
 
+`3` and `4` come from `validate`, `status`, `trigger` and the setup commands,
+which need a usable file. The watcher itself starts whatever the file says
+and shows the fault in its icon instead.
+
 ## The log
 
 `%LOCALAPPDATA%\GameModeExecutor\logs\gamemode-executor.log` unless `log_dir`
@@ -164,9 +176,13 @@ One log serves two readers, and `log_level` is the dial between them:
 | `trace` | technician | Raw measurements. |
 
 `info` is reserved for what the program is for: a game detected, named or
-gone, the watcher starting or stopping, a session recovered at start — and
-what was done to this machine to set it up, which is the same story one
-chapter earlier. Nothing else competes with those lines.
+gone, the watcher starting or stopping, a session recovered at start, the
+configuration reloaded — and what was done to this machine to set it up,
+which is the same story one chapter earlier. Nothing else competes with
+those lines. A configuration the watcher cannot use is an `error`, the one
+line in the log that asks something of you: `The configuration cannot be
+used, so nothing is watched until it is fixed: line 3: unknown field
+'log_levl'`.
 
 Each line is `time  LEVEL  category  message`, with the category one of
 `watcher`, `game`, `commands`, `setup` or `update`:
@@ -220,6 +236,7 @@ syntax — `RUST_LOG=game=debug` for the detection lines alone.
 | Configuration | next to the executable, or `%APPDATA%\GameModeExecutor\config.toml` | yours; roams with the profile |
 | Log | `%LOCALAPPDATA%\GameModeExecutor\logs\` | disposable |
 | Session marker | `%LOCALAPPDATA%\GameModeExecutor\pending-stop-actions` | present while a game session is open; left behind by a logoff, shutdown, crash or handover, and settled at the next start — the session resumed if the game is still on, closed if it is gone. `status` reports it. |
+| Fault marker | `%LOCALAPPDATA%\GameModeExecutor\configuration-fault` | present while the configuration cannot be used; removed when a usable one is read, which is how a watcher started on a file fixed meanwhile knows to say the fault is over |
 | Logon task | `\GameModeExecutor\Watcher` in Task Scheduler | records the absolute path of the executable; removed with the package, kept through an upgrade |
 | Updates | `%LOCALAPPDATA%\GameModeExecutor\updates\` | a downloaded release and the installer's log while an update runs; emptied when the next watcher starts, the log kept if the update failed |
 

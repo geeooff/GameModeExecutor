@@ -20,7 +20,7 @@ session rather than when the code compiles. Each has its own page.
 | 6 | [Notification area icon](06-notification-icon.md) | done |
 | 7 | [Icon, tooltip and menu as one state](07-tray-state.md) | done |
 | 8 | [Distribution](08-distribution.md) | done |
-| 9 | [Robustness](09-robustness.md) | partly done |
+| 9 | [Robustness](09-robustness.md) | partly done; faults and live reload done, two smaller items open |
 | 10 | [Configuration window](10-configuration-window.md) | proposed |
 | 11 | [Documentation for the people who use it](11-user-documentation.md) | done |
 | 12 | [Editing the configuration without breaking it](12-editing-on-a-copy.md) | proposed |
