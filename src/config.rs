@@ -20,6 +20,9 @@ use crate::win::{FolderEvent, FolderWatch, StopSignal};
 pub const CONFIG_FILE_NAME: &str = "config.toml";
 pub const APP_DIR_NAME: &str = "GameModeExecutor";
 
+/// The five positions of `log_level`, the ones the log's filter reads.
+pub const LOG_LEVELS: [&str; 5] = ["error", "warn", "info", "debug", "trace"];
+
 /// Root of the configuration file.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -274,6 +277,18 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<()> {
+        // A level the filter does not know used to be accepted and to leave
+        // an `error`-only log, silently -- found on 2026-09-20 with "debg".
+        // The dial has five positions and a sixth is a fault like any other.
+        if !LOG_LEVELS
+            .iter()
+            .any(|level| level.eq_ignore_ascii_case(&self.general.log_level))
+        {
+            anyhow::bail!(
+                "general.log_level must be one of error, warn, info, debug or trace, not `{}`",
+                self.general.log_level
+            );
+        }
         if self.detection.poll_interval.is_zero() {
             anyhow::bail!("detection.poll_interval must be greater than zero");
         }
@@ -563,6 +578,23 @@ mode = \"concurrent\"
             )
             .is_err()
         );
+    }
+
+    /// "debg" used to pass validation and leave a log with nothing but
+    /// errors in it, which the person then read as the program having gone
+    /// quiet. The log's own filter is what decides the five words.
+    #[test]
+    fn a_misspelt_log_level_is_a_fault_not_a_silent_log() {
+        let path = Path::new("config.toml");
+        let error = Config::parse("[general]\nlog_level = \"debg\"\n", path).unwrap_err();
+        assert!(matches!(error, LoadError::Invalid { .. }), "{error:?}");
+        assert!(error.summary().contains("`debg`"), "{}", error.summary());
+        for level in LOG_LEVELS {
+            for spelling in [level.to_owned(), level.to_ascii_uppercase()] {
+                let text = format!("[general]\nlog_level = \"{spelling}\"\n");
+                Config::parse(&text, path).unwrap();
+            }
+        }
     }
 
     #[test]

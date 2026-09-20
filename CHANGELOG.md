@@ -34,6 +34,12 @@ a section is written.
   exiting with a code and no icon when the file is wrong at logon. `validate`
   still reports the exit codes 3 and 4 for scripts.
 
+### Fixed
+
+- A misspelt `log_level` — `"debg"` — used to be accepted and to leave a
+  log with nothing but errors in it, as if the program had gone quiet. It is
+  now a configuration error like any other, named in the icon's menu.
+
 ## [0.2.0] - 2026-09-18
 
 The program updates itself from the icon, and a game session survives it.

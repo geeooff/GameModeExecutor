@@ -1,11 +1,11 @@
 # Lot 9 — Robustness
 
 **Status: partly done.** The session marker is built and verified; the
-configuration faults and the live reload are built and measured, waiting
-for a real game session; two smaller items remain.
+configuration faults and the live reload are built and verified in the
+field; two smaller items remain.
 
 - [x] Restore at the next start what a logoff could not — done 2026-09-16, a race fixed and re-verified 2026-09-17
-- [ ] Configuration faults shown in the tray, and live reload — built 2026-09-19 and measured without a game, below; closes on a reload during a real game session
+- [x] Configuration faults shown in the tray, and live reload — built 2026-09-19, measured without a game and then verified across two Starfield sessions on 2026-09-20, below
 - [ ] Stop timing the refinement; let the OS say when — below
 - [ ] `ShutdownBlockReasonCreate`, so Windows' shutdown screen says what is being restored rather than naming the process
 - [ ] Behaviour across two games launched back to back
@@ -205,11 +205,47 @@ followed; back to `debug`, *Log level changed* and the fields back; a
 `poll_interval` of zero, the validation's own sentence in the menu line;
 the file deleted, *the file is missing*; the file back with `log_dir`
 moved, the reload and the `warn` that the log waits; then `stop`, *Stopped*.
-Six changes, six reloads, one process, 54 seconds. What is not measured is
-the case the design is for: a reload while a game is running, which is a
-real session with the marker resumed by the next engine — the scenario
-`a_reload_mid_game_is_a_handover_to_the_next_engine` pins it, the field
-run closes the item.
+Six changes, six reloads, one process, 54 seconds.
+
+**Verified in the field 2026-09-20, 14:41–14:54**, by the maintainer on
+the installed copy, with the release build of the branch copied over it:
+
+- A misspelt key while idle: the `ERROR` line, the red icon, the tooltip
+  and the menu line; fixed, *Configuration reloaded*, the icon grey. The
+  maintainer's remark that the menu line is long — the parser's list of
+  expected fields — is accepted as it is, for want of a better single line.
+- **A reload during a game.** Starfield detected at 14:47:32, the start
+  commands run; the stop action renamed in the file at 14:49:01: *Stopping
+  for a reload*, *Configuration reloaded*, *A session was left open with
+  Starfield.exe still running, so it resumes where it was* — no command
+  run, no beep, the icon green throughout. The game quit at 14:49:40 and
+  the stop commands that ran were the renamed ones: `FanControl - Idle
+  (reloaded)`.
+- **A fault during a game.** Starfield again at 14:51:45; `gpu_sample`
+  misspelt at 14:52:43: the engine stopped, the red icon, and the game
+  quit into a frozen watcher — nothing ran, the fans stayed on the gaming
+  configuration, as the strict rule says. The file fixed at 14:54:39:
+  *Configuration reloaded*, then *The last session ended with Starfield.exe
+  still running and its stop commands never ran, so they run now*, and
+  the idle configuration came back by itself. Between the two, the icon
+  showed *playing Starfield.exe* for 6 ms — the session the stopped engine
+  had left in the tray, until the recovery reported *Idle* — which is the
+  reason that report exists.
+
+Two defects the run found, both fixed the same day:
+
+- `log_level = "debg"` was **not** a fault. `validate` did not look at the
+  value, the filter took no directive from it and fell back to `error`
+  alone, and the log went quiet from 14:42:33 to 14:44:07 — the *reloaded*
+  line that should have said what happened was itself filtered out. A
+  pre-existing hole, first seen because the reload made the file easy to
+  break: the five levels are now validated, case-insensitively, and a
+  sixth word is a fault with the icon and the menu line like any other.
+- The debug line at the writer's exit, after a resume, read *the game was
+  never named* with a session of 34 s: the resumed signal has a name and
+  no process id, and the engine's clock started at the resume. It now says
+  the game was known by name only, from the resumed session, and gives the
+  time since the resume rather than a session length it cannot know.
 
 ## Stop timing the refinement
 

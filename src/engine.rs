@@ -248,7 +248,7 @@ impl<S: Sensor> Engine<S> {
                         continue;
                     }
                     WaitOutcome::WriterExited => {
-                        self.log_writer_exit(session_start, signal.as_ref());
+                        self.log_writer_exit(session_start, signal.as_ref(), fresh);
                     }
                 }
                 match self.writer_returns(stop) {
@@ -378,26 +378,39 @@ impl<S: Sensor> Engine<S> {
     /// log jumps straight from the start to the stop, and telling "Windows was
     /// slow" from "we were slow" needs Steam's own logs. So say whether the
     /// game we identified was already gone when Windows finally let go.
-    fn log_writer_exit(&self, session_start: Instant, signal: Option<&GameSignal>) {
+    ///
+    /// A resumed session has a name from the marker and no process id, and
+    /// this engine only saw the end of it: said as such, with the time since
+    /// the resume rather than a session length it cannot know. Seen on
+    /// 2026-09-20, when a session resumed after a reload was logged as
+    /// never named, 34 s long.
+    fn log_writer_exit(&self, session_start: Instant, signal: Option<&GameSignal>, fresh: bool) {
         let elapsed = session_start.elapsed();
         let named = signal
             .and_then(|signal| signal.process_id)
             .map(|pid| (pid, self.sensor.is_running(pid)));
-        match named {
-            Some((pid, true)) => tracing::debug!(
+        match (named, signal) {
+            (Some((pid, true)), _) => tracing::debug!(
                 target: target::GAME,
                 pid,
                 session = ?elapsed,
                 "Windows released the presence writer while the identified game is still running"
             ),
-            Some((pid, false)) => tracing::debug!(
+            (Some((pid, false)), _) => tracing::debug!(
                 target: target::GAME,
                 pid,
                 session = ?elapsed,
                 "Windows released the presence writer; the identified game had already \
                  exited, so the wait since then was Windows, not this program"
             ),
-            None => tracing::debug!(
+            (None, Some(signal)) if !fresh => tracing::debug!(
+                target: target::GAME,
+                since_resumed = ?elapsed,
+                "Windows released the presence writer; {} was known by name only, from the \
+                 session this engine resumed, so whether it had already exited was not checked",
+                signal.name()
+            ),
+            (None, _) => tracing::debug!(
                 target: target::GAME,
                 session = ?elapsed,
                 "Windows released the presence writer; the game was never named"
