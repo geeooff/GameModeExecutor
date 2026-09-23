@@ -170,6 +170,24 @@ the menu again at 18:00 and at 18:01, and the watcher read 357 handles
 before and after both, its private bytes 4.18 then 4.22 MB. The tooltip
 costs nothing: the shell draws it, in its own process.
 
+**Not the dark theme.** The maintainer asked whether the undocumented
+`SetPreferredAppMode` was the cause. `presence-probe menu-cost menu` and
+`menu-dark` build the tray's menu on a hidden window of a fresh process and
+show it three times, each closed by a timer after a second, the second
+variant after the call the tray makes at start. Twice each, 18:10:
+
+| | the call itself | first menu | second and third |
+| --- | --- | --- | --- |
+| light | — | +55 handles, +0.63 and +0.71 MB | nothing |
+| dark | +1 handle, +0.03 MB | +55 handles, +0.70 and +0.71 MB | nothing |
+
+The same cost either way, within the noise of private bytes; the call
+costs a handle. The figures differ from the watcher's, 41 handles and
+1.1 MB, because the watcher had loaded some of it before and the probe's
+window never became the foreground one — it gained no thread where the
+watcher gained three — but the comparison is between two runs of the same
+probe, and it answers the question.
+
 Between the session's end and 17:57 the count went down from 363 to 357
 by itself, as the thread pool let its idle threads go.
 

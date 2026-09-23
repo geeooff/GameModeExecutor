@@ -23,8 +23,9 @@
 //!                                    several ways of being told the game list changed, at once
 //! presence-probe cost [rounds]       time what an idle poll costs, today and with Lot 15
 //! presence-probe footprint           what each step of the watcher leaves in memory and handles
-//! presence-probe menu-cost <open|check|spawn>
-//!                                    what one click of the menu leaves, over five minutes
+//! presence-probe menu-cost <open|check|spawn|menu|menu-dark>
+//!                                    what one click of the menu leaves, over five minutes,
+//!                                    or the menu itself, light or dark, shown three times
 //! presence-probe gpu-load [ms] [rounds]
 //!                                    the rendering load the refinement reads, busiest first
 //! presence-probe microsoft-list <exe path>...
@@ -1086,6 +1087,10 @@ fn cmd_menu_cost(click: &str) -> windows::core::Result<()> {
     };
     say("before");
     match click {
+        "menu" | "menu-dark" => {
+            show_menus(click == "menu-dark", &say);
+            return Ok(());
+        }
         "open" => {
             // SAFETY: every string is a NUL-terminated literal.
             unsafe {
@@ -1112,7 +1117,9 @@ fn cmd_menu_cost(click: &str) -> windows::core::Result<()> {
                 .status();
         }
         other => {
-            eprintln!("usage: presence-probe menu-cost <open|check|spawn>, not `{other}`");
+            eprintln!(
+                "usage: presence-probe menu-cost <open|check|spawn|menu|menu-dark>, not `{other}`"
+            );
             std::process::exit(2);
         }
     }
@@ -1121,6 +1128,127 @@ fn cmd_menu_cost(click: &str) -> windows::core::Result<()> {
         say(&format!("{click}, {at} s after"));
     }
     Ok(())
+}
+
+/// The tray's menu, built the tray's way on a hidden window of this process
+/// and shown three times, each closed by a timer after a second -- with or
+/// without asking uxtheme for dark menus first, as the tray does at start.
+/// It is on screen for that second.
+fn show_menus(dark: bool, say: &dyn Fn(&str)) {
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
+    use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
+        DestroyWindow, EndMenu, GetCursorPos, KillTimer, MF_DISABLED, MF_GRAYED, MF_SEPARATOR,
+        MF_STRING, PostMessageW, RegisterClassW, SetForegroundWindow, SetTimer, TPM_NONOTIFY,
+        TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenuEx, WINDOW_EX_STYLE, WM_NULL, WNDCLASSW,
+        WS_POPUP,
+    };
+    use windows::core::{PCSTR, w};
+
+    extern "system" fn procedure(window: HWND, message: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+        // SAFETY: the arguments are the ones Windows passed in.
+        unsafe { DefWindowProcW(window, message, w, l) }
+    }
+    extern "system" fn close(_: HWND, _: u32, _: usize, _: u32) {
+        // SAFETY: no arguments; ends whatever menu this thread shows.
+        let _ = unsafe { EndMenu() };
+    }
+
+    if dark {
+        // The tray's call, as `tray::dark` makes it: ordinals 135 and 136.
+        // SAFETY: the name is a literal; the pointers resolved by ordinal are
+        // called with the signatures the tray uses on this build.
+        unsafe {
+            if let Ok(uxtheme) = LoadLibraryW(w!("uxtheme.dll")) {
+                if let Some(set) = GetProcAddress(uxtheme, PCSTR(135 as *const u8)) {
+                    let set: unsafe extern "system" fn(i32) -> i32 = std::mem::transmute(set);
+                    set(1);
+                }
+                if let Some(flush) = GetProcAddress(uxtheme, PCSTR(136 as *const u8)) {
+                    let flush: unsafe extern "system" fn() = std::mem::transmute(flush);
+                    flush();
+                }
+            }
+        }
+        say("after SetPreferredAppMode");
+    }
+
+    // SAFETY: the class name is a literal, the procedure lives for the
+    // process, and the window is destroyed at the end.
+    let window = unsafe {
+        let instance = GetModuleHandleW(None).unwrap_or_default();
+        let class = WNDCLASSW {
+            lpfnWndProc: Some(procedure),
+            hInstance: instance.into(),
+            lpszClassName: w!("presence-probe-menu"),
+            ..Default::default()
+        };
+        RegisterClassW(&class);
+        CreateWindowExW(
+            WINDOW_EX_STYLE(0),
+            w!("presence-probe-menu"),
+            w!(""),
+            WS_POPUP,
+            0,
+            0,
+            0,
+            0,
+            None,
+            None,
+            Some(instance.into()),
+            None,
+        )
+    };
+    let Ok(window) = window else {
+        println!("no window");
+        return;
+    };
+    say("after creating a hidden window");
+
+    for round in 1..=3 {
+        // SAFETY: as the tray's `show_menu`: the strings are literals, the menu
+        // is destroyed on every path, the timer is killed after the menu
+        // closed, and nothing is borrowed across the modal loop.
+        unsafe {
+            let Ok(menu) = CreatePopupMenu() else {
+                return;
+            };
+            let _ = AppendMenuW(
+                menu,
+                MF_STRING | MF_DISABLED | MF_GRAYED,
+                0,
+                w!("GameModeExecutor - no game detected"),
+            );
+            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
+            let _ = AppendMenuW(menu, MF_STRING, 1, w!("Edit configuration"));
+            let _ = AppendMenuW(menu, MF_STRING, 2, w!("Open log"));
+            let _ = AppendMenuW(menu, MF_STRING, 3, w!("Documentation"));
+            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
+            let _ = AppendMenuW(menu, MF_STRING, 4, w!("Check for updates"));
+            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
+            let _ = AppendMenuW(menu, MF_STRING, 5, w!("Quit"));
+            let mut at = POINT::default();
+            let _ = GetCursorPos(&mut at);
+            let timer = SetTimer(None, 0, 1000, Some(close));
+            let _ = SetForegroundWindow(window);
+            let _ = TrackPopupMenuEx(
+                menu,
+                TPM_RIGHTBUTTON.0 | TPM_RETURNCMD.0 | TPM_NONOTIFY.0,
+                at.x,
+                at.y,
+                window,
+                None,
+            );
+            let _ = PostMessageW(Some(window), WM_NULL, WPARAM(0), LPARAM(0));
+            let _ = KillTimer(None, timer);
+            let _ = DestroyMenu(menu);
+        }
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        say(&format!("after the menu, shown and closed, {round}"));
+    }
+    // SAFETY: created above, destroyed once.
+    let _ = unsafe { DestroyWindow(window) };
 }
 
 fn main() -> windows::core::Result<()> {
