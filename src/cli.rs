@@ -126,6 +126,14 @@ pub enum Command {
         #[arg(long)]
         yes: bool,
     },
+    /// Open a file, a folder or an address the way the shell does, then
+    /// exit. What the watcher's menu runs, so that the shell's cost ends
+    /// with this process instead of staying in the watcher.
+    #[command(hide = true)]
+    Open {
+        /// What to open.
+        what: String,
+    },
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -175,6 +183,7 @@ pub fn run(cli: Cli, console: bool) -> Result<()> {
         }
         Some(Command::Check { path, pid }) => return check(path.as_deref(), pid),
         Some(Command::Purge { yes }) => return purge_command(cli.config, yes),
+        Some(Command::Open { what }) => return crate::open::open_here(&what),
         _ => {}
     }
 
@@ -640,6 +649,26 @@ mod tests {
             parse(&["purge", "--yes"]).command,
             Some(Command::Purge { yes: true })
         ));
+    }
+
+    #[test]
+    fn the_menus_helper_takes_what_to_open_and_is_not_offered() {
+        // A path with spaces arrives whole: the watcher passes it as one
+        // argument, quoted by std for `CommandLineToArgvW`, and std reads
+        // it back the same way.
+        match parse(&["open", r"C:\Users\A B\config.toml"]).command {
+            Some(Command::Open { what }) => assert_eq!(what, r"C:\Users\A B\config.toml"),
+            other => panic!("{other:?}"),
+        }
+        use clap::CommandFactory;
+        let help = Cli::command().render_help().to_string();
+        assert!(
+            !help
+                .lines()
+                .any(|line| line.trim_start().starts_with("open ")),
+            "{help}"
+        );
+        assert!(help.contains("purge"), "the list the check reads: {help}");
     }
 
     #[test]

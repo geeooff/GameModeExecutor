@@ -27,14 +27,14 @@ use windows::Win32::UI::Shell::{
     NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_ERROR, NIIF_INFO, NIIF_NOSOUND,
     NIIF_RESPECT_QUIET_TIME, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION,
     NOTIFY_ICON_DATA_FLAGS, NOTIFY_ICON_INFOTIP_FLAGS, NOTIFYICON_VERSION_4, NOTIFYICONDATAW,
-    Shell_NotifyIconW, ShellExecuteW,
+    Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconFromResourceEx, CreatePopupMenu, DestroyIcon, DestroyMenu,
     GetSystemMetrics, HICON, IMAGE_FLAGS, LR_DEFAULTCOLOR, MF_DISABLED, MF_GRAYED, MF_SEPARATOR,
-    MF_STRING, PostMessageW, RegisterWindowMessageW, SM_CXSMICON, SM_CYSMICON, SW_SHOWNORMAL,
-    SetForegroundWindow, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenuEx, WM_APP,
-    WM_CONTEXTMENU, WM_DPICHANGED, WM_NULL, WM_SETTINGCHANGE,
+    MF_STRING, PostMessageW, RegisterWindowMessageW, SM_CXSMICON, SM_CYSMICON, SetForegroundWindow,
+    TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenuEx, WM_APP, WM_CONTEXTMENU,
+    WM_DPICHANGED, WM_NULL, WM_SETTINGCHANGE,
 };
 use windows::core::PCWSTR;
 
@@ -955,7 +955,7 @@ fn run_update_action(action: crate::update::Action) {
                 url,
                 "Opening the release page"
             );
-            open(&url, None);
+            crate::open::open(&url);
         }
         other => crate::update::perform(other),
     }
@@ -964,8 +964,8 @@ fn run_update_action(action: crate::update::Action) {
 fn run_command(id: usize) {
     match id {
         ID_CONFIG | ID_LOG => {
-            // Copy the path out, then let go: ShellExecuteW can show UI of its
-            // own, which pumps messages like anything else.
+            // Copy the path out, then let go. The helper that opens it runs
+            // in its own process; nothing here waits on it.
             let path = TRAY.with(|cell| {
                 cell.borrow().as_ref().map(|tray| {
                     if id == ID_CONFIG {
@@ -976,11 +976,11 @@ fn run_command(id: usize) {
                 })
             });
             if let Some(path) = path {
-                open_path(&path);
+                crate::open::open(&path.to_string_lossy());
             }
         }
         ID_DOCS => {
-            open(crate::build_info::DOCS_URL, None);
+            crate::open::open(crate::build_info::DOCS_URL);
         }
         ID_QUIT => {
             let stop = TRAY.with(|cell| cell.borrow().as_ref().map(|tray| Arc::clone(&tray.stop)));
@@ -996,45 +996,6 @@ fn run_command(id: usize) {
         }
         _ => {}
     }
-}
-
-/// Open a file the way the user's own settings say to, falling back to Notepad.
-fn open_path(path: &std::path::Path) {
-    let target = path.to_string_lossy().into_owned();
-    if open(&target, None) {
-        return;
-    }
-    // A `.toml` with no association is the likely miss, and a menu entry that
-    // silently does nothing is worse than one that opens a plain editor.
-    tracing::debug!(
-        target: crate::logging::target::WATCHER,
-        path = %path.display(),
-        "No association for this file, opening it in Notepad"
-    );
-    open("notepad.exe", Some(&format!("\"{target}\"")));
-}
-
-/// Returns false when the shell refused. `ShellExecuteW` hands back a fake
-/// `HINSTANCE` whose value is an error code at or below 32.
-fn open(target: &str, arguments: Option<&str>) -> bool {
-    let verb = wide("open");
-    let target = wide(target);
-    let arguments = arguments.map(wide);
-    // SAFETY: every string is NUL-terminated and outlives the call, and
-    // nothing in the tray is borrowed while the shell may show UI.
-    let result = unsafe {
-        ShellExecuteW(
-            None,
-            PCWSTR(verb.as_ptr()),
-            PCWSTR(target.as_ptr()),
-            arguments
-                .as_ref()
-                .map_or(PCWSTR::null(), |a| PCWSTR(a.as_ptr())),
-            PCWSTR::null(),
-            SW_SHOWNORMAL,
-        )
-    };
-    result.0 as usize > 32
 }
 
 /// Build an `HICON` at the size the shell asks for, from the compiled-in file.
