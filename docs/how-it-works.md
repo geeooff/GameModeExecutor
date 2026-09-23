@@ -36,10 +36,21 @@ ticking *Remember this is a game*. Windows treats it as a game from then on
 — overlay, capture, Game Mode — but does not start the process this
 program watches for it, because that process exists to tell Xbox what you
 are playing and a title you named by hand has no Xbox identity to tell. So
-the watcher stays quiet on such a title, whatever the toggle says. The next
-piece of work, [Lot 15](design/15-marked-games.md), makes the watcher read
-Windows' list as well, so that a title you marked counts — at its launch,
-or at the moment you tick it.
+the watcher stays quiet on such a title, whatever the toggle says.
+
+Often there is a way out today. Microsoft adds games to its list after
+they are released, and a box you ticked before that keeps Windows on your
+own entry rather than its own — measured on 2026-09-23 with *Death
+Stranding 2* and *Wreckfest 2*, both listed by Microsoft by then and both
+unseen until the box was unticked. So for a game you once marked by hand:
+open the Game Bar over it, **untick** *Remember this is a game*, quit the
+game and start it again. If Microsoft knows it now, Windows recognises it
+by itself — the Xbox overlay shows you *playing* it — and so does this
+program. If it does not, the Game Bar offers the box again and you can
+tick it back.
+The next piece of work, [Lot 15](design/15-marked-games.md), makes the
+watcher read Windows' list as well, so that a title only you marked
+counts — at its launch, or at the moment you tick it.
 
 Which process to watch is read from the registry at startup rather than
 hard-coded, so a machine where that registration differs still works.

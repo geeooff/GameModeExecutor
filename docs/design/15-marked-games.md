@@ -118,8 +118,9 @@ user pages the same day.
 ## The instrument, checked 2026-09-23
 
 `presence-probe watch-games [secs] [key]` parks on `RegNotifyChangeKeyValue`
-over the list's key — subtree, names and values, `THREAD_AGNOSTIC`, re-armed
-after each wake — and on each wake reads the list again and says what moved:
+over the list's key — subtree, names and values, `THREAD_AGNOSTIC`, armed
+once and re-armed after each wake — and on each wake reads the list again
+and says what moved:
 an entry added or removed, an entry whose `LastAccessed` moved (with how long
 ago that time is), an entry changed otherwise, or nothing it compares. Each
 entry is labelled *hand-made* (`Revision = 1`, no `TitleId`) or *listed*. It
@@ -134,6 +135,61 @@ few milliseconds of the write. **An entry created and then given its values
 is two notifications, not one**: the first saw the entry already complete,
 the second found nothing new. The settle the watcher will need is measured
 on the Game Bar's own writes next, not on these.
+
+## The first run, 2026-09-23, 11:20–11:40
+
+The maintainer played while the probe watched, and noted the times:
+Starfield launched and quit; Wreckfest 2 launched and quit; DS2 launched,
+its *Remember this is a game* unticked, relaunched; Wreckfest 2 the same;
+*The Other Side* launched, unticked, relaunched, ticked again, quit. What
+the probe and the registry said:
+
+| Time | Game | Presence writer | The game's entry afterwards |
+| --- | --- | --- | --- |
+| 11:22:44 | Starfield (packaged) | started 11:22:44.844, exited 11:25:52 | `Revision 2`, no `TitleId`, `LastAccessed` 11:22:44, key written 11:22:44.836 |
+| 11:26 | Wreckfest 2, ticked by hand | never | — (the ticked entry, removed at 11:34) |
+| 11:29 | DS2, ticked by hand | never | — (the ticked entry, removed at 11:30) |
+| 11:31:10 | DS2, after the untick | started 11:31:10.129, exited 11:32:32 | **a new entry**: `Revision 2691`, `TitleId 1653303105`, a `GameDVR_GameGUID`; key written 11:31:10.082 |
+| 11:35:21 | Wreckfest 2, after the untick | started 11:35:21.756, exited 11:36:31 | **a new entry**: `Revision 2691`, `TitleId 2086335033`; key written 11:35:21.712 |
+| 11:39:48 | *The Other Side*, ticked again mid-game | never | `Revision 1`, no `TitleId`, key written 11:39:48.103 |
+
+Four things, the first of which changes this lot:
+
+- **A hand-made entry shadows the one Microsoft distributes.** DS2 and
+  Wreckfest 2 were in Microsoft's list all along — the entries Windows
+  created for them the moment the hand-made ones were gone carry
+  `Revision 2691`, and `KGLRevision` read 2691 on 2026-09-20 as it does
+  today, so the list Windows held when DS2 went unseen already knew it.
+  While the person's own entry matched, Windows used it — no `TitleId`, no
+  writer, *Online* in the Xbox overlay. Unticked, the next launch matched
+  the distributed list, the writer started, the overlay said *Playing*.
+  The maintainer's reading — Xbox added the game after its release, after
+  the box had been ticked — fits every figure; when Microsoft's list
+  gained it is not recorded anywhere this machine can see. *The Other
+  Side* is the control: not in the list, unticked and relaunched it stayed
+  unknown, and ticked again it got a `Revision 1` entry and no writer.
+- **So there are two classes, not one.** Titles ticked before Microsoft
+  listed them: a remedy exists today — untick, relaunch — and the program
+  can say which entries are candidates, since a hand-made entry for an
+  executable the distributed list also names is exactly that. Titles
+  Microsoft does not list at all: only the rest of this lot reaches them.
+- **Windows writes the entry at every launch, listed or not**, in the
+  same quarter-second as the writer: the key 8, 47 and 44 ms before the
+  probe's look found the writer, which looks every 250 ms, so the order
+  within that quarter-second is not measured. `LastAccessed` moved for
+  Starfield, a listed packaged title, as it had for the hand-made DS2 on
+  the 20th.
+- **The registry notification did not come.** Not once in twenty minutes,
+  through the writes the keys' own last-write times confirm — 11:22:44,
+  11:31:10, 11:35:21, 11:39:48 — and the removals the unticks made.
+  The shell the probe ran from is not packaged — `GetCurrentPackageFullName`
+  said so — so no container stood between it and the hive. The probe
+  re-armed every 250 ms, which Microsoft documents as piling up waits; on
+  a scratch key 480 re-arms later a write still woke it in 3 ms, so that is
+  not shown to be the cause either. The probe now arms once per wake, and
+  reads the list every 250 ms regardless, to log any change that arrives
+  *without* a notification as `MISSED`. Its second run started at 11:48.
+  Until it answers, the notification is not a design this lot can lean on.
 
 ## What it changes in the program, once measured
 

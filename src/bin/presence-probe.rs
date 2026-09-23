@@ -384,6 +384,43 @@ fn ago(filetime: u64) -> String {
     }
 }
 
+/// Say what moved between two reads of the list, each line tagged; returns
+/// how many lines it said.
+fn diff(before: &[Entry], after: &[Entry], tag: &str) -> usize {
+    let mut said = 0;
+    for entry in after {
+        match before.iter().find(|old| old.name == entry.name) {
+            None => {
+                said += 1;
+                log(&format!("watch-games: {tag} ADDED {}", entry.label()));
+            }
+            Some(old) if old.last_accessed != entry.last_accessed => {
+                said += 1;
+                log(&format!(
+                    "watch-games: {tag} LastAccessed moved for {} -> {}",
+                    entry.label(),
+                    entry.last_accessed.map_or("(none)".to_owned(), ago)
+                ));
+            }
+            Some(old) if old != entry => {
+                said += 1;
+                log(&format!(
+                    "watch-games: {tag} changed (not LastAccessed) {}",
+                    entry.label()
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    for old in before {
+        if !after.iter().any(|entry| entry.name == old.name) {
+            said += 1;
+            log(&format!("watch-games: {tag} REMOVED {}", old.label()));
+        }
+    }
+    said
+}
+
 /// Park on a change notification for Windows' game list and say what moved:
 /// entries added, removed, or touched -- and which `LastAccessed` moved,
 /// which is the question Lot 15 asks: does Windows touch the entry of every
@@ -427,12 +464,13 @@ fn cmd_watch_games(seconds: u64, key: &str) -> windows::core::Result<()> {
         }
     ));
 
-    let started = std::time::Instant::now();
-    let mut wakeups = 0u32;
-    while started.elapsed().as_secs() < seconds {
-        // One-shot: re-armed before every wait. THREAD_AGNOSTIC so the event
-        // could be waited on from another thread, which the watcher will.
-        // SAFETY: `root` outlives the call, `event` is a live event handle.
+    // One-shot, and armed once per wake: each call while one is pending adds
+    // another wait on the key, which Microsoft documents as a leak -- the
+    // first version of this probe re-armed every 250 ms. THREAD_AGNOSTIC so
+    // the event could be waited on from another thread, which the watcher
+    // will.
+    let arm = || {
+        // SAFETY: `root` outlives every call, `event` is a live event handle.
         let armed = unsafe {
             RegNotifyChangeKeyValue(
                 root.raw(),
@@ -446,9 +484,20 @@ fn cmd_watch_games(seconds: u64, key: &str) -> windows::core::Result<()> {
             log(&format!(
                 "watch-games: RegNotifyChangeKeyValue failed ({armed:?})"
             ));
-            break;
         }
-        // Wake every 250 ms anyway, to log the writer coming and going.
+        armed.is_ok()
+    };
+    if !arm() {
+        return Ok(());
+    }
+
+    let started = std::time::Instant::now();
+    let mut wakeups = 0u32;
+    let mut missed = 0u32;
+    while started.elapsed().as_secs() < seconds {
+        // Wake every 250 ms anyway, to log the writer coming and going and
+        // to read the list without being told: a change found that way is
+        // one the notification did not deliver, which is the other question.
         // SAFETY: `event` is live for the whole loop.
         let woke = unsafe { WaitForSingleObject(event, 250) } == WAIT_OBJECT_0;
         let at = started.elapsed().as_secs_f32();
@@ -465,57 +514,29 @@ fn cmd_watch_games(seconds: u64, key: &str) -> windows::core::Result<()> {
         }
         writer = current_writer;
 
-        if !woke {
-            continue;
-        }
-        wakeups += 1;
         let after = read_entries(key);
-        let mut said = 0;
-        for entry in &after {
-            match before.iter().find(|old| old.name == entry.name) {
-                None => {
-                    said += 1;
-                    log(&format!(
-                        "watch-games: #{wakeups} +{at:.1}s ADDED {}",
-                        entry.label()
-                    ));
-                }
-                Some(old) if old.last_accessed != entry.last_accessed => {
-                    said += 1;
-                    log(&format!(
-                        "watch-games: #{wakeups} +{at:.1}s LastAccessed moved for {} -> {}",
-                        entry.label(),
-                        entry.last_accessed.map_or("(none)".to_owned(), ago)
-                    ));
-                }
-                Some(old) if old != entry => {
-                    said += 1;
-                    log(&format!(
-                        "watch-games: #{wakeups} +{at:.1}s changed (not LastAccessed) {}",
-                        entry.label()
-                    ));
-                }
-                Some(_) => {}
-            }
+        let tag = if woke {
+            wakeups += 1;
+            format!("#{wakeups} +{at:.1}s")
+        } else {
+            format!("MISSED +{at:.1}s, no notification:")
+        };
+        let said = diff(&before, &after, &tag);
+        if !woke && said > 0 {
+            missed += 1;
         }
-        for old in &before {
-            if !after.iter().any(|entry| entry.name == old.name) {
-                said += 1;
-                log(&format!(
-                    "watch-games: #{wakeups} +{at:.1}s REMOVED {}",
-                    old.label()
-                ));
-            }
-        }
-        if said == 0 {
+        if woke && said == 0 {
             log(&format!(
-                "watch-games: #{wakeups} +{at:.1}s notification, nothing the probe compares moved"
+                "watch-games: {tag} notification, nothing the probe compares moved"
             ));
         }
         before = after;
+        if woke && !arm() {
+            break;
+        }
     }
     log(&format!(
-        "watch-games: done, {wakeups} wake-ups in {seconds}s"
+        "watch-games: done, {wakeups} wake-ups and {missed} changes found without one in {seconds}s"
     ));
     // SAFETY: the event created above, closed once.
     unsafe { _ = CloseHandle(event) };

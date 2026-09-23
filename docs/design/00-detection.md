@@ -89,6 +89,14 @@ above this section that promised "anything Windows treats as a game" held
 for every title until that one; [Lot 15](15-marked-games.md) takes the
 finding and adds Windows' list itself as a second signal.
 
+Corrected 2026-09-23, with the probe watching: DS2 was in Microsoft's list
+all along. Unticked and relaunched, it got a new entry from the distributed
+list — `Revision 2691`, a `TitleId` — and the writer started; *Wreckfest 2*
+did the same. The person's hand-made entry had been shadowing Microsoft's
+own. So the class splits in two: titles ticked before Microsoft listed them,
+which unticking brings back, and titles Microsoft does not list at all —
+*The Other Side* on this machine — which only Lot 15 reaches.
+
 ## Why a user-session program and not a Windows service
 
 - **Session 0 isolation.** A service cannot see the interactive desktop, and
