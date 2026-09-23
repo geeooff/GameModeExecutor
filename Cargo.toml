@@ -41,6 +41,9 @@ windows = { version = "0.62", features = [
     # MsiEnumRelatedProducts: whether the installer owns the executables, which
     # decides how `purge` removes them.
     "Win32_System_ApplicationInstallationAndServicing",
+    # CoInitializeEx: the apartment Microsoft asks for before ShellExecuteEx,
+    # in the helper that opens what the menu offers.
+    "Win32_System_Com",
     # The updater: WinHTTP for the release, CNG for the SHA-256 of what it
     # fetched. Microsoft's libraries, no HTTP or hashing crate.
     "Win32_Networking_WinHttp",

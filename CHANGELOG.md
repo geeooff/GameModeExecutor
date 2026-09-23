@@ -20,6 +20,10 @@ a section is written.
 - Telling a game from its launcher by what the graphics card is drawing no
   longer adds some 3.5 MB to the watcher's memory for the rest of its run:
   the counters are read the lighter way Windows offers for them.
+- *Edit configuration*, *Open log* and *Documentation* no longer leave some
+  1.2 MB in the watcher for the rest of its run, and more for each kind of
+  file: a short-lived helper opens them and takes that cost with it when it
+  ends.
 
 ## [0.3.0] - 2026-09-23
 

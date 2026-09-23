@@ -16,6 +16,7 @@ pub mod engine;
 pub mod exit;
 pub mod logging;
 pub mod marker;
+pub mod open;
 pub mod package;
 pub mod purge;
 pub mod registry;

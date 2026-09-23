@@ -9,8 +9,9 @@ at once, at the maintainer's request.
 - [x] The instrument: `presence-probe footprint` step by step, `menu-cost` for what one click leaves over five minutes, `gpu-load` to set the GPU reader beside Windows' own `typeperf`, and a scratch watcher driven through sessions and reloads — 2026-09-23
 - [x] Where the handles come from — 2026-09-23, below: the GPU read, the menu itself, the shell and the update check; sessions, reloads and configuration faults leave nothing
 - [x] The GPU counters read through PerfLib instead of PDH — built 2026-09-23: 0.23 MB and 18 handles left instead of 3.6–3.9 MB and 19, the values checked against `typeperf`
-- [ ] The menu's shell opens: a proposal below, the maintainer's call
-- [ ] What *Check for updates* leaves: a proposal below, the maintainer's call
+- [x] The menu's shell opens: a proposal below, the maintainer's call — taken 2026-09-23, built the same night: `open`, a hidden command the watcher starts its own executable with
+- [ ] The helper verified from the menu: the file, the log and the documentation open, in front, and the watcher keeps what a plain `CreateProcess` keeps
+- [x] What *Check for updates* leaves: a proposal below, the maintainer's call — left as it is, 2026-09-23
 - [ ] Measured on the whole installed process against 0.3.0: just started, after a session whose refinement reads the counters, after the menu's clicks
 - [ ] What the watcher costs, written for the people who use it in [How it works](../how-it-works.md), from those figures
 - [x] Verified in the field: a session whose refinement reads the counters, on the maintainer's machine — 2026-09-23, Battlefield 6, below: *bf6.exe (75% of the rendering)* through PerfLib, 18 handles and 0.24 MB for the read
@@ -197,6 +198,25 @@ open, 19 for PDH, a few for naming. Inferred, not measured — which of them
 did happen then is not recorded, and the rest stays untraced.
 
 ## Proposed, for the maintainer's decision
+
+Both taken as recommended on 2026-09-23, after the maintainer had opened
+the log from the menu at 23:30 and the watcher gained 84 handles more than
+the configuration's opening had left: a first open of another kind of file
+pays again.
+
+**The helper as built.** The menu's four entries call `open::open`, which
+starts the watcher's own executable with `open <what>`, no console, its
+standard handles closed, passes it the right to bring a window to the
+front (`AllowSetForegroundWindow` — the menu made the watcher the
+foreground process), and returns; a thread waits for the helper's exit to
+say in the log how it went. The helper does what Microsoft documents for a
+caller that exits right after: COM as a single-threaded apartment before
+the shell is called, and `ShellExecuteExW` with `SEE_MASK_NOASYNC`, which
+the documentation requires of a process that terminates soon after the
+call, plus `SEE_MASK_FLAG_LOG_USAGE`, which it asks of a launch the user
+asked for. A file the shell has no program for opens in Notepad, as
+before.
+<https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-shellexecuteinfow>
 
 **The menu's shell opens, through a short-lived helper.** *Edit
 configuration*, *Open log folder*, *Documentation* and the release page

@@ -11,7 +11,7 @@ exits cleanly, and the icon survives killing and restarting Explorer. Closed
 
 - [x] `Shell_NotifyIcon` with `NOTIFYICON_VERSION_4`, on the Lot 5 window
 - [x] Context menu: edit configuration · open log · documentation · quit
-- [x] All three opened through `ShellExecuteW`, with a Notepad fallback when nothing claims `.toml`
+- [x] All three opened through `ShellExecuteW`, with a Notepad fallback when nothing claims `.toml` — in a helper process that ends since 2026-09-23, for what the shell leaves in its caller ([Lot 16](16-footprint.md))
 - [x] The documentation entry opens the build's own commit on GitHub
 - [x] Re-added on `TaskbarCreated`, so an Explorer restart does not lose it
 - [x] Follows the taskbar theme, and re-reads it when the menu is about to open
