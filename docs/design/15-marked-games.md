@@ -6,7 +6,7 @@ below. It waits only for [Lot 9](09-robustness.md)'s configuration work to
 close its field run.
 
 - [x] The instrument: a `watch-games` command in `presence-probe` that logs registry change notifications on Windows' game list and which entry's `LastAccessed` moved — built 2026-09-23 and checked on a scratch key, below
-- [ ] The measurements below, before any line of the watcher changes
+- [ ] The measurements below, before any line of the watcher changes — the first two answered 2026-09-23: Windows writes the entry at every launch, and the registry notification never comes; three to go
 - [ ] Detection from Windows' list as well as from the presence writer: a hand-marked title is a session from its launch
 - [ ] A title marked *while it runs* becomes a session within the settle time, and the start commands run then
 - [ ] The idle cost measured and written down: no polling of the registry, and whatever polling of processes remains, with its figure
@@ -52,7 +52,9 @@ to GameDVR, to Game Mode, and nothing for the writer to write. Inferred from
 the three facts above, not read in any documentation; the figures are the
 record. It also explains the nephew's machine on 2026-09-18: `chrome.exe`
 was a hand-made entry there, the writer had been started by Overwatch, and
-Chrome only supplied the first name.
+Chrome only supplied the first name. (Corrected 2026-09-23: that Chrome's
+entry there is hand-made is inferred — nobody has read that registry — and
+the first run below amends the rest of this paragraph.)
 
 The detection page promised that "anything Windows treats as a game"
 triggers the watcher. That was true of every title measured before this
@@ -77,7 +79,10 @@ user pages the same day.
   park on beside the stop event — documented, unelevated for `HKCU`, and the
   same shape as the writer's handle. The Game Bar writes several values into
   a new entry, so the wake-up settles for a moment before the list is read
-  again, as the configuration reload does with its folder.
+  again, as the configuration reload does with its folder. **Contradicted
+  by measurement on 2026-09-23**: the notification never comes for the Game
+  Bar's writes — see the second run below. What replaces it is in *What
+  the runs decide*.
 - **The cost while idle is the budget.** Today it is one process lookup
   every `poll_interval`. Whatever the design below adds while no game runs
   is measured and written here before it is accepted.
@@ -191,7 +196,79 @@ Four things, the first of which changes this lot:
   *without* a notification as `MISSED`. Its second run started at 11:48.
   Until it answers, the notification is not a design this lot can lean on.
 
+## The second run, 2026-09-23, 11:48–12:05
+
+The probe armed once per wake this time, and read the list every 250 ms
+whatever happened, logging a change found without a notification as
+`MISSED`. The maintainer launched Starfield, then *The Other Side* three
+times — the first stuck on a black loading screen, killed — and on the
+third unticked and ticked the box mid-game.
+
+| Time | What happened | The probe |
+| --- | --- | --- |
+| 11:58:42.151 | Starfield launched | writer started; **MISSED** `LastAccessed` moved, 6 ms later in the same look |
+| 12:00:14 | Starfield quit | writer exited |
+| 12:00:47, 12:02:31, 12:03:45 | *The Other Side* launched three times | **MISSED** `LastAccessed` moved, each time; no writer, ever |
+| 12:04:07 | the box unticked, game running | **MISSED** REMOVED, the hand-made entry `1782914d` |
+| 12:04:31 | the box ticked again, game running | **MISSED** ADDED, a new hand-made entry `e2467066` |
+
+Seven writes, seven changes found by reading, **no notification at all**.
+The first run's silence was not the re-arming: the notification is not
+delivered for these writes, to this unpackaged, unelevated reader, while
+the same code on a key under `HKCU\Software` wakes within milliseconds. Why
+is not established — the Game Bar is a packaged application and its writes
+may reach the hive through a layer the notification does not watch — and it
+does not need to be: it is measured twice, and a design that waits on it
+waits forever.
+
+What the run confirms besides:
+
+- **Every launch writes the entry**, listed or hand-made, a launch that
+  hangs on its loading screen included.
+- **A tick mid-game creates an entry at once**, with a new key name; an
+  untick removes it. One tick is one change for a reader that looks every
+  250 ms; the Game Bar writes the entry's values close enough together that
+  no look saw it half-made.
+- **The hand-made mark is `Revision = 1`** on every entry known to have
+  been ticked by hand — DS2, Wreckfest 2, *The Other Side* twice — and on
+  the two other entries of that shape here, Fallout and 3DMark. Listed
+  entries carry the distributed revision, 2691 here, or 2 for packaged
+  titles.
+
+## What the runs decide
+
+- **No notification, and no new polling either.** The watcher already takes
+  a process snapshot every `poll_interval` while no game runs, to look for
+  the presence writer. The second signal reads the same snapshot: a running
+  process whose full path is the `MatchedExeFullPath` of a hand-made entry
+  is a session. Names are compared first, from the snapshot, and only a
+  name that matches is asked for its full path, so the cost of a poll is a
+  few string comparisons more than today.
+- **The list is read again only when it changed**: one `RegQueryInfoKey` on
+  the list's key per poll, for its last-write time, which a tick or an
+  untick moves — measured on 2026-09-23, 11:39:48.102 for the key and
+  11:39:48.103 for the entry the tick created. A launch that only moves a
+  `LastAccessed` does not move it, and does not need to: the executable is
+  on the list already. So a tick mid-game becomes a session at the next
+  poll — two seconds by default — and no sooner, which is the price of not
+  polling harder.
+- **Hand-made entries only, by exact path.** Listed titles are the writer's;
+  a hand-made entry shadowing a listed one is matched like any other. The
+  parent-directory and package rules that *naming* uses stay out of
+  detection: they match too loosely to decide that a session exists.
+- **A title ticked by mistake becomes a session whenever it runs** — a
+  browser, say. That is what Windows was told, and the Game Bar's own box
+  is how to take it back. `status` will list the hand-made entries the
+  watcher follows, and the log will name the entry a session started
+  from, so the person can find which box to untick.
+
 ## What it changes in the program, once measured
+
+Still to measure before building: what a snapshot and the path lookups
+cost on this machine (the third item above), whether an elevated game
+grants `SYNCHRONIZE` to the watcher (the fourth), and the end of a session
+when the box is unticked mid-game (the fifth — the entry goes at once, so
+the session can end at the next poll).
 
 The engine's sensor gains a second question — which listed processes are
 running, and a handle to wait on for one of them — and its loop treats
