@@ -48,7 +48,8 @@ windows = { version = "0.62", features = [
     # FindFirstChangeNotificationW: the configuration folder, watched for the
     # live reload.
     "Win32_Storage_FileSystem",
-    # RegNotifyChangeKeyValue: Windows' game list, watched rather than polled.
+    # RegQueryInfoKeyW: the last-write time of Windows' game list, asked at
+    # each idle look, since its change notification never arrives (Lot 15).
     "Win32_System_Registry",
     # WNDCLASSEXW names HBRUSH, HICON and HCURSOR, so the window class needs Gdi
     # even though this program never draws anything.
@@ -64,6 +65,8 @@ windows = { version = "0.62", features = [
     # K32EnumProcesses: the process ids alone, which the idle look takes
     # every poll instead of a Toolhelp snapshot, about 130 times cheaper.
     "Win32_System_ProcessStatus",
+    # The PerfLib consumer functions: the GPU Engine counters the refinement
+    # reads, without what PDH keeps for the process's life (Lot 16).
     "Win32_System_Performance",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",

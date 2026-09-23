@@ -15,7 +15,11 @@ a section is written.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- Telling a game from its launcher by what the graphics card is drawing no
+  longer adds some 3.5 MB to the watcher's memory for the rest of its run:
+  the counters are read the lighter way Windows offers for them.
 
 ## [0.3.0] - 2026-09-23
 

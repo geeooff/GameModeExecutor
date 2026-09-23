@@ -499,7 +499,8 @@ leak. Naming a game (every process asked its path and package) leaves
 after: a cost paid once, at the first session, not a leak. It accounts
 for about twenty handles in the probe; the watcher gains some 260 over its
 first sessions, and the rest is not yet traced. Both are proposed as a
-separate piece of work — the lot's own cost is nil.
+separate piece of work, [Lot 16](16-footprint.md) — the lot's own cost is
+nil.
 
 ## What it changed in the program — built 2026-09-23
 

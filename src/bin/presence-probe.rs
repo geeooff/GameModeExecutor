@@ -23,6 +23,10 @@
 //!                                    several ways of being told the game list changed, at once
 //! presence-probe cost [rounds]       time what an idle poll costs, today and with Lot 15
 //! presence-probe footprint           what each step of the watcher leaves in memory and handles
+//! presence-probe menu-cost <open|check|spawn>
+//!                                    what one click of the menu leaves, over five minutes
+//! presence-probe gpu-load [ms] [rounds]
+//!                                    the rendering load the refinement reads, busiest first
 //! presence-probe microsoft-list <exe path>...
 //!                                    whether Microsoft's own game list covers each executable
 //! presence-probe activate            activate the class ourselves and time it
@@ -983,6 +987,139 @@ fn cmd_footprint() -> windows::core::Result<()> {
         let _ = sensor.rendering_load(std::time::Duration::from_millis(200));
     }
     say("reading them three times more");
+    // What a click on *Edit configuration* costs: the menu opens the file
+    // through the shell. A hidden `cmd /c exit 0` takes the same road
+    // without putting anything on screen.
+    let shell = |times: usize| {
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
+        use windows::core::w;
+        for _ in 0..times {
+            // SAFETY: every string is a NUL-terminated literal.
+            unsafe {
+                ShellExecuteW(
+                    None,
+                    w!("open"),
+                    w!("cmd.exe"),
+                    w!("/c exit 0"),
+                    None,
+                    SW_HIDE,
+                )
+            };
+        }
+        std::thread::sleep(std::time::Duration::from_secs(2));
+    };
+    shell(1);
+    say("opening a program through the shell once, as the menu does");
+    shell(3);
+    say("three times more");
+    Ok(())
+}
+
+// ------------------------------------------------------- the GPU reader --
+
+/// The rendering load the refinement reads, every `ms` milliseconds, for
+/// `rounds` rounds: the processes with any, busiest first. Run beside
+/// `typeperf "\GPU Engine(*engtype_3D)\Utilization Percentage"` to check
+/// the reader against Windows' own tool.
+fn cmd_gpu_load(ms: u64, rounds: u32) -> windows::core::Result<()> {
+    use game_mode_executor::detect::gpu;
+    for _ in 0..rounds {
+        match gpu::rendering_load(std::time::Duration::from_millis(ms)) {
+            Ok(load) => {
+                let mut busiest: Vec<_> = load.into_iter().collect();
+                busiest.sort_by(|a, b| b.1.total_cmp(&a.1));
+                let line: Vec<String> = busiest
+                    .iter()
+                    .take(5)
+                    .map(|(pid, share)| format!("{pid}={share:.2}%"))
+                    .collect();
+                println!("{} {}", timestamp(), line.join("  "));
+            }
+            Err(error) => println!("{} cannot read: {error:#}", timestamp()),
+        }
+    }
+    Ok(())
+}
+
+/// What one click of the menu leaves in this process, sampled for five
+/// minutes: `open`, the shell road *Edit configuration* takes, here to a
+/// hidden `cmd /c exit 0` so nothing shows; `check`, *Check for updates*
+/// over the network; `spawn`, a plain CreateProcess, for comparison.
+fn cmd_menu_cost(click: &str) -> windows::core::Result<()> {
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
+    use windows::core::w;
+
+    let threads = || {
+        use windows::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+        };
+        let me = std::process::id();
+        let mut count = 0;
+        // SAFETY: the snapshot is closed below; the entry carries its size.
+        unsafe {
+            let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) else {
+                return 0;
+            };
+            let mut entry = THREADENTRY32 {
+                dwSize: size_of::<THREADENTRY32>() as u32,
+                ..Default::default()
+            };
+            let mut more = Thread32First(snapshot, &mut entry).is_ok();
+            while more {
+                if entry.th32OwnerProcessID == me {
+                    count += 1;
+                }
+                more = Thread32Next(snapshot, &mut entry).is_ok();
+            }
+            let _ = windows::Win32::Foundation::CloseHandle(snapshot);
+        }
+        count
+    };
+    let say = |step: &str| {
+        let (private, handles) = footprint();
+        println!(
+            "{private:>7.2} MB private  {handles:>5} handles  {:>3} threads  {step}",
+            threads()
+        );
+    };
+    say("before");
+    match click {
+        "open" => {
+            // SAFETY: every string is a NUL-terminated literal.
+            unsafe {
+                ShellExecuteW(
+                    None,
+                    w!("open"),
+                    w!("cmd.exe"),
+                    w!("/c exit 0"),
+                    None,
+                    SW_HIDE,
+                )
+            };
+        }
+        "check" => {
+            use game_mode_executor::update;
+            if let Ok(context) = update::Context::of_this_process(None, None) {
+                let verdict = update::check_now(&context);
+                println!("check: {:?}", verdict.map(|_| "answered"));
+            }
+        }
+        "spawn" => {
+            let _ = std::process::Command::new("cmd.exe")
+                .args(["/c", "exit", "0"])
+                .status();
+        }
+        other => {
+            eprintln!("usage: presence-probe menu-cost <open|check|spawn>, not `{other}`");
+            std::process::exit(2);
+        }
+    }
+    for (wait, at) in [(1, 1), (4, 5), (25, 30), (90, 120), (180, 300)] {
+        std::thread::sleep(std::time::Duration::from_secs(wait));
+        say(&format!("{click}, {at} s after"));
+    }
     Ok(())
 }
 
@@ -1002,6 +1139,17 @@ fn main() -> windows::core::Result<()> {
         }
         Some("activate") => cmd_activate(5, 60),
         Some("footprint") => cmd_footprint(),
+        Some("gpu-load") => cmd_gpu_load(
+            std::env::args()
+                .nth(2)
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(1000),
+            std::env::args()
+                .nth(3)
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(5),
+        ),
+        Some("menu-cost") => cmd_menu_cost(std::env::args().nth(2).as_deref().unwrap_or("")),
         Some("watch-methods") => match std::env::args().nth(3) {
             Some(sid) => cmd_watch_methods(seconds(), &sid),
             None => {
