@@ -10,10 +10,10 @@ at once, at the maintainer's request.
 - [x] Where the handles come from — 2026-09-23, below: the GPU read, the menu itself, the shell and the update check; sessions, reloads and configuration faults leave nothing
 - [x] The GPU counters read through PerfLib instead of PDH — built 2026-09-23: 0.23 MB and 18 handles left instead of 3.6–3.9 MB and 19, the values checked against `typeperf`
 - [x] The menu's shell opens: a proposal below, the maintainer's call — taken 2026-09-23, built the same night: `open`, a hidden command the watcher starts its own executable with
-- [ ] The helper verified from the menu: the file, the log and the documentation open, in front, and the watcher keeps what a plain `CreateProcess` keeps
+- [x] The helper verified from the menu: the file, the log and the documentation open, in front, and the watcher keeps what a plain `CreateProcess` keeps — 2026-09-23, 23:44, below: three handles for the three
 - [x] What *Check for updates* leaves: a proposal below, the maintainer's call — left as it is, 2026-09-23
-- [ ] Measured on the whole installed process against 0.3.0: just started, after a session whose refinement reads the counters, after the menu's clicks
-- [ ] What the watcher costs, written for the people who use it in [How it works](../how-it-works.md), from those figures
+- [x] Measured on the whole installed process against 0.3.0: just started, after a session whose refinement reads the counters, after the menu's clicks — 2026-09-23, the table at the end, with where 0.3.0's side comes from
+- [x] What the watcher costs, written for the people who use it in [How it works](../how-it-works.md), from those figures — 2026-09-23
 - [x] Verified in the field: a session whose refinement reads the counters, on the maintainer's machine — 2026-09-23, Battlefield 6, below: *bf6.exe (75% of the rendering)* through PerfLib, 18 handles and 0.24 MB for the read
 - [x] The menu opened a second and a third time, to tell a cost paid once from a leak — 2026-09-23, 18:00 and 18:01: nothing more, below
 
@@ -218,6 +218,24 @@ asked for. A file the shell has no program for opens in Notepad, as
 before.
 <https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-shellexecuteinfow>
 
+**Verified on the maintainer's machine, 2026-09-23.** The helper's build
+(`1aab95f6`) installed at 23:43 through the logon task and sampled as
+before; the maintainer opened the menu and chose the three entries in
+turn, and saw each window come to the front, no console:
+
+| Time | What happened | handles | private |
+| --- | --- | --- | --- |
+| 23:43:51 | just started, idle | 162 | 1.93 MB |
+| 23:44:29 | the menu opened | 214 | 2.62 MB |
+| 23:44:32 | *Edit configuration*: VS Code, *Opened* in the log | 216 | 2.67 MB |
+| 23:44:42 | *Open log*: Notepad | 216 | |
+| 23:44:50 | *Documentation*: the browser | 217 | 2.77 MB |
+
+Three handles for the three, where the build without the helper had kept
+147 for the configuration alone and 84 more for the log. The menu's own
+first opening read 52 handles this time and 0.7 MB, against 41 and 1.1 MB
+on the earlier build: Windows' cost, and not the same each time.
+
 **The menu's shell opens, through a short-lived helper.** *Edit
 configuration*, *Open log folder*, *Documentation* and the release page
 all go through `ShellExecuteW`, and the first of them leaves 141 handles
@@ -240,3 +258,28 @@ successful update replaces the watcher anyway; moving the check into a
 helper would mean handing its verdict back across processes — a second
 protocol, for a figure the helper saves once a month. Written down in
 [How it works](../how-it-works.md) instead, with the other figures.
+
+## Against 0.3.0
+
+What each step leaves in the whole watcher, over what it held just
+started. This lot's side is the installed watcher, sampled from outside,
+on the maintainer's machine on 2026-09-23. 0.3.0's side is assembled: the
+start and the four-session figure are 0.3.0's own installed process, from
+Lot 15; the shell's cost was read on this lot's first build, whose menu
+still called the shell itself, as 0.3.0's does; PDH's is the probe's.
+
+| Step | 0.3.0 | this lot |
+| --- | --- | --- |
+| just started | 157–163 handles, 1.9–2.0 MB | 160–162 handles, 1.9–2.1 MB |
+| a session whose refinement reads the GPU counters | +19 handles, +3.6 to +3.9 MB | +18 handles, +0.24 MB |
+| the menu, first opened | +41 to +52 handles, +0.7 to +1.1 MB | the same: Windows' own |
+| *Edit configuration* | +147 handles, +0.8 MB | +2 handles |
+| *Open log* after it | +84 handles, +0.9 MB | nothing |
+| *Check for updates*, once its threads have gone | +111 handles, +1.0 MB | the same, left as it is |
+| sessions, reloads, configuration faults | nothing | nothing |
+
+The figure the lot promises, then: a session leaves 20 handles and a
+quarter of a megabyte, the menu Windows' fifty and a megabyte, its
+entries nothing but *Check for updates*. A session, the menu, the
+configuration and the log together left some 300 handles and 6 MB on
+0.3.0; they leave some 70 handles and 1.2 MB.

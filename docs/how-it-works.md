@@ -116,6 +116,25 @@ signal mid-session, which does happen.
 Set `log_level = "debug"` and the log states plainly when Windows released the
 signal and whether the game had already exited by then.
 
+## What it costs your machine
+
+Measured on the whole watcher, as Windows counts it, on a gaming PC in
+September 2026. Memory here is private memory — Task Manager's *Commit
+size* column in *Details*; its *Memory* column shows less.
+
+| When | Processor | Memory |
+| --- | --- | --- |
+| Waiting for a game, looking every two seconds | 0.03 % of one core | about 2 MB |
+| During a game | nothing measurable: it waits for Windows to wake it | unchanged |
+| Naming a game from what the graphics card draws, once a session | | about 0.25 MB, once |
+| The icon's menu, the first time it opens | | about 1 MB, once — Windows' cost for a program's first menu |
+| *Edit configuration*, *Open log*, *Documentation* | | nothing that stays: a short-lived helper opens them and takes the cost with it |
+| *Check for updates* | | about 1 MB, until the watcher next starts |
+
+Over one evening — a Battlefield 6 session, five hours of GTA Online, the
+menu used, and the rest idle, six hours in all — the watcher used 1.25
+seconds of processor time.
+
 ## Why there are two executables
 
 Windows makes a program choose, when it is built, between two kinds:
