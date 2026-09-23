@@ -1138,11 +1138,10 @@ fn show_menus(dark: bool, say: &dyn Fn(&str)) {
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
     use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
     use windows::Win32::UI::WindowsAndMessaging::{
-        AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
-        DestroyWindow, EndMenu, GetCursorPos, KillTimer, MF_DISABLED, MF_GRAYED, MF_SEPARATOR,
-        MF_STRING, PostMessageW, RegisterClassW, SetForegroundWindow, SetTimer, TPM_NONOTIFY,
-        TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenuEx, WINDOW_EX_STYLE, WM_NULL, WNDCLASSW,
-        WS_POPUP,
+        AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
+        EndMenu, GetCursorPos, KillTimer, MF_DISABLED, MF_GRAYED, MF_SEPARATOR, MF_STRING,
+        PostMessageW, RegisterClassW, SetForegroundWindow, SetTimer, TPM_NONOTIFY, TPM_RETURNCMD,
+        TPM_RIGHTBUTTON, TrackPopupMenuEx, WINDOW_EX_STYLE, WM_NULL, WNDCLASSW, WS_POPUP,
     };
     use windows::core::{PCSTR, w};
 
