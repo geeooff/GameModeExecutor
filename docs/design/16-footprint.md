@@ -14,7 +14,7 @@ at once, at the maintainer's request.
 - [ ] Measured on the whole installed process against 0.3.0: just started, after a session whose refinement reads the counters, after the menu's clicks
 - [ ] What the watcher costs, written for the people who use it in [How it works](../how-it-works.md), from those figures
 - [x] Verified in the field: a session whose refinement reads the counters, on the maintainer's machine — 2026-09-23, Battlefield 6, below: *bf6.exe (75% of the rendering)* through PerfLib, 18 handles and 0.24 MB for the read
-- [ ] The menu opened a second and a third time, to tell a cost paid once from a leak
+- [x] The menu opened a second and a third time, to tell a cost paid once from a leak — 2026-09-23, 18:00 and 18:01: nothing more, below
 
 **Done when** a session, a reload and each entry of the menu leave the
 watcher holding no more than a figure written here over what it held just
@@ -165,9 +165,13 @@ shell open is too: 147 handles. What the probe had not measured is the
 menu itself: **41 handles and 1.1 MB** the first time it is shown. The
 menu is plain — strings, `TrackPopupMenuEx`, the foreground window its
 documentation requires, dark by `uxtheme` — so the cost is Windows' own,
-for a process's first menu; whether a second opening adds to it is the
-next thing to measure. The tooltip costs nothing: the shell draws it, in
-its own process.
+for a process's first menu. Paid once: the maintainer opened and closed
+the menu again at 18:00 and at 18:01, and the watcher read 357 handles
+before and after both, its private bytes 4.18 then 4.22 MB. The tooltip
+costs nothing: the shell draws it, in its own process.
+
+Between the session's end and 17:57 the count went down from 363 to 357
+by itself, as the thread pool let its idle threads go.
 
 Those steps, had they all happened that day, would make some 215 of the
 261 handles Lot 15 read (424 − 163): 41 for the menu, some 150 for a shell
@@ -189,8 +193,8 @@ Manager, and the code it takes is small and ordinary.
 
 **The menu itself, left as it is.** Its 41 handles and 1.1 MB are what
 Windows takes to show a process's first menu; a menu cannot be shown
-without them, and no other road to the same menu is cheaper. Unless the
-second opening shows a leak, nothing to do.
+without them, and no other road to the same menu is cheaper. The second
+and third openings added nothing: a cost paid once, nothing to do.
 
 **What *Check for updates* leaves, left as it is.** 111 handles and 1 MB
 after the threads expire. The check is a click made once a release; a
