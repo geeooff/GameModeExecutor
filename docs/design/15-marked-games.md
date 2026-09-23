@@ -235,6 +235,43 @@ What the run confirms besides:
   entries carry the distributed revision, 2691 here, or 2 for packaged
   titles.
 
+## The third run: nine ways of being told, 2026-09-23, 12:40–12:45
+
+The maintainer's question after the second run: was the notification the
+wrong one, or asked the wrong way? The first two runs had tried one way.
+`presence-probe watch-methods` armed eight at once, each on its own event —
+the predefined `HKCU` handle over the list's subtree as before; the same key
+opened through `HKEY_USERS\<sid>`, and through `RegOpenCurrentUser`; the list
+alone without its subtree; the parent `GameConfigStore` and all of
+`HKCU\System` with every filter; each of the 141 entries watched on its own;
+and the call made synchronously on a thread that blocks in it. A ninth ran
+beside it, outside the probe: WMI's `RegistryTreeChangeEvent` on
+`HKEY_USERS\<sid>\System\GameConfigStore\Children`, from an unelevated
+PowerShell. Starfield launched at 12:42 and quit; *The Other Side* launched
+at 12:44, unticked, ticked again, quit.
+
+| Change | Found by reading | WMI | The eight `RegNotifyChangeKeyValue` ways |
+| --- | --- | --- | --- |
+| Starfield's `LastAccessed`, launch | 12:42:09.407 | three events, 12:42:09.257–.267 | none |
+| *The Other Side*'s `LastAccessed`, launch | 12:44:26.120 | two, 12:44:25.978–.986 | none |
+| its entry removed, the untick | 12:44:44.463 | one, 12:44:44.454 | only the entry's own handle, 12:44:44.452 — then `ERROR_KEY_DELETED` on re-arming it |
+| a new entry, the tick | 12:44:49.464 | four, 12:44:49.411–.424 | none |
+
+So Windows does report these writes, as they happen — to WMI's registry
+provider, which runs in `WmiPrvSE.exe` under a system account — and does not
+report them to an ordinary process asking the same question of the same
+key, whichever way it asks, except that deleting a key still wakes whoever
+watches that very key. Why is not established, and this record does not
+guess further than that.
+
+What WMI costs could only be seen from outside, the provider's process not
+being open to an unelevated reader: over one idle minute with the
+subscription, the busier of the two `WmiPrvSE` processes averaged 0.78 % of
+a core, and 0.68 % over the next minute with the subscription gone — the
+same, other programs on this machine use WMI too — and the only difference
+the counters show is one burst of about twenty I/O operations in the minute
+with it.
+
 ## What the runs decide
 
 - **No notification, and no new polling either.** The watcher already takes

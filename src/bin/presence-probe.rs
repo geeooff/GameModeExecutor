@@ -19,6 +19,8 @@
 //! presence-probe watch-games [secs] [key]
 //!                                    log what Windows writes to its game list, and when;
 //!                                    `key`, under HKCU, checks the probe on one you can write
+//! presence-probe watch-methods <secs> <sid>
+//!                                    several ways of being told the game list changed, at once
 //! presence-probe cost [rounds]       time what an idle poll costs, today and with Lot 15
 //! presence-probe activate            activate the class ourselves and time it
 //! ```
@@ -666,6 +668,221 @@ fn cmd_cost(rounds: usize) -> windows::core::Result<()> {
     Ok(())
 }
 
+// ------------------------------------ other ways of being told of a change --
+
+/// Arm several ways of asking Windows to say when the game list changes, at
+/// once, each on its own event, and log which of them fire -- beside the
+/// changes found by reading the list every 250 ms. The first two runs used
+/// one way only, the predefined `HKCU` handle over the list's subtree, and
+/// it never fired for the Game Bar's writes; this asks whether another way
+/// does. `sid` is the account's, for the `HKEY_USERS` path.
+fn cmd_watch_methods(seconds: u64, sid: &str) -> windows::core::Result<()> {
+    use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
+    use windows::Win32::System::Registry::{
+        HKEY, HKEY_CURRENT_USER, HKEY_USERS, KEY_READ, REG_NOTIFY_CHANGE_ATTRIBUTES,
+        REG_NOTIFY_CHANGE_LAST_SET, REG_NOTIFY_CHANGE_NAME, REG_NOTIFY_CHANGE_SECURITY,
+        REG_NOTIFY_FILTER, REG_NOTIFY_THREAD_AGNOSTIC, RegNotifyChangeKeyValue, RegOpenCurrentUser,
+        RegOpenKeyExW,
+    };
+    use windows::Win32::System::Threading::{
+        CreateEventW, WaitForMultipleObjects, WaitForSingleObject,
+    };
+    use windows::core::HSTRING;
+
+    fn open(root: HKEY, path: &str) -> Option<HKEY> {
+        let mut key = HKEY::default();
+        // SAFETY: the name outlives the call and `key` is a local out
+        // pointer. The keys are never closed: the process ends with them.
+        let rc = unsafe { RegOpenKeyExW(root, &HSTRING::from(path), None, KEY_READ, &mut key) };
+        if rc.is_err() {
+            log(&format!("methods: cannot open `{path}` ({rc:?})"));
+            return None;
+        }
+        Some(key)
+    }
+
+    /// One way of being told: the keys it watches, how, and its event.
+    struct Method {
+        name: String,
+        keys: Vec<HKEY>,
+        subtree: bool,
+        filter: REG_NOTIFY_FILTER,
+        event: HANDLE,
+        fired: u32,
+    }
+
+    impl Method {
+        fn arm(&self) {
+            for key in &self.keys {
+                // SAFETY: the key is open for the life of the process and
+                // the event outlives the loop.
+                let armed = unsafe {
+                    RegNotifyChangeKeyValue(
+                        *key,
+                        self.subtree,
+                        self.filter | REG_NOTIFY_THREAD_AGNOSTIC,
+                        Some(self.event),
+                        true,
+                    )
+                };
+                if armed.is_err() {
+                    log(&format!(
+                        "methods: {} could not be armed ({armed:?})",
+                        self.name
+                    ));
+                }
+            }
+        }
+    }
+
+    let usual = REG_NOTIFY_CHANGE_NAME | REG_NOTIFY_CHANGE_LAST_SET;
+    let every = usual | REG_NOTIFY_CHANGE_ATTRIBUTES | REG_NOTIFY_CHANGE_SECURITY;
+    let mut current_user = HKEY::default();
+    // SAFETY: a local out pointer.
+    let _ = unsafe { RegOpenCurrentUser(KEY_READ.0, &mut current_user) };
+    let entries: Vec<HKEY> = read_entries(GAME_LIST)
+        .iter()
+        .filter_map(|entry| open(HKEY_CURRENT_USER, &format!(r"{GAME_LIST}\{}", entry.name)))
+        .collect();
+
+    let specs: Vec<(String, Vec<HKEY>, bool, REG_NOTIFY_FILTER)> = vec![
+        (
+            "1 HKCU, the list, subtree (the first two runs)".into(),
+            open(HKEY_CURRENT_USER, GAME_LIST).into_iter().collect(),
+            true,
+            usual,
+        ),
+        (
+            r"2 HKEY_USERS\<sid>, the list, subtree".into(),
+            open(HKEY_USERS, &format!(r"{sid}\{GAME_LIST}"))
+                .into_iter()
+                .collect(),
+            true,
+            usual,
+        ),
+        (
+            "3 RegOpenCurrentUser, the list, subtree".into(),
+            open(current_user, GAME_LIST).into_iter().collect(),
+            true,
+            usual,
+        ),
+        (
+            "4 HKCU, the list, its own subkeys only".into(),
+            open(HKEY_CURRENT_USER, GAME_LIST).into_iter().collect(),
+            false,
+            usual,
+        ),
+        (
+            "5 HKCU, GameConfigStore, subtree, every filter".into(),
+            open(HKEY_CURRENT_USER, r"System\GameConfigStore")
+                .into_iter()
+                .collect(),
+            true,
+            every,
+        ),
+        (
+            "6 HKCU, System, subtree, every filter".into(),
+            open(HKEY_CURRENT_USER, "System").into_iter().collect(),
+            true,
+            every,
+        ),
+        (
+            format!("7 each of the {} entries on its own", entries.len()),
+            entries,
+            false,
+            every,
+        ),
+    ];
+    let mut methods: Vec<Method> = specs
+        .into_iter()
+        .filter(|(_, keys, _, _)| !keys.is_empty())
+        .map(|(name, keys, subtree, filter)| Method {
+            name,
+            keys,
+            subtree,
+            filter,
+            // SAFETY: no security attributes, no name; auto-reset. Never
+            // closed: the process ends with it.
+            event: unsafe { CreateEventW(None, false, false, None) }.unwrap_or_default(),
+            fired: 0,
+        })
+        .collect();
+    for method in &methods {
+        method.arm();
+        log(&format!("methods: armed {}", method.name));
+    }
+
+    // 8: the same question asked synchronously, on a thread of its own that
+    // blocks inside the call until it is answered.
+    std::thread::spawn(|| {
+        let Some(key) = open(HKEY_CURRENT_USER, GAME_LIST) else {
+            return;
+        };
+        loop {
+            // SAFETY: the key is open for the life of the process; no event,
+            // the call blocks this thread until a change or an error.
+            let answered = unsafe {
+                RegNotifyChangeKeyValue(
+                    key,
+                    true,
+                    REG_NOTIFY_CHANGE_NAME | REG_NOTIFY_CHANGE_LAST_SET,
+                    None,
+                    false,
+                )
+            };
+            log(&format!(
+                "methods: FIRED 8 synchronous, HKCU, the list, subtree ({answered:?})"
+            ));
+            if answered.is_err() {
+                return;
+            }
+        }
+    });
+    log("methods: armed 8 synchronous, HKCU, the list, subtree");
+
+    let events: Vec<HANDLE> = methods.iter().map(|method| method.event).collect();
+    let exe = writer_exe();
+    let mut writer = presence_writer::running_pid(&exe);
+    let mut before = read_entries(GAME_LIST);
+    let started = std::time::Instant::now();
+    while started.elapsed().as_secs() < seconds {
+        // SAFETY: every event is live for the whole loop.
+        let first = unsafe { WaitForMultipleObjects(&events, false, 250) };
+        let at = started.elapsed().as_secs_f32();
+        for (index, method) in methods.iter_mut().enumerate() {
+            // The one the wait returned was reset by it; the others are
+            // asked without waiting, which resets them too.
+            let fired = first.0 == WAIT_OBJECT_0.0 + index as u32
+                // SAFETY: a live event, not waited on.
+                || unsafe { WaitForSingleObject(method.event, 0) } == WAIT_OBJECT_0;
+            if fired {
+                method.fired += 1;
+                log(&format!("methods: +{at:.1}s FIRED {}", method.name));
+                method.arm();
+            }
+        }
+        let current_writer = presence_writer::running_pid(&exe);
+        match (writer, current_writer) {
+            (None, Some(pid)) => log(&format!("methods: +{at:.1}s WRITER STARTED pid {pid}")),
+            (Some(pid), None) => log(&format!("methods: +{at:.1}s WRITER EXITED pid {pid}")),
+            _ => {}
+        }
+        writer = current_writer;
+        let after = read_entries(GAME_LIST);
+        diff(&before, &after, &format!("+{at:.1}s CHANGE"));
+        before = after;
+    }
+    for method in &methods {
+        log(&format!(
+            "methods: {} fired {} times",
+            method.name, method.fired
+        ));
+        // SAFETY: the event created above, closed once, after the loop.
+        unsafe { _ = CloseHandle(method.event) };
+    }
+    Ok(())
+}
+
 fn main() -> windows::core::Result<()> {
     let seconds = || {
         std::env::args()
@@ -681,6 +898,13 @@ fn main() -> windows::core::Result<()> {
             cmd_watch_games(seconds(), key.as_deref().unwrap_or(GAME_LIST))
         }
         Some("activate") => cmd_activate(5, 60),
+        Some("watch-methods") => match std::env::args().nth(3) {
+            Some(sid) => cmd_watch_methods(seconds(), &sid),
+            None => {
+                eprintln!("usage: presence-probe watch-methods <seconds> <sid>");
+                std::process::exit(2);
+            }
+        },
         Some("cost") => cmd_cost(
             std::env::args()
                 .nth(2)
