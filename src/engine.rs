@@ -219,8 +219,9 @@ impl<S: Sensor> Engine<S> {
                 None => match self.await_sighting(stop) {
                     Some(Sighting::Writer(pid)) => (Sighting::Writer(pid), self.identify(), true),
                     // The entry names the game exactly: nothing to guess.
-                    Some(Sighting::HandMade(game)) => {
-                        (Sighting::HandMade(game.clone()), Some(game), true)
+                    Some(Sighting::HandMade { pid, game }) => {
+                        let signal = Some(game.clone());
+                        (Sighting::HandMade { pid, game }, signal, true)
                     }
                     None => break,
                 },
@@ -263,9 +264,9 @@ impl<S: Sensor> Engine<S> {
                         Sighting::Writer(_) => {
                             self.log_writer_exit(session_start, signal.as_ref(), fresh);
                         }
-                        Sighting::HandMade(game) => tracing::debug!(
+                        Sighting::HandMade { pid, .. } => tracing::debug!(
                             target: target::GAME,
-                            pid = game.process_id,
+                            pid,
                             session = ?session_start.elapsed(),
                             "The game marked by hand exited"
                         ),

@@ -642,20 +642,9 @@ fn cmd_cost(rounds: usize) -> windows::core::Result<()> {
         };
         stamp.push(started.elapsed());
 
-        // The process ids alone, without names: what a poll would pay if it
-        // only asked for the names of processes it had not seen before.
+        // The process ids alone, as the watcher's idle look takes them.
         let started = Instant::now();
-        let mut pids = [0u32; 4096];
-        let mut needed = 0u32;
-        // SAFETY: the buffer and its size in bytes are passed together, and
-        // `needed` is a local out pointer.
-        let _ = unsafe {
-            windows::Win32::System::ProcessStatus::K32EnumProcesses(
-                pids.as_mut_ptr(),
-                std::mem::size_of_val(&pids) as u32,
-                &mut needed,
-            )
-        };
+        let _ = game_mode_executor::detect::process::ids();
         ids.push(started.elapsed());
 
         std::thread::sleep(Duration::from_millis(10));
@@ -1041,8 +1030,9 @@ fn main() -> windows::core::Result<()> {
                     .map(|bytes| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
                     .unwrap_or_default()
             );
+            let list = microsoft_list::List::new(list);
             for exe in std::env::args().skip(2) {
-                let answer = if microsoft_list::covers(&list, &exe) {
+                let answer = if list.covers(&exe) {
                     "listed"
                 } else {
                     "not listed"

@@ -32,9 +32,10 @@ pub fn path() -> Option<PathBuf> {
     })
 }
 
-/// How far after the executable's name its folder names are looked for.
-/// The records read on 2026-09-23 had theirs within 200 bytes.
-const RECORD_REACH: usize = 600;
+/// How far after the executable's name its folder names are looked for:
+/// room for three folder names of the longest length taken. The records
+/// read on 2026-09-23 had theirs within 200 bytes.
+const RECORD_REACH: usize = 3 * (4 + LONGEST_NAME) + 64;
 
 /// The longest folder name taken as one, in bytes: a path component.
 const LONGEST_NAME: usize = 520;
@@ -42,65 +43,84 @@ const LONGEST_NAME: usize = 520;
 /// The shortest, in bytes: two characters.
 const SHORTEST_NAME: usize = 4;
 
-/// Whether the list has a record for the executable at `exe_path`: one
-/// whose executable field is that file name, whole, and each of whose folder
-/// names is a folder of that path -- the two things the record gives
-/// Windows to match on. A record with no folder names is not taken as a
-/// match: too little to be sure of.
-pub fn covers(list: &[u8], exe_path: &str) -> bool {
-    let lower = exe_path.to_lowercase();
-    let mut components: Vec<&str> = lower.split(['\\', '/']).collect();
-    let Some(file_name) = components.pop() else {
-        return false;
-    };
-    let folders_of_path: Vec<&str> = components;
-    records(list, file_name).iter().any(|folders| {
-        !folders.is_empty()
-            && folders
+/// The list, read once and decoded once: the bytes, for the fields that
+/// follow a name, and the same bytes as UTF-16 at both alignments, for
+/// finding the names -- nothing says a record starts on an even byte.
+pub struct List {
+    bytes: Vec<u8>,
+    units: [Vec<u16>; 2],
+}
+
+impl List {
+    pub fn new(bytes: Vec<u8>) -> Self {
+        let decode = |start: usize| -> Vec<u16> {
+            bytes[start.min(bytes.len())..]
+                .as_chunks::<2>()
+                .0
                 .iter()
-                .all(|folder| folders_of_path.contains(&folder.to_lowercase().as_str()))
-    })
-}
-
-/// The folder names of every record whose executable field is `file_name`,
-/// compared without regard to ASCII case.
-fn records(list: &[u8], file_name: &str) -> Vec<Vec<String>> {
-    let needle: Vec<u16> = file_name.encode_utf16().collect();
-    if needle.is_empty() {
-        return Vec::new();
+                .map(|pair| u16::from_le_bytes(*pair))
+                .collect()
+        };
+        let units = [decode(0), decode(1)];
+        Self { bytes, units }
     }
-    let length = (needle.len() * 2) as u16;
-    let mut found = Vec::new();
-    // Two alignments: nothing says a record starts on an even byte.
-    for start in 0..2 {
-        let units: Vec<u16> = list[start.min(list.len())..]
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|pair| u16::from_le_bytes(*pair))
-            .collect();
-        for at in 1..=units.len().saturating_sub(needle.len()) {
-            if units[at - 1] != length
-                || !same_ignoring_case(&units[at..at + needle.len()], &needle)
-            {
-                continue;
-            }
-            let after = start + (at + needle.len()) * 2;
-            found.push(folders_after(list, after));
+
+    /// Whether the list has a record for the executable at `exe_path`: one
+    /// whose executable field is that file name, whole, and each of whose
+    /// folder names is a folder of that path -- the two things the record
+    /// gives Windows to match on. A record with no folder names is not taken
+    /// as a match: too little to be sure of.
+    pub fn covers(&self, exe_path: &str) -> bool {
+        let mut components: Vec<String> =
+            exe_path.split(['\\', '/']).map(str::to_lowercase).collect();
+        let Some(file_name) = exe_path.rsplit(['\\', '/']).next() else {
+            return false;
+        };
+        components.pop();
+        self.records(file_name).iter().any(|folders| {
+            !folders.is_empty()
+                && folders
+                    .iter()
+                    .all(|folder| components.contains(&folder.to_lowercase()))
+        })
+    }
+
+    /// The folder names of every record whose executable field is
+    /// `file_name`, compared without regard to case.
+    fn records(&self, file_name: &str) -> Vec<Vec<String>> {
+        let needle: Vec<u16> = file_name.encode_utf16().map(lower).collect();
+        if needle.is_empty() {
+            return Vec::new();
         }
+        let length = (needle.len() * 2) as u16;
+        let mut found = Vec::new();
+        for (start, units) in self.units.iter().enumerate() {
+            for at in 1..=units.len().saturating_sub(needle.len()) {
+                if units[at - 1] == length
+                    && units[at..at + needle.len()]
+                        .iter()
+                        .zip(&needle)
+                        .all(|(unit, wanted)| lower(*unit) == *wanted)
+                {
+                    let after = start + (at + needle.len()) * 2;
+                    found.push(folders_after(&self.bytes, after));
+                }
+            }
+        }
+        found
     }
-    found
 }
 
-fn same_ignoring_case(left: &[u16], right: &[u16]) -> bool {
-    left.iter().zip(right).all(|(a, b)| lower(*a) == lower(*b))
-}
-
+/// One UTF-16 unit in lower case, when its lower case is one unit too --
+/// `É` to `é` as well as `A` to `a` -- and as it is otherwise.
 fn lower(unit: u16) -> u16 {
-    if (u16::from(b'A')..=u16::from(b'Z')).contains(&unit) {
-        unit + 32
-    } else {
-        unit
+    let Some(character) = char::from_u32(u32::from(unit)) else {
+        return unit;
+    };
+    let mut lowered = character.to_lowercase();
+    match (lowered.next(), lowered.next()) {
+        (Some(one), None) => u16::try_from(u32::from(one)).unwrap_or(unit),
+        _ => unit,
     }
 }
 
@@ -162,11 +182,11 @@ pub fn read(path: &Path) -> std::io::Result<Vec<u8>> {
     std::fs::read(path)
 }
 
+/// Records shaped like the real file's, for the tests here and in
+/// `hand_made`.
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn utf16(text: &str) -> Vec<u8> {
+pub(crate) mod fixture {
+    pub(crate) fn utf16(text: &str) -> Vec<u8> {
         text.encode_utf16().flat_map(u16::to_le_bytes).collect()
     }
 
@@ -174,7 +194,7 @@ mod tests {
     /// executable's name with its length as 16 bits, a few bytes, each
     /// folder name with its length as 32 bits, the GUID the same way, the
     /// title id after.
-    fn record(exe: &str, folders: &[&str]) -> Vec<u8> {
+    pub(crate) fn record(exe: &str, folders: &[&str]) -> Vec<u8> {
         let mut bytes = vec![0xe0, 0x00, 0x00, 0x00];
         let name = utf16(exe);
         bytes.extend((name.len() as u16).to_le_bytes());
@@ -194,6 +214,16 @@ mod tests {
         bytes.extend((title.len() as u32).to_le_bytes());
         bytes.extend(title);
         bytes
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fixture::{record, utf16};
+    use super::*;
+
+    fn covers(list: &[u8], exe_path: &str) -> bool {
+        List::new(list.to_vec()).covers(exe_path)
     }
 
     fn list() -> Vec<u8> {
@@ -288,6 +318,15 @@ mod tests {
             !covers(&list, r"C:\Games\DEATH STRANDING 2 - ON THE BEACH\DS2.exe"),
             "`common` is one of the record's folders too"
         );
+    }
+
+    /// The names are compared without regard to case beyond ASCII: a title
+    /// whose executable carries an accent is found whatever its case.
+    #[test]
+    fn an_accented_name_is_found_whatever_its_case() {
+        let list = record("Élan.exe", &["Élan Vital"]);
+        assert!(covers(&list, r"D:\Games\élan vital\élan.exe"));
+        assert!(covers(&list, r"D:\Games\ÉLAN VITAL\ÉLAN.EXE"));
     }
 
     #[test]

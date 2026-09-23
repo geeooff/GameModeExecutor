@@ -107,11 +107,16 @@ pub fn load() -> Result<Vec<Entry>> {
 pub fn covered_by_microsoft(entries: &[Entry]) -> std::io::Result<Vec<&Entry>> {
     let path = super::microsoft_list::path()
         .ok_or_else(|| std::io::Error::other("no local profile to find it in"))?;
-    let list = super::microsoft_list::read(&path)?;
-    Ok(entries
+    let list = super::microsoft_list::List::new(super::microsoft_list::read(&path)?);
+    Ok(covered(entries, &list))
+}
+
+/// Which of `entries` `list` covers: the rule, apart from the file.
+pub fn covered<'a>(entries: &'a [Entry], list: &super::microsoft_list::List) -> Vec<&'a Entry> {
+    entries
         .iter()
-        .filter(|entry| super::microsoft_list::covers(&list, &entry.path))
-        .collect())
+        .filter(|entry| list.covers(&entry.path))
+        .collect()
 }
 
 /// Say, once, which games marked by hand Microsoft's list now knows, so the
@@ -179,9 +184,14 @@ impl Watch {
     }
 
     /// Whether the list may have gained or lost an entry since the last
-    /// call. The first call always says yes. A key that cannot be opened or
-    /// asked says no, and the entries read before stay.
+    /// call. The first call always says yes. A key that could not be opened
+    /// is tried again -- a profile where the Game Bar has written nothing yet
+    /// has no list until the first game -- and until it opens, and whenever
+    /// it cannot be asked, the answer is no and the entries read before stay.
     pub fn changed(&mut self) -> bool {
+        if self.key.is_none() {
+            self.key = Key::open_current_user(LIST_KEY).ok();
+        }
         let Some(stamp) = self.key.as_ref().and_then(Key::last_write) else {
             return false;
         };
@@ -229,6 +239,26 @@ mod tests {
             !entry.is(r"C:\Elsewhere\TOS.exe"),
             "same name, another game"
         );
+    }
+
+    /// The two titles the maintainer had ticked before Microsoft listed them,
+    /// and one it has never listed: only the first two are said.
+    #[test]
+    fn only_the_entries_microsofts_list_covers_are_said() {
+        use crate::detect::microsoft_list::{List, fixture::record};
+        let mut bytes = record("DS2.exe", &["common", "DEATH STRANDING 2 - ON THE BEACH"]);
+        bytes.extend(record("Wreckfest2.exe", &["common", "Wreckfest 2"]));
+        let list = List::new(bytes);
+        let entries = [
+            Entry::new(r"C:\Games\Steam\steamapps\common\DEATH STRANDING 2 - ON THE BEACH\DS2.exe"),
+            Entry::new(r"D:\Games\Steam\steamapps\common\The Other Side\TOS.exe"),
+            Entry::new(r"C:\Games\Steam\steamapps\common\Wreckfest 2\Wreckfest2.exe"),
+        ];
+        let said: Vec<&str> = covered(&entries, &list)
+            .into_iter()
+            .map(Entry::display_name)
+            .collect();
+        assert_eq!(said, ["DS2.exe", "Wreckfest2.exe"]);
     }
 
     #[test]

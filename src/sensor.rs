@@ -37,15 +37,14 @@ pub enum Sighting {
     Writer(u32),
     /// A process the person marked as a game by hand, for which Windows
     /// never starts the writer. The signal names it exactly.
-    HandMade(GameSignal),
+    HandMade { pid: u32, game: GameSignal },
 }
 
 impl Sighting {
     /// The process a session waits on.
     pub fn pid(&self) -> u32 {
         match self {
-            Self::Writer(pid) => *pid,
-            Self::HandMade(signal) => signal.process_id.unwrap_or_default(),
+            Self::Writer(pid) | Self::HandMade { pid, .. } => *pid,
         }
     }
 }
@@ -114,6 +113,8 @@ impl<S: Sensor + ?Sized> Sensor for &S {
 pub struct Windows {
     /// Resolved from the registry once at startup, never hard-coded.
     writer_exe: PathBuf,
+    /// The same, lowercased, to compare with a running process's path.
+    writer_path: String,
     /// Its file name, lowercased, to find it among the running processes.
     writer_name: String,
     /// What the idle looks keep between them. One thread asks, so a cell
@@ -140,9 +141,11 @@ impl Windows {
                  detection follows whatever is registered"
             );
         }
-        let writer_name = hand_made::file_name_of(&writer_exe.to_string_lossy()).to_lowercase();
+        let writer_path = writer_exe.to_string_lossy().to_lowercase();
+        let writer_name = hand_made::file_name_of(&writer_path).to_owned();
         Ok(Self {
             writer_exe,
+            writer_path,
             writer_name,
             look: RefCell::new(Look::default()),
         })
@@ -181,6 +184,45 @@ impl Look {
     }
 }
 
+/// The rule of an idle look, apart from the machine: among the processes
+/// the tracker knows, the registered writer first, then a process at the
+/// exact path of an entry marked by hand. `path_of` asks a process its full
+/// path, and only processes whose name matches are asked.
+fn sighting_among(
+    processes: &Tracker,
+    writer_name: &str,
+    writer_path: &str,
+    hand_made: &[hand_made::Entry],
+    path_of: impl Fn(u32) -> Option<String>,
+) -> Option<Sighting> {
+    for pid in processes.named(writer_name) {
+        // Same name elsewhere on disk is not the registered writer; a path
+        // that cannot be read is taken as it, as before.
+        match path_of(pid) {
+            Some(path) if path.to_lowercase() != writer_path => continue,
+            _ => return Some(Sighting::Writer(pid)),
+        }
+    }
+    for entry in hand_made {
+        for pid in processes.named(entry.file_name_lower()) {
+            if let Some(path) = path_of(pid)
+                && entry.is(&path)
+            {
+                return Some(Sighting::HandMade {
+                    pid,
+                    game: GameSignal {
+                        source: HAND_MADE,
+                        process_name: Some(entry.display_name().to_owned()),
+                        process_id: Some(pid),
+                        process_path: Some(path),
+                    },
+                });
+            }
+        }
+    }
+    None
+}
+
 impl Sensor for Windows {
     fn sighting(&self) -> Option<Sighting> {
         let mut look = self.look.borrow_mut();
@@ -193,30 +235,13 @@ impl Sensor for Windows {
             );
             return None;
         }
-        let writer = self.writer_exe.to_string_lossy().to_lowercase();
-        for pid in look.processes.named(&self.writer_name) {
-            // Same name elsewhere on disk is not the registered writer; a
-            // path that cannot be read is taken as it, as before.
-            match process::full_path(pid) {
-                Some(path) if path.to_lowercase() != writer => continue,
-                _ => return Some(Sighting::Writer(pid)),
-            }
-        }
-        for entry in &look.hand_made {
-            for pid in look.processes.named(entry.file_name_lower()) {
-                if let Some(path) = process::full_path(pid)
-                    && entry.is(&path)
-                {
-                    return Some(Sighting::HandMade(GameSignal {
-                        source: HAND_MADE,
-                        process_name: Some(entry.display_name().to_owned()),
-                        process_id: Some(pid),
-                        process_path: Some(path),
-                    }));
-                }
-            }
-        }
-        None
+        sighting_among(
+            &look.processes,
+            &self.writer_name,
+            &self.writer_path,
+            &look.hand_made,
+            process::full_path,
+        )
     }
 
     fn wait_for_exit(
@@ -248,6 +273,94 @@ impl Sensor for Windows {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const WRITER: &str = r"c:\windows\system32\gamebarpresencewriter.exe";
+
+    /// A tracker that knows these processes by name, and a path lookup that
+    /// answers from the same table.
+    fn machine(processes: &[(u32, &str)]) -> (Tracker, impl Fn(u32) -> Option<String>) {
+        let mut tracker = Tracker::default();
+        let table: HashMap<u32, String> = processes
+            .iter()
+            .map(|(pid, path)| (*pid, (*path).to_owned()))
+            .collect();
+        let ids: Vec<u32> = table.keys().copied().collect();
+        tracker.update(&ids, |pid| {
+            table
+                .get(&pid)
+                .map(|path| hand_made::file_name_of(path).to_lowercase())
+        });
+        let path_of = move |pid: u32| table.get(&pid).cloned();
+        (tracker, path_of)
+    }
+
+    fn look(processes: &[(u32, &str)], marked: &[&str]) -> Option<Sighting> {
+        let (tracker, path_of) = machine(processes);
+        let entries: Vec<hand_made::Entry> = marked
+            .iter()
+            .map(|path| hand_made::Entry::new(path))
+            .collect();
+        sighting_among(
+            &tracker,
+            "gamebarpresencewriter.exe",
+            WRITER,
+            &entries,
+            path_of,
+        )
+    }
+
+    #[test]
+    fn the_registered_writer_is_a_sighting() {
+        let seen = look(
+            &[
+                (4, r"C:\Windows\explorer.exe"),
+                (7, r"C:\Windows\System32\GameBarPresenceWriter.exe"),
+            ],
+            &[],
+        );
+        assert_eq!(seen, Some(Sighting::Writer(7)));
+    }
+
+    #[test]
+    fn a_writer_of_the_same_name_elsewhere_is_not() {
+        let seen = look(&[(7, r"D:\Elsewhere\GameBarPresenceWriter.exe")], &[]);
+        assert_eq!(seen, None);
+    }
+
+    #[test]
+    fn a_game_marked_by_hand_is_found_by_its_exact_path() {
+        let game = r"D:\Games\The Other Side\TOS.exe";
+        let seen = look(&[(4, r"C:\Windows\explorer.exe"), (30, game)], &[game]);
+        let Some(Sighting::HandMade { pid, game: signal }) = seen else {
+            panic!("expected the game marked by hand, got {seen:?}");
+        };
+        assert_eq!(pid, 30);
+        assert_eq!(signal.source, HAND_MADE);
+        assert_eq!(signal.process_name.as_deref(), Some("TOS.exe"));
+        assert_eq!(signal.process_path.as_deref(), Some(game));
+    }
+
+    #[test]
+    fn the_same_file_name_in_another_folder_is_not_the_game() {
+        let seen = look(
+            &[(30, r"C:\Temp\TOS.exe")],
+            &[r"D:\Games\The Other Side\TOS.exe"],
+        );
+        assert_eq!(seen, None);
+    }
+
+    #[test]
+    fn the_writer_comes_before_a_game_marked_by_hand() {
+        let game = r"D:\Games\The Other Side\TOS.exe";
+        let seen = look(
+            &[
+                (30, game),
+                (7, r"C:\Windows\System32\GameBarPresenceWriter.exe"),
+            ],
+            &[game],
+        );
+        assert_eq!(seen, Some(Sighting::Writer(7)));
+    }
 
     // The real sensor against the real machine. Skipped on a hosted runner
     // for the same reason as the registration test it wraps.

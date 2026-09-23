@@ -321,6 +321,14 @@ fn marked(pid: u32, name: &str) -> GameSignal {
     }
 }
 
+/// What the sensor reports for it.
+fn hand_made(pid: u32, name: &str) -> Sighting {
+    Sighting::HandMade {
+        pid,
+        game: marked(pid, name),
+    }
+}
+
 #[test]
 fn a_game_marked_by_hand_is_a_session_from_its_launch() {
     // Windows never starts the writer for a title the person marked by
@@ -329,7 +337,7 @@ fn a_game_marked_by_hand_is_a_session_from_its_launch() {
     // candidate drawing more cannot rename it.
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
-        .sightings(&[None, Some(Sighting::HandMade(marked(30, "TOS.exe")))])
+        .sightings(&[None, Some(hand_made(30, "TOS.exe"))])
         .waits(&[WaitOutcome::Exited])
         .candidates(&[&[game(31, "other.exe")]])
         .rendering(&[(31, 90.0)]);
@@ -361,7 +369,7 @@ fn a_session_marked_by_hand_is_resumed_after_a_handover() {
     // hand still running, nothing run until it ends.
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
-        .sightings(&[Some(Sighting::HandMade(marked(30, "TOS.exe")))])
+        .sightings(&[Some(hand_made(30, "TOS.exe"))])
         .waits(&[WaitOutcome::Exited]);
     let dir = scratch();
     let marker = Marker::in_dir(&dir);
@@ -390,17 +398,22 @@ fn a_game_relaunched_within_the_grace_keeps_the_session() {
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
         .sightings(&[
-            Some(Sighting::HandMade(marked(30, "TOS.exe"))),
-            Some(Sighting::HandMade(marked(32, "TOS.exe"))),
+            Some(hand_made(30, "TOS.exe")),
+            Some(hand_made(32, "TOS.exe")),
         ])
         .waits(&[WaitOutcome::Exited, WaitOutcome::Exited]);
     let (sink, log) = recorder();
     let mut config = quick_config();
     config.detection.stop_delay = Duration::from_millis(50);
 
-    let mut engine = Engine::new(config, sensor).reporting_to(sink);
+    // Borrowed, so the script can be asked afterwards what was used.
+    let mut engine = Engine::new(config, &sensor).reporting_to(sink);
     engine.run(&stop).unwrap();
 
+    assert!(
+        sensor.waits.borrow().is_empty(),
+        "the relaunched game was waited on too"
+    );
     assert_eq!(
         seen(&log),
         vec![Session::Playing(Some(marked(30, "TOS.exe"))), Session::Idle],

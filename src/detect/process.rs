@@ -180,7 +180,7 @@ impl Tracker {
     }
 
     /// The ids now running: the gone are forgotten, the new are named.
-    fn update(&mut self, ids: &[u32], name_of: impl Fn(u32) -> Option<String>) {
+    pub(crate) fn update(&mut self, ids: &[u32], name_of: impl Fn(u32) -> Option<String>) {
         let running: std::collections::HashSet<u32> = ids.iter().copied().collect();
         self.names.retain(|pid, _| running.contains(pid));
         for &pid in ids {
@@ -304,6 +304,34 @@ mod tests {
         asked.borrow_mut().clear();
         tracker.update(&[4, 8], name_of);
         assert_eq!(*asked.borrow(), vec![8], "a returning id is a new process");
+    }
+
+    /// Between two snapshots the tracker sees a new process by its id alone
+    /// and names it; thirty seconds on, a snapshot names everything afresh.
+    #[test]
+    fn the_tracker_names_a_process_born_between_two_snapshots() {
+        let start = std::time::Instant::now();
+        let mut tracker = Tracker::default();
+        tracker.refresh(start).unwrap();
+
+        let mut child = std::process::Command::new("cmd.exe")
+            .args(["/c", "ping", "-n", "4", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        tracker
+            .refresh(start + std::time::Duration::from_secs(1))
+            .unwrap();
+        let seen_by_id = tracker.named("cmd.exe").any(|pid| pid == child.id());
+        tracker
+            .refresh(start + Tracker::FULL_EVERY + std::time::Duration::from_secs(1))
+            .unwrap();
+        let seen_by_snapshot = tracker.named("cmd.exe").any(|pid| pid == child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+
+        assert!(seen_by_id, "named from its id, between two snapshots");
+        assert!(seen_by_snapshot, "and still named by the next snapshot");
     }
 
     #[test]
