@@ -95,10 +95,16 @@ $work = Join-Path ([System.IO.Path]::GetTempPath()) "gamemode-executor-msi-$([gu
 New-Item -ItemType Directory $work | Out-Null
 try {
     # --- the cabinet ---------------------------------------------------------
+    # MaxDiskSize=0: one cabinet, however large. makecab's default disk is a
+    # 1.44 MB floppy, and with a fixed CabinetNameTemplate the second cabinet
+    # of a spanned set overwrites the first under the same name: on
+    # 2026-09-23 the 0.3.0 executables compressed to 1,476,966 bytes, just
+    # over, and the package came out at 88 KB holding the last 20 KB piece.
     $ddf = @(
         '.OPTION EXPLICIT',
         '.Set CabinetNameTemplate=files.cab',
         ".Set DiskDirectoryTemplate=$work",
+        '.Set MaxDiskSize=0',
         '.Set CompressionType=LZX',
         '.Set Cabinet=on',
         '.Set Compress=on',
@@ -116,6 +122,13 @@ try {
     $null = & makecab.exe /F $ddfPath
     $cab = Join-Path $work 'files.cab'
     if (-not (Test-Path $cab)) { throw 'makecab produced no cabinet' }
+    # The cabinet must hold every file, whole: its existence proved nothing
+    # the day it held one piece of two. `expand -D` lists what it contains.
+    $listed = @(& expand.exe -D $cab | ForEach-Object { if ($_ -match ':\s+(\S+)\s*$') { $Matches[1] } })
+    foreach ($f in $files) {
+        if ($listed -notcontains $f.Key) { throw "the cabinet lacks $($f.Key) ($($f.Path)); makecab listed: $($listed -join ', ')" }
+    }
+    if (@(Get-ChildItem $work -Filter '*.cab').Count -ne 1) { throw 'makecab produced more than one cabinet' }
 
     # --- the database --------------------------------------------------------
     $installer = New-Object -ComObject WindowsInstaller.Installer

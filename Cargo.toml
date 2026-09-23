@@ -1,6 +1,6 @@
 [package]
 name = "game-mode-executor"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Geoffrey Vancoetsem"]
 edition = "2024"
 # Let chains, stable since 1.88.
