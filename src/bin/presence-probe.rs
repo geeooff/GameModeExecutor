@@ -19,6 +19,7 @@
 //! presence-probe watch-games [secs] [key]
 //!                                    log what Windows writes to its game list, and when;
 //!                                    `key`, under HKCU, checks the probe on one you can write
+//! presence-probe cost [rounds]       time what an idle poll costs, today and with Lot 15
 //! presence-probe activate            activate the class ourselves and time it
 //! ```
 
@@ -543,6 +544,128 @@ fn cmd_watch_games(seconds: u64, key: &str) -> windows::core::Result<()> {
     Ok(())
 }
 
+// ------------------------------------------------------ what a poll costs --
+
+/// Median, 95th percentile and maximum of `samples`, in microseconds.
+fn spread(samples: &mut [std::time::Duration]) -> String {
+    samples.sort();
+    let at = |q: f64| samples[((samples.len() - 1) as f64 * q).round() as usize];
+    format!(
+        "median {:>6.0} us, p95 {:>6.0} us, max {:>6.0} us",
+        at(0.5).as_secs_f64() * 1e6,
+        at(0.95).as_secs_f64() * 1e6,
+        at(1.0).as_secs_f64() * 1e6
+    )
+}
+
+/// Time, over `rounds` rounds, what the watcher's idle poll does today and
+/// what Lot 15's second signal would add to it: the process snapshot the
+/// poll already takes, the writer's lookup in it, the hand-made entries'
+/// file names compared against the same snapshot, one full-path query --
+/// what a name that matches would cost -- and the last-write time of the
+/// list's key, which says whether the list must be read again.
+fn cmd_cost(rounds: usize) -> windows::core::Result<()> {
+    use game_mode_executor::detect::process::{Snapshot, full_path};
+    use game_mode_executor::registry::Key;
+    use std::time::{Duration, Instant};
+    use windows::Win32::Foundation::FILETIME;
+    use windows::Win32::System::Registry::RegQueryInfoKeyW;
+
+    let exe = writer_exe();
+    let hand_made: Vec<String> = read_entries(GAME_LIST)
+        .into_iter()
+        .filter(|entry| entry.revision == Some(1) && entry.title_id.is_none())
+        .filter_map(|entry| entry.exe)
+        .filter_map(|exe| exe.rsplit(['\\', '/']).next().map(str::to_ascii_lowercase))
+        .collect();
+    let Ok(root) = Key::open_current_user(GAME_LIST) else {
+        log("cost: cannot open the game list");
+        return Ok(());
+    };
+
+    let mut snapshot = Vec::with_capacity(rounds);
+    let mut writer = Vec::with_capacity(rounds);
+    let mut names = Vec::with_capacity(rounds);
+    let mut path = Vec::with_capacity(rounds);
+    let mut stamp = Vec::with_capacity(rounds);
+    let mut processes = 0;
+    let mut matched = 0;
+    for _ in 0..rounds {
+        let started = Instant::now();
+        let Ok(taken) = Snapshot::take() else {
+            continue;
+        };
+        snapshot.push(started.elapsed());
+        processes = taken.processes.len();
+
+        let started = Instant::now();
+        let _ = presence_writer::find_in(&taken, &exe);
+        writer.push(started.elapsed());
+
+        let started = Instant::now();
+        matched = taken
+            .processes
+            .iter()
+            .filter(|process| hand_made.contains(&process.name.to_ascii_lowercase()))
+            .count();
+        names.push(started.elapsed());
+
+        let started = Instant::now();
+        let _ = full_path(std::process::id());
+        path.push(started.elapsed());
+
+        let started = Instant::now();
+        let mut written = FILETIME::default();
+        // SAFETY: `root` is open for the call; only the last-write time is
+        // asked for, into a local that outlives it.
+        let _ = unsafe {
+            RegQueryInfoKeyW(
+                root.raw(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(&mut written),
+            )
+        };
+        stamp.push(started.elapsed());
+
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    log(&format!(
+        "cost: {} rounds, {processes} processes, {} hand-made entries, {matched} running",
+        snapshot.len(),
+        hand_made.len()
+    ));
+    log(&format!(
+        "cost: process snapshot           {}",
+        spread(&mut snapshot)
+    ));
+    log(&format!(
+        "cost: writer found in it (today) {}",
+        spread(&mut writer)
+    ));
+    log(&format!(
+        "cost: hand-made names compared   {}",
+        spread(&mut names)
+    ));
+    log(&format!(
+        "cost: one full-path query        {}",
+        spread(&mut path)
+    ));
+    log(&format!(
+        "cost: the list's last-write time {}",
+        spread(&mut stamp)
+    ));
+    Ok(())
+}
+
 fn main() -> windows::core::Result<()> {
     let seconds = || {
         std::env::args()
@@ -558,10 +681,16 @@ fn main() -> windows::core::Result<()> {
             cmd_watch_games(seconds(), key.as_deref().unwrap_or(GAME_LIST))
         }
         Some("activate") => cmd_activate(5, 60),
+        Some("cost") => cmd_cost(
+            std::env::args()
+                .nth(2)
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(200),
+        ),
         Some(other) => {
             eprintln!("unknown command `{other}`");
             eprintln!(
-                "usage: presence-probe [status|watch [seconds]|watch-games [seconds]|activate]"
+                "usage: presence-probe [status|watch [seconds]|watch-games [seconds]|cost [rounds]|activate]"
             );
             std::process::exit(2);
         }

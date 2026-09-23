@@ -6,7 +6,7 @@ below. It waits only for [Lot 9](09-robustness.md)'s configuration work to
 close its field run.
 
 - [x] The instrument: a `watch-games` command in `presence-probe` that logs registry change notifications on Windows' game list and which entry's `LastAccessed` moved — built 2026-09-23 and checked on a scratch key, below
-- [ ] The measurements below, before any line of the watcher changes — the first two answered 2026-09-23: Windows writes the entry at every launch, and the registry notification never comes; three to go
+- [x] The measurements below, before any line of the watcher changes — 2026-09-23: Windows writes the entry at every launch, the registry notification never comes, the second signal adds about 25 us to a 4 ms poll, an elevated process grants `SYNCHRONIZE`; the untick mid-game is left to the field run
 - [ ] Detection from Windows' list as well as from the presence writer: a hand-marked title is a session from its launch
 - [ ] A title marked *while it runs* becomes a session within the settle time, and the start commands run then
 - [ ] The idle cost measured and written down: no polling of the registry, and whatever polling of processes remains, with its figure
@@ -262,13 +262,34 @@ What the run confirms besides:
   watcher follows, and the log will name the entry a session started
   from, so the person can find which box to untick.
 
-## What it changes in the program, once measured
+## The cost, and an elevated process, 2026-09-23
 
-Still to measure before building: what a snapshot and the path lookups
-cost on this machine (the third item above), whether an elevated game
-grants `SYNCHRONIZE` to the watcher (the fourth), and the end of a session
-when the box is unticked mid-game (the fifth — the entry goes at once, so
-the session can end at the next poll).
+`presence-probe cost` times, over 300 rounds ten milliseconds apart, the
+release build on this machine with 282 processes and 3 hand-made entries:
+
+| Step | Median | 95th | Max |
+| --- | --- | --- | --- |
+| the process snapshot, which the idle poll takes today | 4181 us | 4609 us | 5334 us |
+| the writer found in it, today | 3 us | 3 us | 6 us |
+| the hand-made entries' names compared against it | 13 us | 13 us | 14 us |
+| one full-path query, paid only for a name that matches | 55 us | 64 us | 167 us |
+| the list key's last-write time | 11 us | 13 us | 17 us |
+
+The second signal adds about 25 us to a poll that already costs about 4 ms
+— the snapshot is the price, and it is paid today. Nothing new wakes the
+watcher: the same poll, every `poll_interval`, two seconds by default.
+
+And the fourth question: FanControl, which runs elevated here through its
+scheduled task, granted both `SYNCHRONIZE` and
+`PROCESS_QUERY_LIMITED_INFORMATION` to the unelevated shell — so an
+elevated game can be waited on and its path read. A protected process, as
+some anti-cheat runs, is not measured.
+
+The fifth, the untick mid-game, is behaviour rather than a question: the
+entry goes at once (12:04:07 above), so the session ends at the next poll
+and the stop commands run. The field run checks it.
+
+## What it changes in the program, once measured
 
 The engine's sensor gains a second question — which listed processes are
 running, and a handle to wait on for one of them — and its loop treats
