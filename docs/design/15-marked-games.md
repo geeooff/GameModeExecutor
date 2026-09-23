@@ -10,6 +10,8 @@ close its field run.
 - [ ] Detection from Windows' list as well as from the presence writer: a hand-marked title is a session from its launch
 - [ ] A title marked *while it runs* becomes a session within the settle time, and the start commands run then
 - [ ] The idle cost measured and written down: no polling of the registry, and whatever polling of processes remains, with its figure
+- [ ] The idle poll made cheap: the process ids alone every `poll_interval`, names only for processes not seen before, a full snapshot every 30 s as the net for a reused id — decided 2026-09-23, below
+- [ ] At start, a log line for each hand-made entry Microsoft's own list now covers, so the box can be unticked — asked for by the maintainer 2026-09-23, below
 - [ ] Verified in the field on DS2 and the other hand-marked titles on the maintainer's machine
 
 **Done when** a game the Game Bar knows only because the person ticked
@@ -376,6 +378,86 @@ some anti-cheat runs, is not measured.
 The fifth, the untick mid-game, is behaviour rather than a question: the
 entry goes at once (12:04:07 above), so the session ends at the next poll
 and the stop commands run. The field run checks it.
+
+## Process ids, from Microsoft's documentation first — 2026-09-23
+
+The maintainer's rule, the same day: Microsoft's documentation first, a
+spike only for what it leaves open. What it says:
+
+- An id identifies a process *"until the process terminates"*, and *"after
+  the process has terminated, the system can reuse the Id property value for
+  an unrelated process"* (`System.Diagnostics.Process.Id`); `Win32_Process`
+  says the same of the WMI class; *Process Handles and Identifiers*, that
+  the identifier *"is valid from the time the process is created until the
+  process has been terminated."*
+- Raymond Chen gives the exact rule (*When does a process ID become
+  available for reuse?*, 2011-01-07): the id belongs to the process object,
+  which lives as long as the process runs *or anyone holds a handle to it*.
+- Nothing documents how soon a freed id comes back.
+
+So the spike measured that: 400 short `cmd.exe /c exit` processes started
+one after another in 7.9 s — about fifty a second, far above an idle
+desktop's churn — each handle closed as soon as it had exited. 345 distinct
+ids; 55 came back, the soonest **2.8 s** after the id's previous process
+started, the median 5.6 s, none within 2 s. Reuse is real and can be quick
+under churn, and it is not instant.
+
+What the poll does with that:
+
+- **Every `poll_interval`, the ids alone** (32 us), compared with the last
+  poll's; a process not seen before is asked its name (52 us), and its full
+  path only when that name is the writer's or a hand-made entry's.
+- **Every thirty seconds, the full snapshot** it takes today (4 ms), which
+  names every process afresh. It is the net for an id reused between two
+  polls: a game that took a freed id is still found, within thirty seconds
+  instead of two. At an idle desktop's churn that case needs a process to
+  exit and a game to start under its id within one poll interval; the spike
+  never saw it happen within two seconds even at fifty processes a second.
+- **Holding a handle to every process** would close the gap by the rule
+  above, and was set aside: a few hundred handles in the watcher, to every
+  process including games, is a footprint players and anti-cheat both look
+  at, for a case the net already covers.
+
+The cost: about 50 us a poll instead of 4 ms, and the snapshot's 4 ms every
+thirty seconds — some 0.016 % of a core at two seconds, against 0.2 %
+today. The maintainer's own `poll_interval`, raised to five seconds to
+spend less, goes back to two once this is in.
+
+## Microsoft's list itself, and the hint at start — 2026-09-23
+
+The maintainer asked for one more thing: say, at start, which hand-made
+entries Microsoft's list now covers, so the box can be unticked and Windows
+recognise the game by itself. That needs Microsoft's list, which is not the
+registry's `Children` key — that holds the entries Windows *created* from
+it. The list is a file, `%LOCALAPPDATA%\Microsoft\GameDVR\KnownGameList.bin`,
+1.8 MB here, dated 2026-08-18; its header carries 2691 at offset 8, the
+`KGLRevision` the registry reports. Its format is not documented.
+
+What reading it showed:
+
+- A search for a name is wrong: `DS2.exe` is the end of `borderlands2.exe`,
+  `chrome.exe` the end of *Blazing Chrome*'s `blazing chrome.exe`.
+- The executable's name is a field of its own, UTF-16 and preceded by its
+  length in bytes as 16 bits; the title's folder names, a GUID and the Xbox
+  `TitleId` follow. Matched as whole fields, the answers are exactly right:
+  `DS2.exe` once, with `DEATH STRANDING 2 - ON THE BEACH`; `Wreckfest2.exe`
+  once, with `wreckfest 2`; `cs2.exe` once, with `Counter-Strike Global
+  Offensive` and `win64`; `chrome.exe`, *The Other Side*, Fallout and 3DMark
+  not at all.
+- The GUID each record carries is the `GameDVR_GameGUID` of the entry
+  Windows created from it: `f5ec2e1c-…` for DS2, `24762c8e-…` for Wreckfest
+  2, in the file and in the registry alike. The file is the source.
+
+So at start, for each hand-made entry, the watcher looks for a record whose
+executable field is that entry's file name and one of whose folder names is
+a folder of that entry's path — the two things Windows' own record says it
+matches on — and says, at `info`: *DS2.exe is marked as a game by hand, and
+Microsoft's list knows it now: untick "Remember this is a game" in the Game
+Bar, and Windows will recognise it by itself.* Once per start, never again
+until the next. Because the format is undocumented, a file that cannot be
+read or does not parse the way described here produces no hint and one
+`debug` line saying why — the hint is advice, and wrong advice is worse
+than none.
 
 ## What it changes in the program, once measured
 
