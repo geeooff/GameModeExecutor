@@ -7,20 +7,21 @@ counters left 3.7 MB behind and that the installed watcher had gained some
 at once, at the maintainer's request.
 
 - [x] The instrument: `presence-probe footprint` step by step, `menu-cost` for what one click leaves over five minutes, `gpu-load` to set the GPU reader beside Windows' own `typeperf`, and a scratch watcher driven through sessions and reloads — 2026-09-23
-- [x] Where the handles come from — 2026-09-23, below: the GPU read, the shell and the update check; sessions and reloads leave nothing
+- [x] Where the handles come from — 2026-09-23, below: the GPU read, the menu itself, the shell and the update check; sessions, reloads and configuration faults leave nothing
 - [x] The GPU counters read through PerfLib instead of PDH — built 2026-09-23: 0.23 MB and 18 handles left instead of 3.6–3.9 MB and 19, the values checked against `typeperf`
 - [ ] The menu's shell opens: a proposal below, the maintainer's call
 - [ ] What *Check for updates* leaves: a proposal below, the maintainer's call
 - [ ] Measured on the whole installed process against 0.3.0: just started, after a session whose refinement reads the counters, after the menu's clicks
 - [ ] What the watcher costs, written for the people who use it in [How it works](../how-it-works.md), from those figures
-- [ ] Verified in the field: a session whose refinement reads the counters, on the maintainer's machine
+- [x] Verified in the field: a session whose refinement reads the counters, on the maintainer's machine — 2026-09-23, Battlefield 6, below: *bf6.exe (75% of the rendering)* through PerfLib, 18 handles and 0.24 MB for the read
+- [ ] The menu opened a second and a third time, to tell a cost paid once from a leak
 
 **Done when** a session, a reload and each entry of the menu leave the
 watcher holding no more than a figure written here over what it held just
 started, measured on the whole installed process against 0.3.0 — and every
 figure the documentation gives for what the watcher costs is one measured.
 
-## Sessions and reloads leave nothing, 2026-09-23
+## Sessions, reloads and faults leave nothing, 2026-09-23
 
 A watcher built from this branch before any change (0.3.0, `da26e0f2`), on
 a scratch configuration — two-second poll, one-second stop delay, the
@@ -42,6 +43,11 @@ and two runs after it, the second sampling four times a second, never
 did it again. Its size is the size of a shell call, measured below, and
 nothing in that run is known to have made one: recorded as not reproduced,
 not explained.
+
+A configuration made unusable then fixed, twice, on the same scratch
+watcher — each time two notifications, the icon red and back, the engine
+frozen then built anew — left 171 handles against 169 before, and the
+same private bytes, 17:16–17:18.
 
 None of these sessions read the GPU counters. The refinement reads them
 only when two processes or more match the game ([Lot 3](03-game-naming.md));
@@ -133,6 +139,41 @@ processes at the same magnitudes — 2.39, 1.65 and 1.08 % against 2.87,
 the four seconds compared, the two windows half a second apart. A game's
 load, tens of percent on one process, is the field run's to confirm.
 
+## The field run, 2026-09-23
+
+This branch's build (`ca26a358`) installed on the maintainer's machine at
+17:18 through the logon task, as a release installs it, and its handles,
+private bytes and threads sampled once a second from outside, a line each
+time one of them changed. The maintainer played Battlefield 6 and did
+what the menu offers, noting the minute of each gesture:
+
+| Time | What happened | handles | private | threads |
+| --- | --- | --- | --- | --- |
+| 17:18:40 | just started | 162 | 2.09 MB | 6, then 3 |
+| 17:45:29 | *Game detected: EAAntiCheat.GameServiceLauncher.exe*, the commands run | 167 | 2.28 MB | 3 |
+| 17:45:50 | *Game identified more precisely: bf6.exe (75% of the rendering)* — the counters read through PerfLib | 185 | 2.52 MB | 3 |
+| 17:47 | the pointer on the icon, its tooltip shown | 184 | 2.52 MB | 3 |
+| 17:48:11 | the menu opened, then closed by a click beside it | **225** | **3.62 MB** | 6 |
+| 17:49:06 | *Edit configuration*, VS Code opened, closed unsaved | **373** | 4.36 MB | 12 |
+| 17:50 | `gamemode-executor status` in a terminal, another process | 365 | 4.23 MB | 8 |
+| 17:51:59 | *Game no longer detected: bf6.exe*, the stop commands run | 363 | 4.16 MB | 6 |
+
+The refinement's read is the one the probe measured: 18 handles and
+0.24 MB, and a name as sure as PDH's — the same game read *75% of the
+rendering* on 2026-09-16 through PDH ([Lot 3](03-game-naming.md)). The
+shell open is too: 147 handles. What the probe had not measured is the
+menu itself: **41 handles and 1.1 MB** the first time it is shown. The
+menu is plain — strings, `TrackPopupMenuEx`, the foreground window its
+documentation requires, dark by `uxtheme` — so the cost is Windows' own,
+for a process's first menu; whether a second opening adds to it is the
+next thing to measure. The tooltip costs nothing: the shell draws it, in
+its own process.
+
+Those steps, had they all happened that day, would make some 215 of the
+261 handles Lot 15 read (424 − 163): 41 for the menu, some 150 for a shell
+open, 19 for PDH, a few for naming. Inferred, not measured — which of them
+did happen then is not recorded, and the rest stays untraced.
+
 ## Proposed, for the maintainer's decision
 
 **The menu's shell opens, through a short-lived helper.** *Edit
@@ -145,6 +186,11 @@ Notepad fallback when a `.toml` has no association — and exits: a plain
 open's outcome read from the helper's exit code, some 30 ms on a click.
 Recommended: it is the larger of the two costs a player can see in Task
 Manager, and the code it takes is small and ordinary.
+
+**The menu itself, left as it is.** Its 41 handles and 1.1 MB are what
+Windows takes to show a process's first menu; a menu cannot be shown
+without them, and no other road to the same menu is cheaper. Unless the
+second opening shows a leak, nothing to do.
 
 **What *Check for updates* leaves, left as it is.** 111 handles and 1 MB
 after the threads expire. The check is a click made once a release; a
