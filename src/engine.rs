@@ -10,6 +10,11 @@
 //! - active: park on the writer's process handle, so nothing runs at all until
 //!   Windows lets it go.
 //!
+//! A title the person marked as a game by hand never gets a writer, so the
+//! idle look also asks for the processes of those entries, and a session
+//! found that way parks on the game's own handle instead: the same shape,
+//! a second anchor. Decided 2026-09-23 in `docs/design/15-marked-games.md`.
+//!
 //! The engine decides and never reads the OS itself: everything it observes
 //! comes through a [`Sensor`], which is what lets `engine/tests.rs` drive whole
 //! sessions in milliseconds with a scripted one.
@@ -25,7 +30,7 @@ use crate::detect::presence_writer::WaitOutcome;
 use crate::detect::{self, GameSignal};
 use crate::logging::{self, target};
 use crate::marker::Marker;
-use crate::sensor::Sensor;
+use crate::sensor::{HAND_MADE, Sensor, Sighting};
 use crate::win::{StopReason, StopSignal};
 
 /// What the engine tells the outside world about the session.
@@ -138,12 +143,12 @@ impl<S: Sensor> Engine<S> {
     /// watcher crashed under it. Then nothing runs, neither stop nor start,
     /// and the session is taken up where it was. Looking for the writer
     /// *before* recovering is what keeps a game still on from getting the
-    /// idle and then the gaming configuration seconds apart. Returns the
-    /// writer to park on and the name to show when resuming.
-    fn recover(&self) -> Option<(u32, Option<GameSignal>)> {
+    /// idle and then the gaming configuration seconds apart. Returns what
+    /// to park on and the name to show when resuming.
+    fn recover(&self) -> Option<(Sighting, Option<GameSignal>)> {
         let marker = self.marker.as_ref()?;
         let pending = marker.pending()?;
-        if let Some(pid) = self.sensor.writer_pid() {
+        if let Some(sighting) = self.sensor.sighting() {
             let signal = pending.game.clone().map(|name| GameSignal {
                 source: "resumed",
                 process_name: Some(name),
@@ -163,7 +168,7 @@ impl<S: Sensor> Engine<S> {
                 ),
             }
             self.report(&Session::Playing(signal.clone()));
-            return Some((pid, signal));
+            return Some((sighting, signal));
         }
         // The session is over. Said before the commands, as `fire_stop` does,
         // and said at all because the icon may still show the session the
@@ -209,10 +214,15 @@ impl<S: Sensor> Engine<S> {
             // A resumed session already had its start: no commands, no
             // marker to write, and no refinement -- the name in the marker
             // is the refined one when there was one.
-            let (mut pid, mut signal, fresh) = match resumed.take() {
-                Some((pid, signal)) => (pid, signal, false),
-                None => match self.await_writer(stop) {
-                    Some(pid) => (pid, self.identify(), true),
+            let (mut anchor, mut signal, fresh) = match resumed.take() {
+                Some((anchor, signal)) => (anchor, signal, false),
+                None => match self.await_sighting(stop) {
+                    Some(Sighting::Writer(pid)) => (Sighting::Writer(pid), self.identify(), true),
+                    // The entry names the game exactly: nothing to guess.
+                    Some(Sighting::HandMade { pid, game }) => {
+                        let signal = Some(game.clone());
+                        (Sighting::HandMade { pid, game }, signal, true)
+                    }
                     None => break,
                 },
             };
@@ -228,14 +238,17 @@ impl<S: Sensor> Engine<S> {
             // Starfield and Skyrim each left a single candidate and this pass
             // found nothing to arbitrate. So: once, a little way into the
             // session, ask which candidate is actually rendering, and expect
-            // "no better answer" more often than not.
-            let mut refine_due = fresh && !self.config.detection.identify_after.is_zero();
+            // "no better answer" more often than not. A game marked by hand
+            // was found by its exact path, so there is nothing to refine.
+            let mut refine_due = fresh
+                && matches!(anchor, Sighting::Writer(_))
+                && !self.config.detection.identify_after.is_zero();
 
             let stopped = loop {
                 let timeout = refine_due.then_some(self.config.detection.identify_after);
-                // Waiting on the writer's handle rather than sleeping keeps the
+                // Waiting on the handle rather than sleeping keeps the
                 // refinement from being blind to a game ending in the meantime.
-                match self.sensor.wait_for_writer_exit(pid, stop, timeout)? {
+                match self.sensor.wait_for_exit(anchor.pid(), stop, timeout)? {
                     WaitOutcome::Stopped => break true,
                     WaitOutcome::TimedOut => {
                         refine_due = false;
@@ -247,18 +260,26 @@ impl<S: Sensor> Engine<S> {
                         }
                         continue;
                     }
-                    WaitOutcome::WriterExited => {
-                        self.log_writer_exit(session_start, signal.as_ref(), fresh);
-                    }
+                    WaitOutcome::Exited => match &anchor {
+                        Sighting::Writer(_) => {
+                            self.log_writer_exit(session_start, signal.as_ref(), fresh);
+                        }
+                        Sighting::HandMade { pid, .. } => tracing::debug!(
+                            target: target::GAME,
+                            pid,
+                            session = ?session_start.elapsed(),
+                            "The game marked by hand exited"
+                        ),
+                    },
                 }
-                match self.writer_returns(stop) {
-                    Some(new_pid) => {
+                match self.comes_back(stop) {
+                    Some(again) => {
                         tracing::debug!(
                             target: target::GAME,
-                            pid = new_pid,
-                            "Presence writer came back, the session is still running"
+                            pid = again.pid(),
+                            "A game is running again within the grace, so the session goes on"
                         );
-                        pid = new_pid;
+                        anchor = again;
                     }
                     // The writer's exit and the watcher's stop can arrive
                     // together. At logoff on 2026-09-17 Windows killed the
@@ -331,13 +352,13 @@ impl<S: Sensor> Engine<S> {
     }
 
     /// Idle: the only polling in the program. Returns `None` when stopped.
-    fn await_writer(&self, stop: &StopSignal) -> Option<u32> {
+    fn await_sighting(&self, stop: &StopSignal) -> Option<Sighting> {
         loop {
             if stop.is_set() {
                 return None;
             }
-            if let Some(pid) = self.sensor.writer_pid() {
-                return Some(pid);
+            if let Some(sighting) = self.sensor.sighting() {
+                return Some(sighting);
             }
             if stop.wait_timeout(self.config.detection.poll_interval) {
                 return None;
@@ -345,9 +366,10 @@ impl<S: Sensor> Engine<S> {
         }
     }
 
-    /// After the writer exits, give it `stop_delay` to come back before
-    /// declaring the session over.
-    fn writer_returns(&self, stop: &StopSignal) -> Option<u32> {
+    /// After the process a session waits on exits, give a game `stop_delay`
+    /// to be running again -- the writer blinking, or the game relaunched --
+    /// before declaring the session over.
+    fn comes_back(&self, stop: &StopSignal) -> Option<Sighting> {
         let grace = self.config.detection.stop_delay;
         if grace.is_zero() {
             return None;
@@ -364,8 +386,8 @@ impl<S: Sensor> Engine<S> {
             if stop.wait_timeout(self.config.detection.poll_interval.min(remaining)) {
                 return None;
             }
-            if let Some(pid) = self.sensor.writer_pid() {
-                return Some(pid);
+            if let Some(sighting) = self.sensor.sighting() {
+                return Some(sighting);
             }
         }
     }
@@ -538,6 +560,16 @@ impl<S: Sensor> Engine<S> {
         // session to close.
         self.remember(signal);
         match signal {
+            // Said in full at `info`: a program marked by mistake -- a
+            // browser -- becomes a session whenever it runs, and this line
+            // is where the person learns which box to untick.
+            Some(signal) if signal.source == HAND_MADE => tracing::info!(
+                target: target::GAME,
+                pid = signal.process_id,
+                path = signal.process_path.as_deref(),
+                "Game detected: {}, which is marked as a game by hand in the Game Bar",
+                signal.name()
+            ),
             Some(signal) => tracing::info!(
                 target: target::GAME,
                 pid = signal.process_id,

@@ -21,13 +21,43 @@ down. That process existing *is* Windows' own verdict that you are playing.
 So the watcher does something very simple: it watches whether that process
 exists.
 
-- **No game:** it looks every two seconds. That is the only polling it ever does.
+- **No game:** it looks every two seconds. That is the only polling it ever
+  does, and it is cheap: it asks Windows for the list of process numbers
+  alone, which takes a few hundredths of a millisecond, and asks a process
+  its name only the first time it sees it — a full list of every process by
+  name, which costs a hundred times more, only every thirty seconds.
 - **Game running:** it stops looking entirely, and asks Windows to wake it when
   that process ends. Zero activity while you play — which is rather the point of
   a program that runs during games.
 
-The result is that anything Windows treats as a game triggers it, including
-titles released after this program was written.
+The result is that anything Windows knows as a game triggers it, including
+titles released after this program was written — Windows keeps its list of
+games up to date on its own.
+
+**Games you marked yourself.** A title Windows does not recognise, you can
+teach it: open the Game Bar over it and tick *Remember this is a game*.
+Windows treats it as a game from then on — overlay, capture, Game Mode — but
+does not start the process above for it, because that process exists to
+tell Xbox what you are playing, and a title you named by hand has no Xbox
+identity to tell. So the watcher also reads Windows' own list of the games
+you marked: when one of those executables runs, that is a game session, with
+the same commands at both ends. It is the same two-second look, and the
+list is read again only when you tick or untick a box, so ticking it in the
+middle of a game starts the session within those two seconds — nothing to
+relaunch. While that game runs, the watcher waits on the game itself, and
+does nothing else. The log names such a game as one *marked as a game by
+hand*: a program ticked by mistake — a browser, say — would be a game
+session whenever it runs, and that line is how you find the box to untick.
+
+**Boxes you no longer need.** Microsoft adds games to its list after they
+are released, and a box you ticked before that keeps Windows on your own
+entry rather than its own — measured on 2026-09-23 with *Death Stranding 2*
+and *Wreckfest 2*, both listed by Microsoft by then. Each time the watcher
+starts, it compares the games you marked with Microsoft's list and says, in
+the log, which ones Microsoft now knows. For those, untick *Remember this is
+a game*, quit the game and start it again: Windows recognises it by itself
+— the Xbox overlay shows you *playing* it — and so does this program.
+`gamemode-executor status` lists the games you marked and says the same.
 
 Which process to watch is read from the registry at startup rather than
 hard-coded, so a machine where that registration differs still works.

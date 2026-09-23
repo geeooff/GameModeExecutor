@@ -460,6 +460,42 @@ fn status() -> Result<()> {
         Err(error) => println!("Known Game List      : unavailable ({error:#})"),
     }
 
+    // The second signal: each game marked by hand is a session whenever its
+    // executable runs, so a box ticked by mistake shows up here, and so does
+    // one Microsoft's list has made unnecessary.
+    match detect::hand_made::load() {
+        Ok(entries) if entries.is_empty() => {
+            println!("Marked by hand       : none (Remember this is a game, in the Game Bar)")
+        }
+        Ok(entries) => {
+            let covered = detect::hand_made::covered_by_microsoft(&entries).ok();
+            println!(
+                "Marked by hand       : {} -- each is a game whenever it runs",
+                entries.len()
+            );
+            for entry in &entries {
+                let running = snapshot.processes.iter().any(|process| {
+                    process.name.eq_ignore_ascii_case(entry.display_name())
+                        && detect::process::full_path(process.pid)
+                            .is_some_and(|path| entry.is(&path))
+                });
+                let microsoft = match &covered {
+                    Some(covered) if covered.contains(&entry) => {
+                        "Microsoft's list knows it now: untick the box"
+                    }
+                    Some(_) => "not in Microsoft's list",
+                    None => "Microsoft's list unreadable",
+                };
+                println!(
+                    "  {} ({}; {microsoft})",
+                    entry.path,
+                    if running { "running" } else { "not running" }
+                );
+            }
+        }
+        Err(error) => println!("Marked by hand       : unavailable ({error:#})"),
+    }
+
     print_foreground(&snapshot, known.as_ref().ok());
 
     println!("Processes visible    : {}", snapshot.processes.len());

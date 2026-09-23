@@ -276,7 +276,21 @@ too.
 **Nothing happens when I start a game.**
 Run `gamemode-executor status` while the game is running. If it says no game is
 running, Windows itself is not flagging that title — see
-[How it works](how-it-works.md).
+[How it works](how-it-works.md). A game Windows does not recognise, you can
+mark yourself: open the Game Bar over it (`Win+G`), and in its settings tick
+*Remember this is a game*. The watcher follows those too, from the next two
+seconds on — [How it works](how-it-works.md#how-it-knows-a-game-is-running)
+says how.
+
+**A program that is not a game starts my game commands.**
+Someone ticked *Remember this is a game* over it. The log says so on the
+*Game detected* line, and `gamemode-executor status` lists every program
+marked that way: open the Game Bar over it and untick the box.
+
+**The log says a game I marked is now known to Microsoft.**
+Microsoft added it to its own list since you ticked the box. Untick
+*Remember this is a game* for it and start the game again: Windows then
+recognises it by itself, and so does this program.
 
 **It says another instance is already running.**
 The background watcher is doing its job. That message means you tried to start a

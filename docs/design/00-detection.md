@@ -72,6 +72,31 @@ title** — measured from 2.7 s to over two minutes for the same game on the
 same afternoon. [Lot 1](01-console-watcher.md) has those figures and the
 decision they led to.
 
+## The limit found in the field, 2026-09-20
+
+Every title measured above is in the Known Game List Microsoft distributes,
+with an Xbox `TitleId`. A title Windows knows only because the person ticked
+*Remember this is a game* in the Game Bar is not: its entry under
+`HKCU\System\GameConfigStore\Children` carries `Revision = 1`, no
+`TitleId`, no `GameDVR_GameGUID`. For such a title — *Death Stranding 2*,
+ticked days earlier, launched at 11:33:57 — Windows recorded the game
+(`GameDVR\LastGameActivity` and the entry's `LastAccessed` at 11:34:00,
+GameDVR's encoder rebuilt the same second) **and never started the presence
+writer**; the maintainer's own Xbox status stayed *Online* rather than
+*Playing*. The writer is Windows' verdict for the titles Windows can name to
+Xbox, and no verdict at all for the ones the person named. The sentence
+above this section that promised "anything Windows treats as a game" held
+for every title until that one; [Lot 15](15-marked-games.md) takes the
+finding and adds Windows' list itself as a second signal.
+
+Corrected 2026-09-23, with the probe watching: DS2 was in Microsoft's list
+all along. Unticked and relaunched, it got a new entry from the distributed
+list — `Revision 2691`, a `TitleId` — and the writer started; *Wreckfest 2*
+did the same. The person's hand-made entry had been shadowing Microsoft's
+own. So the class splits in two: titles ticked before Microsoft listed them,
+which unticking brings back, and titles Microsoft does not list at all —
+*The Other Side* on this machine — which only Lot 15 reaches.
+
 ## Why a user-session program and not a Windows service
 
 - **Session 0 isolation.** A service cannot see the interactive desktop, and
