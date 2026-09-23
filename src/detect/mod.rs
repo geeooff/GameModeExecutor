@@ -1,11 +1,16 @@
 //! Game detection, delegated to Windows.
 //!
 //! `presence_writer` is the detector: the lifetime of the Game Bar presence
-//! writer process is the game session. `known_games` only puts a name on what
-//! it found.
+//! writer process is the game session. `hand_made` is the second, for the
+//! titles the person marked as games by hand, for which Windows never starts
+//! the writer. `known_games` only puts a name on what they found, and
+//! `microsoft_list` only says which hand-made entries Microsoft's list has
+//! since covered.
 
 pub mod gpu;
+pub mod hand_made;
 pub mod known_games;
+pub mod microsoft_list;
 pub mod presence_writer;
 pub mod process;
 

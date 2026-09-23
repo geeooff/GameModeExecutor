@@ -199,6 +199,8 @@ pub fn serve(config_path: &Path, level: Option<&str>, console: bool) -> Result<(
         fault_marker,
     };
     let worker = std::thread::spawn(move || {
+        // Once a start, off the window's thread: it reads a 2 MB file.
+        crate::detect::hand_made::say_what_microsoft_now_covers();
         let outcome =
             sensor::Windows::new().and_then(|sensor| supervised.run(&sensor, loaded, &run_stop));
         // Order matters: release WM_ENDSESSION first, then wake the loop.

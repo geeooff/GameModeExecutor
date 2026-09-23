@@ -2,7 +2,8 @@
 
 GameModeExecutor is a Rust program for Windows that runs configured
 executables when a game starts and stops. Detection is Windows' own verdict —
-the lifetime of the Game Bar presence writer process — never a list of games.
+the lifetime of the Game Bar presence writer process, or of a process the
+person marked as a game in the Game Bar — never a list of our own.
 It runs unelevated, connects to nothing, and shows only a notification area
 icon.
 
@@ -153,9 +154,9 @@ section, so that two agents write it the same way:
 - Once a version is published its section is history: corrected in place
   only for an error of fact, never rewritten for taste.
 
-Three tests read this machine's registry — the Known Game List, the Game Bar
-registration, the real sensor — which a GitHub-hosted Windows Server runner
-does not have. They are `#[ignore]`d with that reason and the script runs
+A few tests read this machine — the Known Game List, the games marked by
+hand in it, Microsoft's own list file, the Game Bar registration, the real
+sensor — which a GitHub-hosted Windows Server runner does not have. They are `#[ignore]`d with that reason and the script runs
 them when `CI` is not set. CI must stay green on a stock runner: a test that
 needs a real Windows client, a GPU or a game says so with `#[ignore]`.
 

@@ -32,7 +32,7 @@ way.
 | Command | What it does |
 | --- | --- |
 | `run` | Watch and react, in this console. The default command. For an unattended instance use `gamemode-executorw.exe`. |
-| `status` | The build, the presence writer's registration and whether it runs, the session marker, what the Known Game List holds and which running processes match it, ranked by GPU rendering share. |
+| `status` | The build, the presence writer's registration and whether it runs, the session marker, what the Known Game List holds and which running processes match it, ranked by GPU rendering share, and the games marked by hand — each with whether it runs and whether Microsoft's own list now knows it. |
 | `check <path>` | Ask whether Windows knows a given executable as a game. |
 | `trigger start\|stop` | Run one set of actions immediately, ignoring detection. Handy to test your commands. |
 | `validate` | Parse and check the configuration. The command to script against: it returns 3 or 4 without starting anything. |
@@ -62,7 +62,7 @@ log_level = "info"            # error | warn | info | debug | trace
 #log_dir = 'C:\somewhere'     # default: %LOCALAPPDATA%\GameModeExecutor\logs
 
 [detection]
-poll_interval = "2s"          # how often to look for a game while idle
+poll_interval = "2s"          # how often to look for a game while idle: the writer, or a game marked by hand
 stop_delay = "2s"             # grace after the writer exits before the session ends
 identify_after = "20s"        # when to ask the GPU which matched process is the game
 gpu_sample = "1s"
@@ -178,7 +178,10 @@ One log serves two readers, and `log_level` is the dial between them:
 `info` is reserved for what the program is for: a game detected, named or
 gone, the watcher starting or stopping, a session recovered at start, the
 configuration reloaded — and what was done to this machine to set it up,
-which is the same story one chapter earlier. Nothing else competes with
+which is the same story one chapter earlier. A game you marked by hand in
+the Game Bar is detected as `Game detected: TOS.exe, which is marked as a
+game by hand in the Game Bar`, and at start one line per such game that
+Microsoft's own list now knows says the box can be unticked. Nothing else competes with
 those lines. A configuration the watcher cannot use is an `error`, the one
 line in the log that asks something of you: `The configuration cannot be
 used, so nothing is watched until it is fixed: line 3: unknown field

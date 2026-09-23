@@ -1,17 +1,17 @@
 # Lot 15 — Games Windows knows only from you
 
-**Status: proposed 2026-09-20, taken next, ahead of everything else
-pending** — the maintainer's decision the same morning, on the finding
-below. It waits only for [Lot 9](09-robustness.md)'s configuration work to
-close its field run.
+**Status: built 2026-09-23, waiting for its field run.** Proposed
+2026-09-20 and taken ahead of everything else pending, on the finding
+below; taken up once [Lot 9](09-robustness.md)'s configuration work had
+closed its field run.
 
 - [x] The instrument: a `watch-games` command in `presence-probe` that logs registry change notifications on Windows' game list and which entry's `LastAccessed` moved — built 2026-09-23 and checked on a scratch key, below
 - [x] The measurements below, before any line of the watcher changes — 2026-09-23: Windows writes the entry at every launch, the registry notification never comes, the second signal adds about 25 us to a 4 ms poll, an elevated process grants `SYNCHRONIZE`; the untick mid-game is left to the field run
-- [ ] Detection from Windows' list as well as from the presence writer: a hand-marked title is a session from its launch
-- [ ] A title marked *while it runs* becomes a session within the settle time, and the start commands run then
-- [ ] The idle cost measured and written down: no polling of the registry, and whatever polling of processes remains, with its figure
-- [ ] The idle poll made cheap: the process ids alone every `poll_interval`, names only for processes not seen before, a full snapshot every 30 s as the net for a reused id — decided 2026-09-23, below
-- [ ] At start, a log line for each hand-made entry Microsoft's own list now covers, so the box can be unticked — asked for by the maintainer 2026-09-23, below
+- [x] Detection from Windows' list as well as from the presence writer: a hand-marked title is a session from its launch — built 2026-09-23, three engine scenarios
+- [x] A title marked *while it runs* becomes a session at the next idle look, and the start commands run then — built 2026-09-23: the list is read again when its key's last-write time moves
+- [x] The idle cost measured and written down: no polling of the registry, and whatever polling of processes remains, with its figure — 2026-09-23, below
+- [x] The idle poll made cheap: the process ids alone every `poll_interval`, names only for processes not seen before, a full snapshot every 30 s as the net for a reused id — built 2026-09-23
+- [x] At start, a log line for each hand-made entry Microsoft's own list now covers, so the box can be unticked; `status` says the same — built 2026-09-23, checked on the real list: DS2, Wreckfest 2 and cs2 covered, *The Other Side* and a browser not
 - [ ] Verified in the field on DS2 and the other hand-marked titles on the maintainer's machine
 
 **Done when** a game the Game Bar knows only because the person ticked
@@ -377,7 +377,12 @@ some anti-cheat runs, is not measured.
 
 The fifth, the untick mid-game, is behaviour rather than a question: the
 entry goes at once (12:04:07 above), so the session ends at the next poll
-and the stop commands run. The field run checks it.
+and the stop commands run. The field run checks it. **Changed when built,
+2026-09-23:** a session on a game marked by hand parks on the game's
+handle and looks at nothing while it runs, as a session on the writer
+does; noticing an untick would have meant waking every poll interval for
+the whole game. The untick takes effect at the game's next launch, and the
+session ends when the game does.
 
 ## Process ids, from Microsoft's documentation first — 2026-09-23
 
@@ -459,12 +464,27 @@ read or does not parse the way described here produces no hint and one
 `debug` line saying why — the hint is advice, and wrong advice is worse
 than none.
 
-## What it changes in the program, once measured
+## What it changed in the program — built 2026-09-23
 
-The engine's sensor gains a second question — which listed processes are
-running, and a handle to wait on for one of them — and its loop treats
-"the writer runs" and "a listed process runs" as one session with two
-possible anchors. The refinement, the marker, the handover and the reload
-are untouched: a session is a session. `status` says which signal it sees.
-The user pages say plainly what *Remember this is a game* does for this
-program, once it does something.
+- **`sensor::Sighting`**: the idle look answers *the writer*, or *a game
+  marked by hand* with its exact name, path and process. The engine parks
+  on either's handle; a game marked by hand is not refined, since its entry
+  names it exactly; the grace after an exit accepts either coming back. The
+  marker, the resume, the handover and the reload are untouched — a session
+  is a session. Three scenarios in `engine/tests.rs`: a session from launch
+  with both edges and no rename, a resume after a handover, a relaunch
+  within the grace.
+- **`detect::hand_made`**: the entries with `Revision = 1`, no `TitleId`
+  and a path; the list's key kept open to ask its last-write time each look.
+- **`detect::process::Tracker`**: the ids every look, a name for a new id
+  only, the full snapshot every thirty seconds.
+- **`detect::microsoft_list`**: `KnownGameList.bin` read for whole-field
+  matches only, as described above; at start, one `info` line per hand-made
+  entry it covers. A first version also required each folder name's length
+  to be repeated after it, which Counter-Strike's record seemed to show; on
+  the real file DS2 came out *not listed*, its record having `01 00` there.
+  The rule is now two characters or more for a folder name, which keeps the
+  one-character artefact out, and DS2's record is a test byte for byte.
+- **`status`** lists the games marked by hand, each with whether it runs and
+  whether Microsoft's list knows it; **`presence-probe microsoft-list`** asks
+  the list about any path.

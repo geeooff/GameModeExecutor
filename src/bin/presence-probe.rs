@@ -22,6 +22,8 @@
 //! presence-probe watch-methods <secs> <sid>
 //!                                    several ways of being told the game list changed, at once
 //! presence-probe cost [rounds]       time what an idle poll costs, today and with Lot 15
+//! presence-probe microsoft-list <exe path>...
+//!                                    whether Microsoft's own game list covers each executable
 //! presence-probe activate            activate the class ourselves and time it
 //! ```
 
@@ -926,6 +928,37 @@ fn main() -> windows::core::Result<()> {
                 std::process::exit(2);
             }
         },
+        Some("microsoft-list") => {
+            use game_mode_executor::detect::microsoft_list;
+            let Some(path) = microsoft_list::path() else {
+                eprintln!("no local profile");
+                std::process::exit(1);
+            };
+            let list = match microsoft_list::read(&path) {
+                Ok(list) => list,
+                Err(error) => {
+                    eprintln!("cannot read {}: {error}", path.display());
+                    std::process::exit(1);
+                }
+            };
+            println!(
+                "{}: {} bytes, revision {}",
+                path.display(),
+                list.len(),
+                list.get(8..12)
+                    .map(|bytes| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+                    .unwrap_or_default()
+            );
+            for exe in std::env::args().skip(2) {
+                let answer = if microsoft_list::covers(&list, &exe) {
+                    "listed"
+                } else {
+                    "not listed"
+                };
+                println!("  {answer:<10} {exe}");
+            }
+            Ok(())
+        }
         Some("cost") => cmd_cost(
             std::env::args()
                 .nth(2)

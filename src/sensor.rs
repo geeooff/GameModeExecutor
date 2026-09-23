@@ -1,32 +1,66 @@
 //! What the engine observes about the machine, behind one trait.
 //!
 //! The engine decides; it does not read the OS itself. Everything it needs to
-//! know arrives through [`Sensor`]: whether the presence writer runs, when it
-//! exits, which processes the Known Game List matches, whether a process is
-//! still alive, and what the GPU is drawing. [`Windows`] answers from the real
-//! machine. The engine's tests answer from a script, which is the only reason
-//! the trait exists -- one implementation would not have earned one.
+//! know arrives through [`Sensor`]: whether Windows says a game runs -- its
+//! presence writer, or a process the person marked as a game by hand --
+//! when that process exits, which processes the Known Game List matches,
+//! whether a process is still alive, and what the GPU is drawing.
+//! [`Windows`] answers from the real machine. The engine's tests answer from
+//! a script, which is the only reason the trait exists -- one implementation
+//! would not have earned one.
+//!
+//! The idle look is the one thing in the program that runs on a timer, so
+//! [`Windows`] keeps it cheap: the process ids alone every look, a name only
+//! for a process not seen before, a full snapshot every thirty seconds, and
+//! the hand-made entries read again only when the list's key was written.
+//! About 50 us a look instead of the 4 ms a snapshot costs, measured
+//! 2026-09-23 in `docs/design/15-marked-games.md`.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
 use crate::detect::known_games::KnownGames;
 use crate::detect::presence_writer::{self, WaitOutcome};
-use crate::detect::process::Snapshot;
-use crate::detect::{GameSignal, gpu};
+use crate::detect::process::{self, Snapshot, Tracker};
+use crate::detect::{GameSignal, gpu, hand_made};
 use crate::logging::target;
 use crate::win::StopSignal;
 
-pub trait Sensor {
-    /// The presence writer's pid, when Windows has one running.
-    fn writer_pid(&self) -> Option<u32>;
+/// What an idle look found running that makes a game session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Sighting {
+    /// Windows' presence writer: a title Windows knows.
+    Writer(u32),
+    /// A process the person marked as a game by hand, for which Windows
+    /// never starts the writer. The signal names it exactly.
+    HandMade(GameSignal),
+}
 
-    /// Park until the writer exits, the stop is signalled, or `timeout`
+impl Sighting {
+    /// The process a session waits on.
+    pub fn pid(&self) -> u32 {
+        match self {
+            Self::Writer(pid) => *pid,
+            Self::HandMade(signal) => signal.process_id.unwrap_or_default(),
+        }
+    }
+}
+
+/// How a session found by a hand-made entry says where it came from.
+pub const HAND_MADE: &str = "hand-made entry";
+
+pub trait Sensor {
+    /// What runs now that makes a session, if anything: the writer first,
+    /// then a hand-made entry's process.
+    fn sighting(&self) -> Option<Sighting>;
+
+    /// Park until the process exits, the stop is signalled, or `timeout`
     /// passes -- whichever comes first.
-    fn wait_for_writer_exit(
+    fn wait_for_exit(
         &self,
         pid: u32,
         stop: &StopSignal,
@@ -50,17 +84,17 @@ pub trait Sensor {
 /// `Windows` for the life of the process and builds an engine on it for
 /// each configuration.
 impl<S: Sensor + ?Sized> Sensor for &S {
-    fn writer_pid(&self) -> Option<u32> {
-        (**self).writer_pid()
+    fn sighting(&self) -> Option<Sighting> {
+        (**self).sighting()
     }
 
-    fn wait_for_writer_exit(
+    fn wait_for_exit(
         &self,
         pid: u32,
         stop: &StopSignal,
         timeout: Option<Duration>,
     ) -> Result<WaitOutcome> {
-        (**self).wait_for_writer_exit(pid, stop, timeout)
+        (**self).wait_for_exit(pid, stop, timeout)
     }
 
     fn candidates(&self) -> Result<Vec<GameSignal>> {
@@ -80,6 +114,19 @@ impl<S: Sensor + ?Sized> Sensor for &S {
 pub struct Windows {
     /// Resolved from the registry once at startup, never hard-coded.
     writer_exe: PathBuf,
+    /// Its file name, lowercased, to find it among the running processes.
+    writer_name: String,
+    /// What the idle looks keep between them. One thread asks, so a cell
+    /// is enough.
+    look: RefCell<Look>,
+}
+
+/// What an idle look keeps between two looks.
+#[derive(Default)]
+struct Look {
+    processes: Tracker,
+    list: hand_made::Watch,
+    hand_made: Vec<hand_made::Entry>,
 }
 
 impl Windows {
@@ -93,7 +140,12 @@ impl Windows {
                  detection follows whatever is registered"
             );
         }
-        Ok(Self { writer_exe })
+        let writer_name = hand_made::file_name_of(&writer_exe.to_string_lossy()).to_lowercase();
+        Ok(Self {
+            writer_exe,
+            writer_name,
+            look: RefCell::new(Look::default()),
+        })
     }
 
     pub fn writer_exe(&self) -> &Path {
@@ -101,12 +153,73 @@ impl Windows {
     }
 }
 
+impl Look {
+    /// The hand-made entries, read again when the list's key was written:
+    /// a tick or an untick. A list that cannot be read keeps the last ones.
+    fn refresh_list(&mut self) {
+        if !self.list.changed() {
+            return;
+        }
+        match hand_made::load() {
+            Ok(entries) => {
+                if entries != self.hand_made {
+                    tracing::debug!(
+                        target: target::GAME,
+                        entries = entries.len(),
+                        names = ?entries.iter().map(hand_made::Entry::display_name).collect::<Vec<_>>(),
+                        "The games marked by hand in the Game Bar, as the list now has them"
+                    );
+                }
+                self.hand_made = entries;
+            }
+            Err(error) => tracing::debug!(
+                target: target::GAME,
+                error = %format!("{error:#}"),
+                "The games marked by hand cannot be read; the last ones read stay"
+            ),
+        }
+    }
+}
+
 impl Sensor for Windows {
-    fn writer_pid(&self) -> Option<u32> {
-        presence_writer::running_pid(&self.writer_exe)
+    fn sighting(&self) -> Option<Sighting> {
+        let mut look = self.look.borrow_mut();
+        look.refresh_list();
+        if let Err(error) = look.processes.refresh(Instant::now()) {
+            tracing::debug!(
+                target: target::GAME,
+                error = %format!("{error:#}"),
+                "The running processes cannot be listed this time"
+            );
+            return None;
+        }
+        let writer = self.writer_exe.to_string_lossy().to_lowercase();
+        for pid in look.processes.named(&self.writer_name) {
+            // Same name elsewhere on disk is not the registered writer; a
+            // path that cannot be read is taken as it, as before.
+            match process::full_path(pid) {
+                Some(path) if path.to_lowercase() != writer => continue,
+                _ => return Some(Sighting::Writer(pid)),
+            }
+        }
+        for entry in &look.hand_made {
+            for pid in look.processes.named(entry.file_name_lower()) {
+                if let Some(path) = process::full_path(pid)
+                    && entry.is(&path)
+                {
+                    return Some(Sighting::HandMade(GameSignal {
+                        source: HAND_MADE,
+                        process_name: Some(entry.display_name().to_owned()),
+                        process_id: Some(pid),
+                        process_path: Some(path),
+                    }));
+                }
+            }
+        }
+        None
     }
 
-    fn wait_for_writer_exit(
+    fn wait_for_exit(
         &self,
         pid: u32,
         stop: &StopSignal,
@@ -145,7 +258,8 @@ mod tests {
         assert!(sensor.writer_exe().is_absolute());
         // Any answer is fine; the point is that none of them panics or fails
         // on a client machine.
-        let _ = sensor.writer_pid();
+        let _ = sensor.sighting();
+        let _ = sensor.sighting();
         sensor
             .candidates()
             .expect("the known game list is readable");
@@ -177,11 +291,15 @@ mod tests {
         };
         use windows::core::HSTRING;
 
-        let sensor = Windows::new().expect("Game Bar is registered here");
-        if sensor.writer_pid().is_some() {
+        // A sensor keeps the game list's key open, which stays on the thread
+        // that opened it: this one looks first, the engine's own is built on
+        // the engine's thread.
+        let look = Windows::new().expect("Game Bar is registered here");
+        if look.sighting().is_some() {
             eprintln!("skipped: a game is running, the writer is not ours to release");
             return;
         }
+        drop(look);
 
         let mut config = crate::config::Config::default();
         config.detection.poll_interval = Duration::from_millis(50);
@@ -196,7 +314,10 @@ mod tests {
         let stop = Arc::new(StopSignal::new().unwrap());
         let worker = {
             let stop = Arc::clone(&stop);
-            std::thread::spawn(move || Engine::new(config, sensor).reporting_to(sink).run(&stop))
+            std::thread::spawn(move || {
+                let sensor = Windows::new()?;
+                Engine::new(config, sensor).reporting_to(sink).run(&stop)
+            })
         };
 
         // SAFETY: initialises the Windows Runtime for this thread; no pointers.

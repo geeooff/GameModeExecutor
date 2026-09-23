@@ -14,7 +14,8 @@ or anything else with a command line.
 
 **There is no list of games to maintain.** Windows itself decides when a game
 is running — the watcher observes the Game Bar presence writer that Windows
-starts for one — and it does not poll while you play. It runs as you, with no
+starts for one, and follows the games you marked yourself in the Game Bar —
+and it does not poll while you play. It runs as you, with no
 administrator rights, connects to nothing unless you ask it to look for an
 update, and shows nothing but a small icon in the notification area.
 

@@ -18,10 +18,10 @@ use crate::config::{Action, Event, Mode};
 
 /// A machine that says what the test told it to, in order.
 struct Scripted {
-    /// Answers to `writer_pid`, one per call. When they run out the stop is
+    /// Answers to `sighting`, one per call. When they run out the stop is
     /// signalled, which is how `run` is made to return.
-    writer: RefCell<VecDeque<Option<u32>>>,
-    /// Answers to `wait_for_writer_exit`, one per call.
+    writer: RefCell<VecDeque<Option<Sighting>>>,
+    /// Answers to `wait_for_exit`, one per call.
     waits: RefCell<VecDeque<WaitOutcome>>,
     /// Answers to `candidates`, one per call; the last one repeats.
     candidates: RefCell<VecDeque<Vec<GameSignal>>>,
@@ -33,13 +33,13 @@ struct Scripted {
     /// the counters.
     counters_unreadable: bool,
     /// The session ends as the writer does: the stop is signalled in the
-    /// same instant `wait_for_writer_exit` reports the exit, as a logoff
+    /// same instant `wait_for_exit` reports the exit, as a logoff
     /// does when Windows kills the writer before the watcher is told.
     session_ends_with_writer: bool,
-    /// A stop reported by `wait_for_writer_exit` is a handover, as
+    /// A stop reported by `wait_for_exit` is a handover, as
     /// `stop --handover` from an update makes it.
     stops_by_handover: bool,
-    /// A stop reported by `wait_for_writer_exit` is a reload, as a change
+    /// A stop reported by `wait_for_exit` is a reload, as a change
     /// to the configuration file makes it.
     stops_by_reload: bool,
     stop: Arc<StopSignal>,
@@ -87,8 +87,17 @@ impl Scripted {
         self
     }
 
+    /// Answers to `sighting` that are the presence writer, or nothing.
     fn writer(self, answers: &[Option<u32>]) -> Self {
-        self.writer.borrow_mut().extend(answers.iter().copied());
+        self.writer
+            .borrow_mut()
+            .extend(answers.iter().map(|answer| answer.map(Sighting::Writer)));
+        self
+    }
+
+    /// Answers to `sighting` of any kind.
+    fn sightings(self, answers: &[Option<Sighting>]) -> Self {
+        self.writer.borrow_mut().extend(answers.iter().cloned());
         self
     }
 
@@ -116,7 +125,7 @@ impl Scripted {
 }
 
 impl Sensor for Scripted {
-    fn writer_pid(&self) -> Option<u32> {
+    fn sighting(&self) -> Option<Sighting> {
         match self.writer.borrow_mut().pop_front() {
             Some(answer) => answer,
             None => {
@@ -126,7 +135,7 @@ impl Sensor for Scripted {
         }
     }
 
-    fn wait_for_writer_exit(
+    fn wait_for_exit(
         &self,
         _pid: u32,
         _stop: &StopSignal,
@@ -137,7 +146,7 @@ impl Sensor for Scripted {
             .borrow_mut()
             .pop_front()
             .expect("the script ran out of waits");
-        if self.session_ends_with_writer && outcome == WaitOutcome::WriterExited {
+        if self.session_ends_with_writer && outcome == WaitOutcome::Exited {
             self.stop.signal();
         }
         if self.stops_by_handover && outcome == WaitOutcome::Stopped {
@@ -263,7 +272,7 @@ fn a_session_is_reported_on_both_edges_and_leaves_no_marker() {
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
-        .waits(&[WaitOutcome::WriterExited])
+        .waits(&[WaitOutcome::Exited])
         .candidates(&[&[game(10, "game.exe")]]);
     let (sink, log) = recorder();
     let marker = Marker::in_dir(&scratch());
@@ -292,7 +301,7 @@ fn a_game_windows_does_not_name_is_still_a_session() {
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
-        .waits(&[WaitOutcome::WriterExited])
+        .waits(&[WaitOutcome::Exited])
         .candidates(&[&[]]);
     let (sink, log) = recorder();
 
@@ -300,6 +309,103 @@ fn a_game_windows_does_not_name_is_still_a_session() {
     engine.run(&stop).unwrap();
 
     assert_eq!(seen(&log), vec![Session::Playing(None), Session::Idle]);
+}
+
+/// A process the person marked as a game by hand, as the sensor reports it.
+fn marked(pid: u32, name: &str) -> GameSignal {
+    GameSignal {
+        source: HAND_MADE,
+        process_name: Some(name.to_owned()),
+        process_id: Some(pid),
+        process_path: Some(format!(r"C:\Games\{name}")),
+    }
+}
+
+#[test]
+fn a_game_marked_by_hand_is_a_session_from_its_launch() {
+    // Windows never starts the writer for a title the person marked by
+    // hand; its entry's process running is the session. The commands run on
+    // both edges, and the name is the entry's: the GPU is not asked, so a
+    // candidate drawing more cannot rename it.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let sensor = Scripted::new(&stop)
+        .sightings(&[None, Some(Sighting::HandMade(marked(30, "TOS.exe")))])
+        .waits(&[WaitOutcome::Exited])
+        .candidates(&[&[game(31, "other.exe")]])
+        .rendering(&[(31, 90.0)]);
+    let dir = scratch();
+    let started = dir.join("start-ran");
+    let stopped = dir.join("stop-ran");
+    let mut config = quick_config();
+    config.on_game_start = stop_event(vec![touch(&started)]);
+    config.on_game_stop = stop_event(vec![touch(&stopped)]);
+    let (sink, log) = recorder();
+
+    let mut engine = Engine::new(config, sensor)
+        .reporting_to(sink)
+        .remembering(Marker::in_dir(&dir));
+    engine.run(&stop).unwrap();
+
+    assert!(started.exists() && stopped.exists(), "both edges ran");
+    assert_eq!(
+        seen(&log),
+        vec![Session::Playing(Some(marked(30, "TOS.exe"))), Session::Idle],
+        "named by its entry, and never renamed"
+    );
+    assert!(Marker::in_dir(&dir).pending().is_none());
+}
+
+#[test]
+fn a_session_marked_by_hand_is_resumed_after_a_handover() {
+    // The same resume as for the writer: the marker open, the game marked by
+    // hand still running, nothing run until it ends.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let sensor = Scripted::new(&stop)
+        .sightings(&[Some(Sighting::HandMade(marked(30, "TOS.exe")))])
+        .waits(&[WaitOutcome::Exited]);
+    let dir = scratch();
+    let marker = Marker::in_dir(&dir);
+    marker.open(Some("TOS.exe"), "earlier").unwrap();
+    let started = dir.join("start-ran");
+    let stopped = dir.join("stop-ran");
+    let mut config = quick_config();
+    config.on_game_start = stop_event(vec![touch(&started)]);
+    config.on_game_stop = stop_event(vec![touch(&stopped)]);
+
+    let mut engine = Engine::new(config, sensor).remembering(marker);
+    engine.run(&stop).unwrap();
+
+    assert!(!started.exists(), "the start commands did not run again");
+    assert!(
+        stopped.exists(),
+        "the stop commands ran when the game ended"
+    );
+    assert!(Marker::in_dir(&dir).pending().is_none());
+}
+
+#[test]
+fn a_game_relaunched_within_the_grace_keeps_the_session() {
+    // The game marked by hand quits and is running again before
+    // `stop_delay` is out -- a launcher restarting it: one session.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let sensor = Scripted::new(&stop)
+        .sightings(&[
+            Some(Sighting::HandMade(marked(30, "TOS.exe"))),
+            Some(Sighting::HandMade(marked(32, "TOS.exe"))),
+        ])
+        .waits(&[WaitOutcome::Exited, WaitOutcome::Exited]);
+    let (sink, log) = recorder();
+    let mut config = quick_config();
+    config.detection.stop_delay = Duration::from_millis(50);
+
+    let mut engine = Engine::new(config, sensor).reporting_to(sink);
+    engine.run(&stop).unwrap();
+
+    assert_eq!(
+        seen(&log),
+        vec![Session::Playing(Some(marked(30, "TOS.exe"))), Session::Idle],
+        "one start, one end"
+    );
 }
 
 #[test]
@@ -333,7 +439,7 @@ fn the_launcher_that_died_is_replaced_by_the_one_match_left() {
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
-        .waits(&[WaitOutcome::TimedOut, WaitOutcome::WriterExited])
+        .waits(&[WaitOutcome::TimedOut, WaitOutcome::Exited])
         .candidates(&[&[game(5, "launcher.exe")], &[game(10, "bf6.exe")]])
         .alive(&[10]);
     let (sink, log) = recorder();
@@ -362,7 +468,7 @@ fn a_living_name_is_kept_when_the_only_candidate_is_another() {
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
-        .waits(&[WaitOutcome::TimedOut, WaitOutcome::WriterExited])
+        .waits(&[WaitOutcome::TimedOut, WaitOutcome::Exited])
         .candidates(&[&[game(5, "first.exe")], &[game(10, "other.exe")]])
         .alive(&[5, 10]);
     let (sink, log) = recorder();
@@ -381,7 +487,7 @@ fn the_gpu_hands_the_session_to_the_process_that_is_drawing() {
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
-        .waits(&[WaitOutcome::TimedOut, WaitOutcome::WriterExited])
+        .waits(&[WaitOutcome::TimedOut, WaitOutcome::Exited])
         .candidates(&[&[game(5, "anticheat.exe"), game(10, "bf6.exe")]])
         .alive(&[5, 10])
         .rendering(&[(5, 0.0), (10, 75.0)]);
@@ -407,7 +513,7 @@ fn nothing_rendering_keeps_the_first_name() {
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
-        .waits(&[WaitOutcome::TimedOut, WaitOutcome::WriterExited])
+        .waits(&[WaitOutcome::TimedOut, WaitOutcome::Exited])
         .candidates(&[&[game(5, "anticheat.exe"), game(10, "bf6.exe")]])
         .alive(&[5, 10])
         .rendering(&[(5, 0.0), (10, 0.0)]);
@@ -430,7 +536,7 @@ fn a_confirmed_name_is_not_reported_again() {
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
-        .waits(&[WaitOutcome::TimedOut, WaitOutcome::WriterExited])
+        .waits(&[WaitOutcome::TimedOut, WaitOutcome::Exited])
         .candidates(&[&[game(10, "bf6.exe"), game(5, "anticheat.exe")]])
         .alive(&[5, 10])
         .rendering(&[(10, 90.0)]);
@@ -451,7 +557,7 @@ fn refinement_is_skipped_when_identify_after_is_zero() {
     // asks for one, so a script that offered it would go unconsumed.
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
-        .waits(&[WaitOutcome::WriterExited])
+        .waits(&[WaitOutcome::Exited])
         .candidates(&[&[game(5, "first.exe")]]);
     let (sink, log) = recorder();
     let mut config = quick_config();
@@ -471,7 +577,7 @@ fn a_writer_that_comes_back_within_the_grace_keeps_the_session_open() {
     // Writer 7 exits, 8 appears while the grace runs, then 8 exits for good.
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7), Some(8)])
-        .waits(&[WaitOutcome::WriterExited, WaitOutcome::WriterExited])
+        .waits(&[WaitOutcome::Exited, WaitOutcome::Exited])
         .candidates(&[&[game(10, "game.exe")]]);
     let (sink, log) = recorder();
     let mut config = quick_config();
@@ -571,7 +677,7 @@ fn a_writer_killed_by_the_session_ending_is_a_stop_mid_game() {
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
-        .waits(&[WaitOutcome::WriterExited])
+        .waits(&[WaitOutcome::Exited])
         .session_ends_with_writer()
         .candidates(&[&[game(10, "game.exe")]]);
     let dir = scratch();
@@ -709,7 +815,7 @@ fn a_session_handed_over_is_resumed_without_running_anything() {
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
-        .waits(&[WaitOutcome::WriterExited]);
+        .waits(&[WaitOutcome::Exited]);
     let dir = scratch();
     let marker = Marker::in_dir(&dir);
     marker.open(Some("game.exe"), "earlier").unwrap();
@@ -829,7 +935,7 @@ fn an_unreadable_game_list_gives_an_unnamed_session_not_a_failure() {
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
-        .waits(&[WaitOutcome::TimedOut, WaitOutcome::WriterExited])
+        .waits(&[WaitOutcome::TimedOut, WaitOutcome::Exited])
         .list_unreadable();
     let (sink, log) = recorder();
 
@@ -847,7 +953,7 @@ fn unreadable_counters_keep_the_first_name() {
     // Two candidates, so the GPU is consulted -- and refuses.
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
-        .waits(&[WaitOutcome::TimedOut, WaitOutcome::WriterExited])
+        .waits(&[WaitOutcome::TimedOut, WaitOutcome::Exited])
         .candidates(&[&[game(5, "first.exe"), game(10, "second.exe")]])
         .alive(&[5, 10])
         .counters_unreadable();
@@ -871,7 +977,7 @@ fn the_writer_exit_is_recorded_whether_the_game_is_still_running_or_not() {
         let stop = Arc::new(StopSignal::new().unwrap());
         let sensor = Scripted::new(&stop)
             .writer(&[Some(7)])
-            .waits(&[WaitOutcome::WriterExited])
+            .waits(&[WaitOutcome::Exited])
             .candidates(&[&[game(10, "game.exe")]])
             .alive(alive);
         let (sink, log) = recorder();

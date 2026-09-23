@@ -58,10 +58,38 @@ impl Key {
         self.0.get_u64(name).ok()
     }
 
-    /// The raw handle, for the one Win32 call the wrapper does not cover:
-    /// `RegNotifyChangeKeyValue`. Valid as long as `self` is.
+    /// The raw handle, for the Win32 calls the wrapper does not cover. Valid
+    /// as long as `self` is.
     pub fn raw(&self) -> windows::Win32::System::Registry::HKEY {
         windows::Win32::System::Registry::HKEY(self.0.as_raw())
+    }
+
+    /// When the key itself was last written, as a `FILETIME` count. A
+    /// subkey created or deleted under it moves this; a value set on a
+    /// subkey moves only that subkey's.
+    pub fn last_write(&self) -> Option<u64> {
+        let mut written = windows::Win32::Foundation::FILETIME::default();
+        // SAFETY: the key is open for as long as `self` lives, and only the
+        // last-write time is asked for, into a local that outlives the call.
+        let status = unsafe {
+            windows::Win32::System::Registry::RegQueryInfoKeyW(
+                self.raw(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(&mut written),
+            )
+        };
+        status
+            .is_ok()
+            .then(|| (u64::from(written.dwHighDateTime) << 32) | u64::from(written.dwLowDateTime))
     }
 
     /// A `REG_DWORD` value, or `None` when it is absent or not one.

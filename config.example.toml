@@ -5,7 +5,8 @@
 #
 # There is no list of games to maintain here. Detection is Windows' own: the
 # program watches the Game Bar presence writer, which Windows starts for a game
-# and releases when it is gone.
+# and releases when it is gone -- and, for a game Windows did not recognise and
+# you marked with "Remember this is a game" in the Game Bar, the game itself.
 #
 # Paths are easiest written between single quotes: TOML takes those literally,
 # so Windows separators need no doubling.
@@ -53,9 +54,10 @@ log_level = "info"
 [detection]
 # ---------------------------------------------------------------------------
 
-# How often to look for the presence writer while no game is running. This is
-# the only polling the program does: once a game starts it parks on the
-# writer's process handle and does nothing until Windows releases it.
+# How often to look for a game while none is running: the presence writer, or
+# a game you marked by hand. This is the only polling the program does, and a
+# look costs a few hundredths of a millisecond; once a game starts it parks on
+# the process's handle and does nothing until it ends.
 poll_interval = "2s"
 
 # After the writer exits, how long to wait for it to come back before running

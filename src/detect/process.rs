@@ -6,6 +6,7 @@ use windows::Win32::Storage::Packaging::Appx::GetPackageFamilyName;
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
+use windows::Win32::System::ProcessStatus::K32EnumProcesses;
 use windows::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
@@ -111,6 +112,91 @@ pub fn full_path(pid: u32) -> Option<String> {
     identity(pid).path
 }
 
+/// Every process id, and nothing else: `K32EnumProcesses`, about 32 us on
+/// the machine Lot 15 was measured on against the snapshot's 4 ms.
+pub fn ids() -> Result<Vec<u32>> {
+    let mut ids = vec![0u32; 1024];
+    loop {
+        let mut needed = 0u32;
+        let size = (ids.len() * size_of::<u32>()) as u32;
+        // SAFETY: the buffer and its size in bytes are passed together, and
+        // `needed` is a local out pointer.
+        unsafe { K32EnumProcesses(ids.as_mut_ptr(), size, &mut needed) }
+            .ok()
+            .context("K32EnumProcesses failed")?;
+        // The documented sign of a buffer too small is a full one.
+        if needed < size {
+            ids.truncate(needed as usize / size_of::<u32>());
+            return Ok(ids);
+        }
+        ids.resize(ids.len() * 2, 0);
+    }
+}
+
+/// Which processes run, each known by its lowercased file name, kept up to
+/// date for little: the ids alone every look, a name asked only of a
+/// process not seen before, and a full snapshot every [`Tracker::FULL_EVERY`].
+///
+/// The snapshot is the net for a process id reused between two looks: an id
+/// identifies a process only while it lives (Microsoft's documentation), and
+/// a freed one came back 2.8 s later at the soonest under fifty new
+/// processes a second (measured 2026-09-23). A game that took such an id
+/// looks already seen until the next snapshot names it afresh.
+#[derive(Debug, Default)]
+pub struct Tracker {
+    /// `None` for a process that would not say its name.
+    names: std::collections::HashMap<u32, Option<String>>,
+    snapshot_at: Option<std::time::Instant>,
+}
+
+impl Tracker {
+    pub const FULL_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
+
+    /// Bring the names up to date.
+    pub fn refresh(&mut self, now: std::time::Instant) -> Result<()> {
+        let due = self
+            .snapshot_at
+            .is_none_or(|at| now.saturating_duration_since(at) >= Self::FULL_EVERY);
+        if due {
+            let snapshot = Snapshot::take()?;
+            self.names = snapshot
+                .processes
+                .into_iter()
+                .map(|process| (process.pid, Some(process.name.to_lowercase())))
+                .collect();
+            self.snapshot_at = Some(now);
+            return Ok(());
+        }
+        let ids = ids()?;
+        self.update(&ids, |pid| {
+            full_path(pid).map(|path| {
+                path.rsplit(['\\', '/'])
+                    .next()
+                    .unwrap_or(&path)
+                    .to_lowercase()
+            })
+        });
+        Ok(())
+    }
+
+    /// The ids now running: the gone are forgotten, the new are named.
+    fn update(&mut self, ids: &[u32], name_of: impl Fn(u32) -> Option<String>) {
+        let running: std::collections::HashSet<u32> = ids.iter().copied().collect();
+        self.names.retain(|pid, _| running.contains(pid));
+        for &pid in ids {
+            self.names.entry(pid).or_insert_with(|| name_of(pid));
+        }
+    }
+
+    /// The processes of this lowercased file name.
+    pub fn named<'a>(&'a self, lower_name: &'a str) -> impl Iterator<Item = u32> + 'a {
+        self.names
+            .iter()
+            .filter(move |(_, name)| name.as_deref() == Some(lower_name))
+            .map(|(&pid, _)| pid)
+    }
+}
+
 /// Process owning the foreground window.
 pub fn foreground_pid() -> Option<u32> {
     // SAFETY: no arguments and no preconditions; a null handle is checked.
@@ -184,6 +270,51 @@ mod tests {
     fn full_path_of_the_test_process_is_readable() {
         let path = full_path(std::process::id()).expect("own image path");
         assert!(path.to_ascii_lowercase().ends_with(".exe"), "got {path}");
+    }
+
+    #[test]
+    fn the_ids_include_this_process() {
+        assert!(ids().unwrap().contains(&std::process::id()));
+    }
+
+    /// Only the processes not seen before are asked their name; the gone are
+    /// forgotten, so a later process under a freed id is asked afresh.
+    #[test]
+    fn the_tracker_names_only_what_is_new() {
+        let asked = std::cell::RefCell::new(Vec::new());
+        let name_of = |pid: u32| {
+            asked.borrow_mut().push(pid);
+            (pid != 666).then(|| format!("p{pid}.exe"))
+        };
+        let mut tracker = Tracker::default();
+        tracker.update(&[4, 8, 666], name_of);
+        assert_eq!(*asked.borrow(), vec![4, 8, 666]);
+        assert_eq!(tracker.named("p8.exe").collect::<Vec<_>>(), vec![8]);
+        assert_eq!(
+            tracker.named("p666.exe").count(),
+            0,
+            "unnamed stays unnamed"
+        );
+
+        asked.borrow_mut().clear();
+        tracker.update(&[4, 12], name_of);
+        assert_eq!(*asked.borrow(), vec![12], "4 was known, 8 went, 12 is new");
+        assert_eq!(tracker.named("p8.exe").count(), 0);
+
+        asked.borrow_mut().clear();
+        tracker.update(&[4, 8], name_of);
+        assert_eq!(*asked.borrow(), vec![8], "a returning id is a new process");
+    }
+
+    #[test]
+    fn the_tracker_starts_from_a_full_snapshot() {
+        let mut tracker = Tracker::default();
+        tracker.refresh(std::time::Instant::now()).unwrap();
+        let own = identity(std::process::id())
+            .path
+            .map(|path| path.rsplit('\\').next().unwrap().to_lowercase())
+            .unwrap();
+        assert!(tracker.named(&own).any(|pid| pid == std::process::id()));
     }
 
     #[test]

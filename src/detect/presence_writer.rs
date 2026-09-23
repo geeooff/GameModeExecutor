@@ -75,11 +75,12 @@ pub fn find_in(snapshot: &super::process::Snapshot, exe: &Path) -> Option<u32> {
 /// Why a wait on the writer process ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WaitOutcome {
-    /// The writer exited: Windows released it, so the game session is over.
-    WriterExited,
+    /// The process waited on exited: the writer, which Windows released,
+    /// or the game marked by hand, which quit.
+    Exited,
     /// The program was asked to shut down.
     Stopped,
-    /// The requested time passed and the writer is still alive.
+    /// The requested time passed and the process is still alive.
     TimedOut,
 }
 
@@ -106,7 +107,7 @@ pub fn wait_for_exit_until(
     let Ok(process) = (unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid) }) else {
         // Already gone, or not ours to wait on: treat as exited rather than
         // spinning on a handle we cannot get.
-        return Ok(WaitOutcome::WriterExited);
+        return Ok(WaitOutcome::Exited);
     };
 
     let millis = match timeout {
@@ -123,7 +124,7 @@ pub fn wait_for_exit_until(
     unsafe { _ = CloseHandle(process) };
 
     Ok(if result == WAIT_OBJECT_0 {
-        WaitOutcome::WriterExited
+        WaitOutcome::Exited
     } else if result == WAIT_TIMEOUT {
         WaitOutcome::TimedOut
     } else {

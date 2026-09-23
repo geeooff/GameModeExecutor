@@ -30,8 +30,18 @@ a section is written.
   icon back, with a notification saying the watcher is watching again —
   also when the fix came while the watcher was stopped.
 
+- Games you marked yourself with *Remember this is a game* in the Game Bar
+  are detected like any other, from their launch — or from the moment you
+  tick the box, in the middle of a game. Windows never tells the rest of the
+  system about those, which is why they used to go unnoticed.
+- At start, the log says which of the games you marked Microsoft's own list
+  now knows, so you can untick them and let Windows recognise them itself.
+  `status` lists the games you marked and says the same.
+
 ### Changed
 
+- Looking for a game while none runs costs about a twelfth of what it did:
+  some 0.016 % of one processor core, against 0.2 % before.
 - The watcher starts whatever the configuration file says, rather than
   exiting with a code and no icon when the file is wrong at logon. `validate`
   still reports the exit codes 3 and 4 for scripts.

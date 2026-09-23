@@ -87,9 +87,10 @@ impl Default for General {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Detection {
-    /// How often to look for the presence writer while no game is running.
-    /// This is the only polling the program does: once a game starts, the
-    /// watcher parks on the writer's process handle until Windows releases it.
+    /// How often to look for a game while none is running: the presence
+    /// writer, or a process marked as a game by hand. This is the only polling
+    /// the program does: once a game starts, the watcher parks on that
+    /// process's handle until it ends.
     #[serde(with = "humantime_serde")]
     pub poll_interval: Duration,
     /// After the writer exits, how long to wait for it to come back before
