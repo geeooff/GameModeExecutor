@@ -304,6 +304,29 @@ only proposed:
   shortcut is a package change and would go with the recipes artefact if
   that is taken; the reload is the next lot's.
 
+## The package that held one piece — 2026-09-23
+
+Preparing 0.3.0, the local `build.ps1 release` said *release OK*: 102 ICE
+evaluators clean, the changelog section found, the binaries stamped. The
+installer weighed 88 KB, against 1.5 MB for 0.2.0. Its `files.cab` stream
+was 20,378 bytes, for two executables of 1.4 MB each.
+
+`makecab`'s default disk is a 1.44 MB floppy. The two executables had grown
+by some 50 KB each since 0.2.0 and compressed, together, to 1,476,966
+bytes — just over one floppy, where 0.2.0's had fitted by twenty
+kilobytes. So `makecab` spanned two cabinets, and with a fixed
+`CabinetNameTemplate` the second overwrote the first under the same name.
+The package kept the last piece; the `File` table still listed all four
+files, which is all the evaluators check, and `msi.ps1` only checked that
+a cabinet existed. Published, it would have failed on every machine — and
+the first to meet it would have been the updater, on the update meant to
+close [Lot 13](13-updating.md).
+
+`msi.ps1` now asks for one cabinet whatever its size (`MaxDiskSize=0`),
+and refuses a package whose cabinet does not list, through `expand -D`,
+every file the package installs, or whose build left more than one
+cabinet. Caught by looking at a number that had no reason to change.
+
 ## Versioning
 
 Decided 2026-09-17, when the question came up before publication: why the
