@@ -1,6 +1,6 @@
 # Lot 15 — Games Windows knows only from you
 
-**Status: built 2026-09-23, waiting for its field run.** Proposed
+**Status: done 2026-09-23.** Proposed
 2026-09-20 and taken ahead of everything else pending, on the finding
 below; taken up once [Lot 9](09-robustness.md)'s configuration work had
 closed its field run.
@@ -12,7 +12,7 @@ closed its field run.
 - [x] The idle cost measured and written down: no polling of the registry, and whatever polling of processes remains, with its figure — 2026-09-23, below
 - [x] The idle poll made cheap: the process ids alone every `poll_interval`, names only for processes not seen before, a full snapshot every 30 s as the net for a reused id — built 2026-09-23
 - [x] At start, a log line for each hand-made entry Microsoft's own list now covers, so the box can be unticked; `status` says the same — built 2026-09-23, checked on the real list: DS2, Wreckfest 2 and cs2 covered, *The Other Side* and a browser not
-- [ ] Verified in the field on DS2 and the other hand-marked titles on the maintainer's machine
+- [x] Verified in the field on the maintainer's machine — 2026-09-23, 13:36–14:26: *The Other Side* from launch and from a tick mid-game, Starfield through the writer unchanged, the idle processor measured against 0.2.0; DS2 and Wreckfest 2 needed no box any more, Microsoft's list having them
 
 **Done when** a game the Game Bar knows only because the person ticked
 *Remember this is a game* is detected at its launch, or at the tick if that
@@ -463,6 +463,43 @@ until the next. Because the format is undocumented, a file that cannot be
 read or does not parse the way described here produces no hint and one
 `debug` line saying why — the hint is advice, and wrong advice is worse
 than none.
+
+## The field run, and what the watcher costs — 2026-09-23
+
+The maintainer, with the lot's build installed at 13:32: `poll_interval`
+back to two seconds in their own file at 13:36 — reloaded live —, then
+*The Other Side*, marked by hand: detected at 13:59:39 (*Game detected:
+TheOtherSide-Win64-Shipping.exe, which is marked as a game by hand in the
+Game Bar*), ended 14:00:21, the stop commands two seconds later, the fans
+following both times. Launched again and unticked mid-game at 14:01: the
+session went on until the game quit, as decided when built, and the list
+read afterwards had two entries. Launched unticked at 14:02 and ticked
+mid-game: the list was read again and the session started in the same
+look, 14:02:36.629. Starfield at 14:04, through the writer, unchanged.
+
+The installed watcher at idle, measured over nine minutes each, same
+machine, same two-second interval, same minute:
+
+| | 0.2.0 as published | this lot |
+| --- | --- | --- |
+| processor, idle | 1750 ms in 540 s — **0.324 %** of a core | 140.6 ms in 540 s — **0.026 %** |
+| private memory, just started | 1.9 MB | 2.0 MB |
+| handles, just started | 157 | 163 |
+
+Twelve and a half times less processor at idle, measured on the whole
+process rather than estimated from its steps. The first measurement of
+this lot's build read 5.1 MB and 424 handles — but it had played four
+sessions since it started and 0.2.0 none. `presence-probe footprint` runs
+the watcher's steps one at a time and reports what each leaves: this lot's
+look, its hand-made entries and its reading of Microsoft's list together
+leave 0.24 MB and two handles, and the same after a hundred looks — no
+leak. Naming a game (every process asked its path and package) leaves
+0.13 MB. **Reading the GPU counters for the refinement — there since
+[Lot 3](03-game-naming.md) — leaves 3.7 MB** the first time, and no more
+after: a cost paid once, at the first session, not a leak. It accounts
+for about twenty handles in the probe; the watcher gains some 260 over its
+first sessions, and the rest is not yet traced. Both are proposed as a
+separate piece of work — the lot's own cost is nil.
 
 ## What it changed in the program — built 2026-09-23
 

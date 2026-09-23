@@ -22,6 +22,7 @@
 //! presence-probe watch-methods <secs> <sid>
 //!                                    several ways of being told the game list changed, at once
 //! presence-probe cost [rounds]       time what an idle poll costs, today and with Lot 15
+//! presence-probe footprint           what each step of the watcher leaves in memory and handles
 //! presence-probe microsoft-list <exe path>...
 //!                                    whether Microsoft's own game list covers each executable
 //! presence-probe activate            activate the class ourselves and time it
@@ -906,6 +907,96 @@ fn cmd_watch_methods(seconds: u64, sid: &str) -> windows::core::Result<()> {
     Ok(())
 }
 
+// ------------------------------------------------ what the watcher holds --
+
+/// This process's private bytes and handle count, now.
+fn footprint() -> (f64, u32) {
+    use windows::Win32::System::ProcessStatus::{
+        K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX,
+    };
+    use windows::Win32::System::Threading::{GetCurrentProcess, GetProcessHandleCount};
+    let mut memory = PROCESS_MEMORY_COUNTERS_EX {
+        cb: size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32,
+        ..Default::default()
+    };
+    let mut handles = 0u32;
+    // SAFETY: the pseudo handle needs no closing; the counters struct is
+    // passed with its own size, which bounds the write; `handles` is a local.
+    unsafe {
+        let _ = K32GetProcessMemoryInfo(
+            GetCurrentProcess(),
+            (&raw mut memory).cast::<PROCESS_MEMORY_COUNTERS>(),
+            memory.cb,
+        );
+        let _ = GetProcessHandleCount(GetCurrentProcess(), &mut handles);
+    }
+    (memory.PrivateUsage as f64 / (1024.0 * 1024.0), handles)
+}
+
+/// Run, one step at a time, what the watcher does at start and at every
+/// idle look, and say what each step leaves behind in private memory and
+/// handles -- a step repeated ten times that leaves more each time is a
+/// leak, one that leaves the same is a cost.
+fn cmd_footprint() -> windows::core::Result<()> {
+    use game_mode_executor::detect::hand_made;
+    use game_mode_executor::detect::known_games::KnownGames;
+    use game_mode_executor::detect::process::Snapshot;
+    use game_mode_executor::sensor::{self, Sensor};
+
+    let say = |step: &str| {
+        let (private, handles) = footprint();
+        println!("{private:>7.2} MB private  {handles:>5} handles  after {step}");
+    };
+    say("start");
+    let entries = hand_made::load().unwrap_or_default();
+    say("reading the games marked by hand once");
+    for _ in 0..10 {
+        let _ = hand_made::load();
+    }
+    say("reading them ten times more");
+    let _ = hand_made::covered_by_microsoft(&entries);
+    say("comparing them with Microsoft's list once");
+    for _ in 0..10 {
+        let _ = hand_made::covered_by_microsoft(&entries);
+    }
+    say("comparing ten times more");
+    for _ in 0..10 {
+        let _ = KnownGames::load();
+    }
+    say("loading the Known Game List ten times, for naming");
+    for _ in 0..10 {
+        let _ = Snapshot::take();
+    }
+    say("ten full process snapshots");
+    let Ok(sensor) = sensor::Windows::new() else {
+        println!("no sensor: the Game Bar is not registered here");
+        return Ok(());
+    };
+    say("building the sensor");
+    let _ = sensor.sighting();
+    say("its first look");
+    for _ in 0..100 {
+        let _ = sensor.sighting();
+    }
+    say("a hundred looks more");
+    // What a session's start does, which 0.2.0 did too: every process asked
+    // for its path and package to name the game, then the GPU counters for
+    // the refinement.
+    let _ = sensor.candidates();
+    say("naming a game once: every process asked its path and package");
+    for _ in 0..3 {
+        let _ = sensor.candidates();
+    }
+    say("naming three times more");
+    let _ = sensor.rendering_load(std::time::Duration::from_millis(200));
+    say("reading the GPU counters once, for the refinement");
+    for _ in 0..3 {
+        let _ = sensor.rendering_load(std::time::Duration::from_millis(200));
+    }
+    say("reading them three times more");
+    Ok(())
+}
+
 fn main() -> windows::core::Result<()> {
     let seconds = || {
         std::env::args()
@@ -921,6 +1012,7 @@ fn main() -> windows::core::Result<()> {
             cmd_watch_games(seconds(), key.as_deref().unwrap_or(GAME_LIST))
         }
         Some("activate") => cmd_activate(5, 60),
+        Some("footprint") => cmd_footprint(),
         Some("watch-methods") => match std::env::args().nth(3) {
             Some(sid) => cmd_watch_methods(seconds(), &sid),
             None => {
