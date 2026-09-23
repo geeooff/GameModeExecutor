@@ -241,7 +241,7 @@ syntax — `RUST_LOG=game=debug` for the detection lines alone.
 | Session marker | `%LOCALAPPDATA%\GameModeExecutor\pending-stop-actions` | present while a game session is open; left behind by a logoff, shutdown, crash or handover, and settled at the next start — the session resumed if the game is still on, closed if it is gone. `status` reports it. |
 | Fault marker | `%LOCALAPPDATA%\GameModeExecutor\configuration-fault` | present while the configuration cannot be used; removed when a usable one is read, which is how a watcher started on a file fixed meanwhile knows to say the fault is over |
 | Logon task | `\GameModeExecutor\Watcher` in Task Scheduler | records the absolute path of the executable; removed with the package, kept through an upgrade |
-| Updates | `%LOCALAPPDATA%\GameModeExecutor\updates\` | a downloaded release and the installer's log while an update runs; emptied when the next watcher starts, the log kept if the update failed |
+| Updates | `%LOCALAPPDATA%\GameModeExecutor\updates\` | a downloaded release and the installer's log while an update runs; emptied when the next watcher starts, the log kept if the update failed — and, after an update through the installer, until the start after, since Windows Installer still holds it when the new watcher starts (corrected 2026-09-23) |
 
 ## Building and releasing
 

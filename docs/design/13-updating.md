@@ -1,7 +1,11 @@
 # Lot 13 — Updating
 
-**Status: in progress since 2026-09-18; shipped in 0.2.0 the same day.**
-Decided 2026-09-17
+**Status: done 2026-09-23**, on the first update from a published 0.2.0
+to the published 0.3.0, through the menu, below. Closed on the
+maintainer's machine alone, by the maintainer's decision the same day —
+*an acceptable shortcut*; the second machine updates from its own 0.2.0
+that evening, and its log is recorded here if it says anything new.
+Shipped in 0.2.0 on 2026-09-18. Decided 2026-09-17
 to be a lot of its own rather than a tail of [Lot 8](08-distribution.md):
 updating touches the "no network" non-goal, the tray menu and the running
 process, and each of those deserves its own measurement. The shape below
@@ -18,8 +22,8 @@ meets the Restart Manager's dialog once, as recorded below.
 - [x] The documentation: *Getting started*, *How it works*, the reference, the README's word on the network — 2026-09-18
 - [x] Measured on the maintainer's machine, 2026-09-18 13:03–13:33, both paths against the real `v0.1.0`: the handover mid-game and the resume, the check, the download and its verification, the install from the zip and from the package, the watcher back on the new version — below
 - [x] Shipped: `v0.2.0`, 2026-09-18, the first version that carries the updater
-- [ ] Measured: offline and behind a proxy, as seen from the menu; the failure path restarting the old watcher; `/qn` on screen
-- [ ] Verified in the field across a real release pair — the first update *from* 0.2.0, whenever the next release comes; that closes the lot
+- [x] Measured: offline, as seen from the menu — 2026-09-23, WinHTTP 12007 said in the menu and a notification; `/qn` on screen, the same day, by the maintainer's eye: no window at all, the icon gone and back with the notification; **not measured**: behind a proxy, and the failure path restarting the old watcher, which no machine here can provoke without a package built to fail — both said below, left open
+- [x] Verified in the field across a real release pair — 2026-09-23, 16:25–16:28, the published 0.2.0 to the published 0.3.0 on the maintainer's machine, below
 
 **Goal.** A user who wants the newer version gets it from the notification
 icon, without a browser, without an administrator prompt, and without the
@@ -408,6 +412,45 @@ it installs, so deleting the download costs a later repair nothing.
 - **A stale mirror or a captive portal.** A `302` to somewhere that is not
   GitHub, or a `200` that is an HTML page, must fail the parse and be
   shown as "could not check", never as "up to date".
+
+## The first update from 0.2.0, 2026-09-23
+
+The maintainer's machine, the published 0.2.0 put back in place (`dfa9fa4b`)
+so the update started from a released build, the published 0.3.0 on the
+release page since 14:22 UTC. Through the menu, as a user would:
+
+| Time | What happened |
+| --- | --- |
+| 16:25:41 | *Check for updates*: `HEAD …/releases/latest` 302, `SHA256SUMS.txt` 200, *Update available: 0.3.0*, the notification |
+| 16:26:19.25 | *Download and install 0.3.0*: 1,548,288 bytes, the SHA-256 `85515fbb…` the release publishes, *Downloaded and verified* |
+| 16:26:19.31 | *Installing 0.3.0*; `StopForUpgrade` hands the session over, the old watcher *Stopped* at 19.69 |
+| 16:26:20.16–.22 | the package's actions: configuration kept, logon task kept, watcher started through it |
+| 16:26:20.23 | *Updated to 0.3.0*, the new watcher `0.3.0 (1f5c39e8)` starting — **0.9 s** after the old one stopped — and its notification |
+| 16:26:20.27 | Windows Installer: 0.2.0 removed by the nested uninstall, *installed the product … Product Version: 0.3.0*, return 0 |
+| 16:26:41 | *Check for updates* again: *0.3.0 is the latest version* |
+| 16:27:24 | Wi-Fi off, *Check for updates*: `WinHttpSendRequest` 12007, *Could not check for updates* at `warn`, the menu line and a notification |
+
+On screen, by the maintainer's own eye: nothing at all during the
+install — no window, no console, no progress — only the icon gone and
+back, with the *Updated to 0.3.0* notification. That is `msiexec /qn` as
+intended, and the one thing a log cannot say.
+
+What it taught: the new watcher starts while Windows Installer is still
+finishing — the package's `RegisterTask` action starts it — so when its
+start empties the updates folder, `install.log` is still held and stays.
+It goes at the start after, when nothing is pending any more; the
+reference said *emptied when the next watcher starts*, corrected in place
+the same day. Nothing to fix: the log of a successful update lives one
+session longer.
+
+Not measured, and left open rather than claimed: an update behind a proxy
+(WinHTTP is opened with the system's proxy settings, which nobody here
+uses), and the failure path — a package that fails after the old watcher
+stopped, whose shell must start the old one again. The first needs a
+proxy, the second a package built to fail; both are small pieces of work
+if they ever matter, and the code paths are tested with scripted feeds.
+The update was idle; the handover mid-game was measured on 2026-09-18 with
+a pre-release pair, above, and not repeated with this one.
 
 ## To measure, when the pieces exist
 
