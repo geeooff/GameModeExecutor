@@ -24,7 +24,7 @@ session rather than when the code compiles. Each has its own page.
 | 10 | [Configuration window](10-configuration-window.md) | proposed |
 | 11 | [Documentation for the people who use it](11-user-documentation.md) | done |
 | 12 | [Editing the configuration without breaking it](12-editing-on-a-copy.md) | proposed |
-| 13 | [Updating](13-updating.md) | shipped in 0.2.0; closes on the first update from it |
+| 13 | [Updating](13-updating.md) | done |
 | 14 | [Release notes people can read](14-release-notes.md) | done |
 | 15 | [Games Windows knows only from you](15-marked-games.md) | done |
 
