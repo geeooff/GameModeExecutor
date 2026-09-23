@@ -48,6 +48,8 @@ windows = { version = "0.62", features = [
     # FindFirstChangeNotificationW: the configuration folder, watched for the
     # live reload.
     "Win32_Storage_FileSystem",
+    # RegNotifyChangeKeyValue: Windows' game list, watched rather than polled.
+    "Win32_System_Registry",
     # WNDCLASSEXW names HBRUSH, HICON and HCURSOR, so the window class needs Gdi
     # even though this program never draws anything.
     "Win32_Graphics_Gdi",

@@ -52,6 +52,18 @@ impl Key {
             .filter(|value| !value.is_empty())
     }
 
+    /// A `REG_QWORD` value, or `None` when it is absent or not one. Windows'
+    /// game list keeps its `LastAccessed` times this way, as `FILETIME`s.
+    pub fn qword_value(&self, name: &str) -> Option<u64> {
+        self.0.get_u64(name).ok()
+    }
+
+    /// The raw handle, for the one Win32 call the wrapper does not cover:
+    /// `RegNotifyChangeKeyValue`. Valid as long as `self` is.
+    pub fn raw(&self) -> windows::Win32::System::Registry::HKEY {
+        windows::Win32::System::Registry::HKEY(self.0.as_raw())
+    }
+
     /// A `REG_DWORD` value, or `None` when it is absent or not one.
     ///
     /// Windows keeps several of its own switches this way -- the taskbar theme

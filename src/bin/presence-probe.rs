@@ -14,9 +14,12 @@
 //! Usage:
 //!
 //! ```text
-//! presence-probe status        the current registration and the log path
-//! presence-probe watch [secs]  log when Windows' own presence writer runs
-//! presence-probe activate      activate the class ourselves and time it
+//! presence-probe status              the current registration and the log path
+//! presence-probe watch [secs]        log when Windows' own presence writer runs
+//! presence-probe watch-games [secs] [key]
+//!                                    log what Windows writes to its game list, and when;
+//!                                    `key`, under HKCU, checks the probe on one you can write
+//! presence-probe activate            activate the class ourselves and time it
 //! ```
 
 #[cfg(not(windows))]
@@ -308,20 +311,237 @@ fn cmd_status() -> windows::core::Result<()> {
     Ok(())
 }
 
+// ------------------------------------------------ watching the game list --
+
+/// One entry of Windows' game list, as much of it as the probe compares.
+#[derive(Clone, PartialEq, Eq)]
+struct Entry {
+    name: String,
+    exe: Option<String>,
+    package: Option<String>,
+    revision: Option<u32>,
+    title_id: Option<String>,
+    last_accessed: Option<u64>,
+}
+
+impl Entry {
+    fn label(&self) -> String {
+        let what = self
+            .exe
+            .as_deref()
+            .map(|exe| exe.rsplit(['\\', '/']).next().unwrap_or(exe).to_owned())
+            .or_else(|| self.package.clone())
+            .unwrap_or_else(|| "(no exe, no package)".to_owned());
+        let kind = match (self.revision, &self.title_id) {
+            (Some(1), None) => "hand-made",
+            (_, Some(_)) => "listed, with a title id",
+            _ => "listed, no title id",
+        };
+        format!("{what} [{kind}, {}]", self.name)
+    }
+}
+
+/// Windows' game list, per user.
+const GAME_LIST: &str = r"System\GameConfigStore\Children";
+
+fn read_entries(key: &str) -> Vec<Entry> {
+    use game_mode_executor::registry::Key;
+    let Ok(root) = Key::open_current_user(key) else {
+        return Vec::new();
+    };
+    let mut entries: Vec<Entry> = root
+        .subkey_names()
+        .into_iter()
+        .filter_map(|name| {
+            let child = root.open_subkey(&name).ok()?;
+            Some(Entry {
+                exe: child.string_value("MatchedExeFullPath"),
+                package: child.string_value("UtmItemId"),
+                revision: child.dword_value("Revision"),
+                title_id: child
+                    .string_value("TitleId")
+                    .or_else(|| child.dword_value("TitleId").map(|id| id.to_string())),
+                last_accessed: child.qword_value("LastAccessed"),
+                name,
+            })
+        })
+        .collect();
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    entries
+}
+
+/// How long ago a `FILETIME` was, against the clock now.
+fn ago(filetime: u64) -> String {
+    use windows::Win32::System::SystemInformation::GetSystemTimeAsFileTime;
+    // SAFETY: takes no input and only returns a struct.
+    let now = unsafe { GetSystemTimeAsFileTime() };
+    let now = (u64::from(now.dwHighDateTime) << 32) | u64::from(now.dwLowDateTime);
+    let delta = now.abs_diff(filetime) as f64 / 10_000_000.0;
+    if now >= filetime {
+        format!("{delta:.1}s ago")
+    } else {
+        format!("{delta:.1}s ahead")
+    }
+}
+
+/// Park on a change notification for Windows' game list and say what moved:
+/// entries added, removed, or touched -- and which `LastAccessed` moved,
+/// which is the question Lot 15 asks: does Windows touch the entry of every
+/// game it detects at launch, listed or hand-made? The presence writer is
+/// logged beside it, so the two signals can be read against each other.
+/// Nothing is modified, nothing needs administrator rights. `key` is the
+/// game list unless the probe itself is being checked against a key one
+/// can write to.
+fn cmd_watch_games(seconds: u64, key: &str) -> windows::core::Result<()> {
+    use game_mode_executor::registry::Key;
+    use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+    use windows::Win32::System::Registry::{
+        REG_NOTIFY_CHANGE_LAST_SET, REG_NOTIFY_CHANGE_NAME, REG_NOTIFY_THREAD_AGNOSTIC,
+        RegNotifyChangeKeyValue,
+    };
+    use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+
+    let root = match Key::open_current_user(key) {
+        Ok(root) => root,
+        Err(error) => {
+            log(&format!("watch-games: cannot open HKCU\\{key} ({error:#})"));
+            return Ok(());
+        }
+    };
+    let exe = writer_exe();
+    // SAFETY: no security attributes, no name; closed at the end.
+    let event = unsafe { CreateEventW(None, false, false, None) }?;
+
+    let mut before = read_entries(key);
+    let mut writer = presence_writer::running_pid(&exe);
+    log(&format!(
+        "watch-games: {} entries, {} hand-made (Revision 1, no TitleId); writer {}; watching for {seconds}s",
+        before.len(),
+        before
+            .iter()
+            .filter(|entry| entry.revision == Some(1) && entry.title_id.is_none())
+            .count(),
+        match writer {
+            Some(pid) => format!("running (pid {pid})"),
+            None => "not running".to_owned(),
+        }
+    ));
+
+    let started = std::time::Instant::now();
+    let mut wakeups = 0u32;
+    while started.elapsed().as_secs() < seconds {
+        // One-shot: re-armed before every wait. THREAD_AGNOSTIC so the event
+        // could be waited on from another thread, which the watcher will.
+        // SAFETY: `root` outlives the call, `event` is a live event handle.
+        let armed = unsafe {
+            RegNotifyChangeKeyValue(
+                root.raw(),
+                true,
+                REG_NOTIFY_CHANGE_NAME | REG_NOTIFY_CHANGE_LAST_SET | REG_NOTIFY_THREAD_AGNOSTIC,
+                Some(event),
+                true,
+            )
+        };
+        if armed.is_err() {
+            log(&format!(
+                "watch-games: RegNotifyChangeKeyValue failed ({armed:?})"
+            ));
+            break;
+        }
+        // Wake every 250 ms anyway, to log the writer coming and going.
+        // SAFETY: `event` is live for the whole loop.
+        let woke = unsafe { WaitForSingleObject(event, 250) } == WAIT_OBJECT_0;
+        let at = started.elapsed().as_secs_f32();
+
+        let current_writer = presence_writer::running_pid(&exe);
+        match (writer, current_writer) {
+            (None, Some(pid)) => log(&format!(
+                "watch-games: WRITER STARTED pid {pid} at +{at:.1}s"
+            )),
+            (Some(pid), None) => log(&format!(
+                "watch-games: WRITER EXITED pid {pid} at +{at:.1}s"
+            )),
+            _ => {}
+        }
+        writer = current_writer;
+
+        if !woke {
+            continue;
+        }
+        wakeups += 1;
+        let after = read_entries(key);
+        let mut said = 0;
+        for entry in &after {
+            match before.iter().find(|old| old.name == entry.name) {
+                None => {
+                    said += 1;
+                    log(&format!(
+                        "watch-games: #{wakeups} +{at:.1}s ADDED {}",
+                        entry.label()
+                    ));
+                }
+                Some(old) if old.last_accessed != entry.last_accessed => {
+                    said += 1;
+                    log(&format!(
+                        "watch-games: #{wakeups} +{at:.1}s LastAccessed moved for {} -> {}",
+                        entry.label(),
+                        entry.last_accessed.map_or("(none)".to_owned(), ago)
+                    ));
+                }
+                Some(old) if old != entry => {
+                    said += 1;
+                    log(&format!(
+                        "watch-games: #{wakeups} +{at:.1}s changed (not LastAccessed) {}",
+                        entry.label()
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
+        for old in &before {
+            if !after.iter().any(|entry| entry.name == old.name) {
+                said += 1;
+                log(&format!(
+                    "watch-games: #{wakeups} +{at:.1}s REMOVED {}",
+                    old.label()
+                ));
+            }
+        }
+        if said == 0 {
+            log(&format!(
+                "watch-games: #{wakeups} +{at:.1}s notification, nothing the probe compares moved"
+            ));
+        }
+        before = after;
+    }
+    log(&format!(
+        "watch-games: done, {wakeups} wake-ups in {seconds}s"
+    ));
+    // SAFETY: the event created above, closed once.
+    unsafe { _ = CloseHandle(event) };
+    Ok(())
+}
+
 fn main() -> windows::core::Result<()> {
+    let seconds = || {
+        std::env::args()
+            .nth(2)
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(600)
+    };
     match std::env::args().nth(1).as_deref() {
         None | Some("status") => cmd_status(),
-        Some("watch") => {
-            let seconds = std::env::args()
-                .nth(2)
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(600);
-            cmd_watch(seconds)
+        Some("watch") => cmd_watch(seconds()),
+        Some("watch-games") => {
+            let key = std::env::args().nth(3);
+            cmd_watch_games(seconds(), key.as_deref().unwrap_or(GAME_LIST))
         }
         Some("activate") => cmd_activate(5, 60),
         Some(other) => {
             eprintln!("unknown command `{other}`");
-            eprintln!("usage: presence-probe [status|watch [seconds]|activate]");
+            eprintln!(
+                "usage: presence-probe [status|watch [seconds]|watch-games [seconds]|activate]"
+            );
             std::process::exit(2);
         }
     }

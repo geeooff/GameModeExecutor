@@ -5,7 +5,7 @@ pending** — the maintainer's decision the same morning, on the finding
 below. It waits only for [Lot 9](09-robustness.md)'s configuration work to
 close its field run.
 
-- [ ] The instrument: a `watch-games` command in `presence-probe` that logs registry change notifications on Windows' game list and which entry's `LastAccessed` moved, through the launch of several hand-marked titles
+- [x] The instrument: a `watch-games` command in `presence-probe` that logs registry change notifications on Windows' game list and which entry's `LastAccessed` moved — built 2026-09-23 and checked on a scratch key, below
 - [ ] The measurements below, before any line of the watcher changes
 - [ ] Detection from Windows' list as well as from the presence writer: a hand-marked title is a session from its launch
 - [ ] A title marked *while it runs* becomes a session within the settle time, and the start commands run then
@@ -114,6 +114,26 @@ user pages the same day.
    Windows no longer calls it a game; the session ends and the stop
    commands run, which is what the person asked for. To confirm on the
    probe.
+
+## The instrument, checked 2026-09-23
+
+`presence-probe watch-games [secs] [key]` parks on `RegNotifyChangeKeyValue`
+over the list's key — subtree, names and values, `THREAD_AGNOSTIC`, re-armed
+after each wake — and on each wake reads the list again and says what moved:
+an entry added or removed, an entry whose `LastAccessed` moved (with how long
+ago that time is), an entry changed otherwise, or nothing it compares. Each
+entry is labelled *hand-made* (`Revision = 1`, no `TitleId`) or *listed*. It
+also looks at the presence writer every 250 ms, so the two signals read side
+by side in one log. The optional `key` is there to check the probe itself on
+a key one can write to.
+
+Checked that way on a scratch key under `HKCU\Software`, deleted after: a
+`LastAccessed` set on an entry, an entry created with two values, a value
+changed, an entry removed — six wake-ups, each said as it happened, within a
+few milliseconds of the write. **An entry created and then given its values
+is two notifications, not one**: the first saw the entry already complete,
+the second found nothing new. The settle the watcher will need is measured
+on the Game Bar's own writes next, not on these.
 
 ## What it changes in the program, once measured
 
