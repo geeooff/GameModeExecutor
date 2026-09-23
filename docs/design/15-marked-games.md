@@ -525,3 +525,19 @@ separate piece of work — the lot's own cost is nil.
 - **`status`** lists the games marked by hand, each with whether it runs and
   whether Microsoft's list knows it; **`presence-probe microsoft-list`** asks
   the list about any path.
+
+**The review before the pull request, 2026-09-23**, found and fixed: a
+hand-made sighting carried its process id as an `Option` that a missing
+value would have turned into 0, a wait that ends at once — now a field;
+the list's key, when missing at start on a profile the Game Bar had not
+written yet, was never tried again; Microsoft's list was decoded twice for
+every entry, compared names in ASCII only and looked 600 bytes past a name,
+less than two long folder names — now decoded once, compared in lower case
+beyond ASCII, and looked at over three folder names' worth; the writer's
+path was lowercased again at every look. And two rules sat inside system
+calls: which process is a sighting, and which entries Microsoft's list
+covers. Both are now pure functions the tests drive with made-up processes
+and records — `sensor.rs` went from 8 % of its lines covered to 43 % on a
+hosted runner, `hand_made.rs` from 37 % to 48 %; on a client machine, with
+the tests that read it, the new modules are covered at 81 to 98 % and the
+library at 72.8 %, up from 70 % at Lot 13.

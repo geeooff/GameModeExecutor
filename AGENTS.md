@@ -21,11 +21,24 @@ These decide most questions before they are asked.
   workaround, and a workaround that fails *visibly and harmlessly* to one that
   fails silently. `SetPreferredAppMode` is the one undocumented call in the
   program and `docs/design/06-notification-icon.md` says why it was let in.
-- **Measure before deciding.** When the documentation leaves the deciding
-  question open, build the smallest thing that logs what the system actually
-  does, then decide. Several early designs here were wrong until measured;
-  the design record keeps the numbers. Do not report a mechanism as working
-  until a real game session has exercised it.
+- **Microsoft's documentation first, then measure.** Before designing on a
+  Windows behaviour, read what Microsoft documents about it and cite it in
+  the record; a spike answers only what the documentation leaves open --
+  how soon a process id is reused, which the pages do not say. When the
+  deciding question is open, build the smallest thing that logs what the
+  system actually does, then decide. Several designs here were wrong until
+  measured, and the design record keeps the numbers. Do not report a
+  mechanism as working until a real game session has exercised it, and do
+  not call a reader of real data done until it has read the real data:
+  a parser of Microsoft's game list passed its own tests and missed the
+  very title it was written for.
+- **Cheap at rest, silent in game.** What players check first is what the
+  program costs them. The idle look is the only timer the program has and
+  must stay the cheapest thing it does; during a game the watcher waits on
+  a handle and does nothing. A change to either is measured on the whole
+  installed process against the last release -- processor over minutes,
+  private memory, handles -- with `presence-probe cost` and `footprint`
+  for the steps, and the figures go in the record and the changelog.
 - **Strict and simple over clever.** An unambiguous state ("it is off, fix the
   file") beats a fallback whose behaviour needs explaining. Put the strict
   option first and argue for a fallback only if it protects something
@@ -98,7 +111,10 @@ deleted.
   OS only through `sensor::Sensor`, and `engine/tests.rs` scripts one to run
   whole sessions; a change to the loop gets a scenario there. The updater
   reads the network only through `update::feed::Feed`, scripted the same
-  way.
+  way. A rule that sits next to a system call is split from it -- the call
+  passed in as a function, as `sensor::sighting_among` takes the process
+  path lookup -- so the rule is tested without Windows and the call stays
+  a line.
 - **No test calls an external host**, ignored or not: the script runs the
   ignored tests on every developer machine, and a test that needs GitHub
   is a test that fails with the Wi-Fi. The network path is measured by hand
@@ -180,8 +196,19 @@ commands; do not.
 ## Pitfalls that have already cost time
 
 - `sed` and shell substitutions eat backslashes: `GameModeExecutor\FanControl`
-  becomes `GameModeExecutorFanControl` and `validate` accepts it. Edit files
-  with a tool that takes literal strings, and grep the result.
+  becomes `GameModeExecutorFanControl` and `validate` accepts it. So do
+  string literals in a script that writes a file -- `target\release` became a
+  carriage return in a Python heredoc. Edit files with a tool that takes
+  literal strings, and grep the result.
+- A shell started by a packaged host -- the Claude desktop application is
+  one -- may read `%APPDATA%` through the package's private copy: a file
+  read there need not be the one the watcher reads, and a stale copy of the
+  maintainer's configuration was quoted as theirs. What the watcher runs
+  is in its log; ask the maintainer for the file itself.
+- Windows' registry change notification never arrives for the Game Bar's
+  writes to its game list, from an ordinary process, whichever way it is
+  asked -- eight ways measured, `docs/design/15-marked-games.md`. Do not
+  build on it again without the reason.
 - In PowerShell, `$LASTEXITCODE` is set by native commands only; after a cmdlet
   it is stale. Use `try { … -ErrorAction Stop } catch`.
 - `Select-Object -First N` **stops the upstream pipeline** once it has N

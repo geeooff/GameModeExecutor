@@ -41,7 +41,8 @@ a section is written.
 ### Changed
 
 - Looking for a game while none runs costs about a twelfth of what it did:
-  some 0.016 % of one processor core, against 0.2 % before.
+  at rest the watcher now uses 0.026 % of one processor core, against
+  0.324 % for 0.2.0, measured nine minutes each on the same machine.
 - The watcher starts whatever the configuration file says, rather than
   exiting with a code and no icon when the file is wrong at logon. `validate`
   still reports the exit codes 3 and 4 for scripts.
