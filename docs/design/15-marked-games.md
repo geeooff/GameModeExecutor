@@ -272,6 +272,44 @@ same, other programs on this machine use WMI too — and the only difference
 the counters show is one burst of about twenty I/O operations in the minute
 with it.
 
+## Why the notification does not come: what the literature says
+
+Decided 2026-09-23 by the maintainer: WMI is not taken — it adds a COM
+client, a dependency on a service, and a fail-over between two sources of
+wake-ups, for a behaviour nobody here can explain — until the reason the
+direct notification stays silent is known. What was looked for, and found:
+
+- **Microsoft's page for `RegNotifyChangeKeyValue`** names one kind of change
+  the function cannot see: *"This function cannot be used to detect changes
+  to the registry that result from using the RegRestoreKey function."* If
+  whatever writes the game list does it by restoring keys rather than setting
+  values, the silence follows. The same page says a second call on a handle
+  with different parameters *"will succeed but the changes will be ignored"*
+  — not the case here, every method had its own handle — and that repeated
+  calls with the same parameters leak waits, which the probe no longer does.
+- **Raymond Chen** (*The Old New Thing*, 2020-05-07): a deleted key ends
+  its notifications for good, and a key recreated under the same name is a
+  new key nobody is watching. That explains why the removed entry woke its
+  own handle and nothing else; it does not explain Starfield, whose entry
+  was not deleted and whose own handle still heard nothing when a value on
+  it changed.
+- **A reported case in the other direction**, `microsoft/WindowsAppSDK`
+  issue 4075: a *packaged* WinUI 3 application watching `HKCU` receives no
+  notification where the same code unpackaged does, while reading the value
+  sees the change. Here the reader is unpackaged and the Game Bar, which
+  writes, is packaged. Packaged applications see a registry merged from the
+  real hive and per-application hives; whether their writes through that
+  merged view reach watchers of the real hive is not documented.
+- Nothing found names `GameConfigStore` with change notifications, on
+  Microsoft's pages, Stack Overflow or elsewhere.
+
+So two documented mechanisms fit the evidence — a restore, or a write
+through a packaged application's merged registry — and neither is
+confirmed. What would settle it is seeing the operation itself: Process
+Monitor, filtered on `GameConfigStore`, shows which process writes and with
+which call. It needs administrator rights to install its driver, on the
+maintainer's machine and by the maintainer's hand; the watcher never will.
+
 ## What the runs decide
 
 - **No notification, and no new polling either.** The watcher already takes
@@ -315,6 +353,19 @@ release build on this machine with 282 processes and 3 hand-made entries:
 The second signal adds about 25 us to a poll that already costs about 4 ms
 — the snapshot is the price, and it is paid today. Nothing new wakes the
 watcher: the same poll, every `poll_interval`, two seconds by default.
+
+Asked the same day whether the interval should grow to spend less: measured
+first whether the snapshot is the only way to see new processes. It is not.
+`K32EnumProcesses`, the process ids alone, took **32 us** median over 300
+rounds (p95 38, max 77) against the snapshot's 4068 us, with 290 processes
+running — about 130 times less. A poll that lists the ids, and asks only
+the processes it has not seen before for their name (52 us each, a handful
+a minute on an idle desktop), would cost about 50 us instead of 4 ms: at
+two seconds, some 0.003 % of a core instead of 0.2 %. The interval then
+stops being the lever, and the two seconds of reaction stay. One risk to
+measure before relying on it: Windows reuses process ids, and a game that
+takes the id of a process that exited since the last poll would look like
+a process already seen.
 
 And the fourth question: FanControl, which runs elevated here through its
 scheduled task, granted both `SYNCHRONIZE` and

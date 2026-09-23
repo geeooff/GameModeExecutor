@@ -590,6 +590,7 @@ fn cmd_cost(rounds: usize) -> windows::core::Result<()> {
     let mut names = Vec::with_capacity(rounds);
     let mut path = Vec::with_capacity(rounds);
     let mut stamp = Vec::with_capacity(rounds);
+    let mut ids = Vec::with_capacity(rounds);
     let mut processes = 0;
     let mut matched = 0;
     for _ in 0..rounds {
@@ -638,6 +639,22 @@ fn cmd_cost(rounds: usize) -> windows::core::Result<()> {
         };
         stamp.push(started.elapsed());
 
+        // The process ids alone, without names: what a poll would pay if it
+        // only asked for the names of processes it had not seen before.
+        let started = Instant::now();
+        let mut pids = [0u32; 4096];
+        let mut needed = 0u32;
+        // SAFETY: the buffer and its size in bytes are passed together, and
+        // `needed` is a local out pointer.
+        let _ = unsafe {
+            windows::Win32::System::ProcessStatus::K32EnumProcesses(
+                pids.as_mut_ptr(),
+                std::mem::size_of_val(&pids) as u32,
+                &mut needed,
+            )
+        };
+        ids.push(started.elapsed());
+
         std::thread::sleep(Duration::from_millis(10));
     }
     log(&format!(
@@ -664,6 +681,10 @@ fn cmd_cost(rounds: usize) -> windows::core::Result<()> {
     log(&format!(
         "cost: the list's last-write time {}",
         spread(&mut stamp)
+    ));
+    log(&format!(
+        "cost: process ids alone          {}",
+        spread(&mut ids)
     ));
     Ok(())
 }
