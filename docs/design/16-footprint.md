@@ -1,6 +1,6 @@
 # Lot 16 — What the watcher keeps
 
-**Status: in progress since 2026-09-23.** Proposed the same day in
+**Status: done 2026-09-23.** Proposed the same day in
 [Lot 15](15-marked-games.md)'s record, which found that reading the GPU
 counters left 3.7 MB behind and that the installed watcher had gained some
 260 handles over its first sessions, only twenty of them traced; taken up
@@ -283,3 +283,14 @@ quarter of a megabyte, the menu Windows' fifty and a megabyte, its
 entries nothing but *Check for updates*. A session, the menu, the
 configuration and the log together left some 300 handles and 6 MB on
 0.3.0; they leave some 70 handles and 1.2 MB.
+
+**The review before the pull request, 2026-09-23**, found and fixed: the
+three calls that size their answer and are asked again — the list of
+counter sets, a set's registration, a sample — looped for as long as
+Windows said the buffer was too small, on the engine's thread, where a
+refinement that never returns would hide the session's end; they now try
+four times and give no opinion after. A log line said Notepad had been
+tried for an address, which it never is. `AGENTS.md` named `ShellExecuteW`
+as a call the tray makes; it points at the helper now, and its cost
+principle says what this lot learnt: measure what a call leaves, not only
+what it takes.

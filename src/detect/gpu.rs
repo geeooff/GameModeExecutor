@@ -60,6 +60,12 @@ const PERF_100NSEC_TIMER: u32 = PERF_SIZE_LARGE
 /// are busy for a video player or a download too, so they are left out.
 const RENDERING_ENGINES: &[&str] = &["3d", "vr", "compute"];
 
+/// How many times a call that sizes its answer is asked again. Once is the
+/// rule; more happens when instances appear between two calls. A bound, so
+/// that an answer that never fits is "no opinion" rather than a refinement
+/// that never returns -- it runs on the engine's thread.
+const ATTEMPTS: usize = 4;
+
 /// Rendering load per process id, as a percentage summed over the engines of
 /// every adapter. Values can exceed 100 on a multi-adapter or multi-engine
 /// machine, which is fine: only their order matters here.
@@ -96,7 +102,7 @@ fn locate() -> Result<(GUID, u32)> {
     let structure = registration(&set, PERF_REG_COUNTERSET_STRUCT)?;
     match counter_type(&structure, counter) {
         Some(PERF_100NSEC_TIMER) => Ok((set, counter)),
-        other => bail!("`{COUNTER}` has type {other:X?}, not the timer it was"),
+        other => bail!("`{COUNTER}` has type {other:X?}, not the PERF_100NSEC_TIMER read here"),
     }
 }
 
@@ -104,7 +110,7 @@ fn locate() -> Result<(GUID, u32)> {
 fn counter_sets() -> Result<Vec<GUID>> {
     let mut count = 0u32;
     let mut sets = Vec::new();
-    loop {
+    for _ in 0..ATTEMPTS {
         // SAFETY: the slice carries its own length, which bounds the write;
         // `count` is a local.
         let status = unsafe { PerfEnumerateCounterSet(None, Some(&mut sets), &mut count) };
@@ -119,13 +125,14 @@ fn counter_sets() -> Result<Vec<GUID>> {
             _ => bail!("PerfEnumerateCounterSet failed ({status})"),
         }
     }
+    bail!("the list of counter sets never fit its buffer")
 }
 
 /// One piece of a counter set's registration, sized then read.
 fn registration(set: &GUID, code: PerfRegInfoType) -> Result<Vec<u8>> {
     let mut size = 0u32;
     let mut buffer = Vec::new();
-    loop {
+    for _ in 0..ATTEMPTS {
         // SAFETY: `set` outlives the call; the slice carries its own length,
         // which bounds the write; `size` is a local.
         let status = unsafe {
@@ -140,6 +147,7 @@ fn registration(set: &GUID, code: PerfRegInfoType) -> Result<Vec<u8>> {
             _ => bail!("PerfQueryCounterSetRegistrationInfo failed ({status})"),
         }
     }
+    bail!("a counter set's registration never fit its buffer")
 }
 
 /// A PerfLib query handle, closed on drop.
@@ -207,7 +215,7 @@ impl Query {
         let mut size = 0u32;
         // Eight-byte words, so the header's 64-bit fields are aligned.
         let mut words: Vec<u64> = Vec::new();
-        loop {
+        for _ in 0..ATTEMPTS {
             // SAFETY: the buffer is `len * 8` bytes, eight-aligned, and the
             // call is told exactly that; `size` is a local.
             let status = unsafe {
@@ -219,18 +227,20 @@ impl Query {
                 )
             };
             match status {
-                0 => break,
+                0 => {
+                    return Ok(words
+                        .iter()
+                        .flat_map(|word| word.to_le_bytes())
+                        .take(size as usize)
+                        .collect());
+                }
                 _ if status == ERROR_NOT_ENOUGH_MEMORY.0 => {
                     words = vec![0; (size as usize).div_ceil(8)];
                 }
                 _ => bail!("PerfQueryCounterData failed ({status})"),
             }
         }
-        Ok(words
-            .iter()
-            .flat_map(|word| word.to_le_bytes())
-            .take(size as usize)
-            .collect())
+        bail!("the counter data never fit its buffer")
     }
 }
 

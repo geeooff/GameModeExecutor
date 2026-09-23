@@ -75,7 +75,7 @@ pub fn open(what: &str) {
             target: target::WATCHER,
             what,
             code = status.code(),
-            "Could not open it: the shell refused, and so did Notepad"
+            "Nothing opened: the shell would not take it, nor Notepad for a file"
         ),
         Err(error) => tracing::debug!(
             target: target::WATCHER,

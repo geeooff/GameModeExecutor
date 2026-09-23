@@ -37,8 +37,12 @@ These decide most questions before they are asked.
   must stay the cheapest thing it does; during a game the watcher waits on
   a handle and does nothing. A change to either is measured on the whole
   installed process against the last release -- processor over minutes,
-  private memory, handles -- with `presence-probe cost` and `footprint`
-  for the steps, and the figures go in the record and the changelog.
+  private memory, handles -- with `presence-probe cost`, `footprint` and
+  `menu-cost` for the steps, and the figures go in the record and the
+  changelog. A system library can keep what it loaded for the life of its
+  caller, whatever its close function says: PDH and the shell did
+  (`docs/design/16-footprint.md`). Measure what a call leaves, not only
+  what it takes.
 - **Strict and simple over clever.** An unambiguous state ("it is off, fix the
   file") beats a fallback whose behaviour needs explaining. Put the strict
   option first and argue for a fallback only if it protects something
@@ -220,7 +224,9 @@ commands; do not.
   Task Scheduler exports them, and carry placeholders the release check
   verifies. Read and write them with that encoding.
 - `TrackPopupMenuEx` is modal and re-enters the window procedure; never hold a
-  `RefCell` borrow across it, or across `ShellExecuteW`.
+  `RefCell` borrow across it, or across any call that can show UI. The
+  shell is no longer called from the watcher at all: the menu's entries go
+  through the `open` helper, `src/open.rs`, and a new one should too.
 - `FindWindow` cannot find a window whose class was registered by another
   process; use `EnumWindows`.
 - A process started after `WM_QUERYENDSESSION` dies with
