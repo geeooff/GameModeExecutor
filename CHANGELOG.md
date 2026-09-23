@@ -15,6 +15,14 @@ a section is written.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.0] - 2026-09-23
+
+The configuration applies as you save it, a broken one says so, the games
+you marked yourself in the Game Bar are followed too, and the watcher costs
+a twelfth of what it did at rest.
+
 ### Added
 
 - The watcher reads `config.toml` again whenever you save it, within a
@@ -29,11 +37,11 @@ a section is written.
   *Edit configuration* opens the file, and saving a good one brings the
   icon back, with a notification saying the watcher is watching again —
   also when the fix came while the watcher was stopped.
-
 - Games you marked yourself with *Remember this is a game* in the Game Bar
   are detected like any other, from their launch — or from the moment you
-  tick the box, in the middle of a game. Windows never tells the rest of the
-  system about those, which is why they used to go unnoticed.
+  tick the box, in the middle of a game. Windows does not start, for those,
+  the signal the program used to watch alone, which is why they went
+  unnoticed.
 - At start, the log says which of the games you marked Microsoft's own list
   now knows, so you can untick them and let Windows recognise them itself.
   `status` lists the games you marked and says the same.
@@ -130,6 +138,7 @@ and when it stops, on Windows' own signal that a game is running.
   including the scheduled tasks a program that needs administrator rights
   requires, and a Windows power plan.
 
-[Unreleased]: https://github.com/Geeooff/GameModeExecutor/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Geeooff/GameModeExecutor/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Geeooff/GameModeExecutor/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Geeooff/GameModeExecutor/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Geeooff/GameModeExecutor/releases/tag/v0.1.0
