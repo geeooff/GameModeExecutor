@@ -38,10 +38,10 @@ jobs:
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
           "version=$version" >> $env:GITHUB_OUTPUT
 
-      # Both artefacts, in one download. GitHub serves every artifact as a
-      # zip of its own whatever it holds -- there is no raw download from
+      # The three artefacts, in one download. GitHub serves every artifact as
+      # a zip of its own whatever it holds -- there is no raw download from
       # the Actions page -- so the level is 0 to keep it a plain container
-      # around two files that are already compressed. Raw files come from
+      # around files that are already compressed. Raw files come from
       # the release workflow, which attaches them to the release itself.
       - uses: actions/upload-artifact@v7
         with:

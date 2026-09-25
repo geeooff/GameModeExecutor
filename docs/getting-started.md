@@ -146,7 +146,8 @@ gamemode-executor install-task
 No administrator rights, no password, no window. The installer did this for
 you.
 
-Want a complete worked example rather than a blank page? [Recipes](recipes/) has
+Want a complete worked example rather than a blank page? [Recipes](recipes/) —
+also on the release page as `GameModeExecutor-recipes-<version>.zip` — has
 one per job, each with a `config.toml` you can copy straight over.
 
 ## The notification area icon
@@ -180,8 +181,9 @@ arrow next to the clock, and drag it onto the taskbar to keep it there.
 | **Check for updates** | asks GitHub whether a newer release exists — the only time this program ever connects to anything, and only when you click. The menu closes, as menus do; the answer arrives as a silent notification a second later, and waits in the menu too: *0.1.0 is the latest version*, or **Download and install 0.2.0** beside a **What changed in 0.2.0** that opens the release page |
 | **Quit** | stops the watcher, running the stop commands on the way out so you are not left on a gaming profile |
 
-Quitting only stops it until the next time you log on. To stop it for good, see
-[Turning it off](#turning-it-off).
+Quitting only stops it until the next time you log on — or until you start
+**GameModeExecutor** from the Start menu, which the installer adds. To stop it
+for good, see [Turning it off](#turning-it-off).
 
 ## Updating
 

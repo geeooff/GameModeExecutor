@@ -24,7 +24,9 @@ In this folder:
 | File | What it is |
 | --- | --- |
 | [`config.toml`](config.toml) | the complete configuration, ready to copy — the same for everyone |
+| [`install-tasks.cmd`](install-tasks.cmd) | double-click it: runs `install-tasks.ps1`, even where Windows refuses scripts |
 | [`install-tasks.ps1`](install-tasks.ps1) | registers both tasks for you, asking which configuration plays which role |
+| [`uninstall-tasks.cmd`](uninstall-tasks.cmd) | the same for `uninstall-tasks.ps1` |
 | [`uninstall-tasks.ps1`](uninstall-tasks.ps1) | removes those two tasks again, and nothing else |
 | [`elevate.ps1`](elevate.ps1) | shared by the two scripts: asks for administrator rights so you need not open an elevated window |
 | [`FanControl-Idle.xml`](FanControl-Idle.xml) | Task Scheduler definition for the *Idle* role |
@@ -110,25 +112,14 @@ denied`.
 ### The quick way: let the script do it
 
 [`install-tasks.ps1`](install-tasks.ps1) fills the placeholders in and registers
-both tasks. From any PowerShell window, in this folder:
+both tasks. **Double-click `install-tasks.cmd`** in this folder: it runs the
+script with Windows' refusal of scripts set aside for that one run, and
+changes nothing on the machine. If Windows asks whether to run a file that
+came from the internet, allow it — or, before unzipping, right-click the zip,
+*Properties*, *Unblock*.
 
-```powershell
-.\install-tasks.ps1
-```
-
-**If Windows refuses to run it** — *running scripts is disabled on this
-system*, which is what a Windows PC says out of the box, and what it says
-of anything downloaded — run it this way instead, which changes nothing on
-the machine and needs no administrator rights:
-
-```powershell
-Unblock-File .\*.ps1
-powershell -ExecutionPolicy Bypass -File .\install-tasks.ps1
-```
-
-The first line removes the mark Windows puts on downloaded files; the
-second lets this one command run scripts. The elevated part relaunches
-itself the same way, so the whole chain goes through.
+From a PowerShell window instead: `.\install-tasks.ps1`, or, where Windows
+refuses scripts, `powershell -ExecutionPolicy Bypass -File .\install-tasks.ps1`.
 
 It asks for administrator rights itself — one prompt. On Windows 11 with
 `sudo` enabled in *inline* mode it carries on in the same window; otherwise
@@ -355,15 +346,9 @@ there is nothing to tune.
 
 ## Removing the recipe
 
-From any PowerShell window, in this folder — it asks for administrator rights
-the same way the install script does:
-
-```powershell
-.\uninstall-tasks.ps1
-```
-
-Or, where Windows refuses scripts, `powershell -ExecutionPolicy Bypass
--File .\uninstall-tasks.ps1`, as for the install.
+Double-click **`uninstall-tasks.cmd`** in this folder, or run
+`.\uninstall-tasks.ps1` from PowerShell. It asks for administrator rights the
+same way the install script does.
 
 It removes the two tasks it knows — *FanControl Idle* and *FanControl Game* —
 and leaves everything else: FanControl and its configurations, the
