@@ -287,8 +287,9 @@ too.
 ## When something is not right
 
 **Nothing happens when I start a game.**
-Run `gamemode-executor status` while the game is running. If it says no game is
-running, Windows itself is not flagging that title — see
+Bring it to the front first: Windows may not count a game still loading
+behind another window. Then run `gamemode-executor status`. If it says no
+game is running, Windows itself is not flagging that title — see
 [How it works](how-it-works.md). A game Windows does not recognise, you can
 mark yourself: open the Game Bar over it (`Win+G`), and in its settings tick
 *Remember this is a game*. The watcher follows those too, from the next two
@@ -337,10 +338,11 @@ and `%LOCALAPPDATA%\GameModeExecutor\updates\install.log` has its own
 account. The version you had keeps running either way.
 
 **The fans take ages to calm down after I quit.**
-That wait is Windows': it keeps its "a game is running" signal until you next
-touch the mouse or the keyboard, then lets go about twenty seconds later. Quit
-and walk away, and the fans wait for your return. Nothing to tune;
-`log_level = "debug"` shows where the time went. *(Corrected 2026-09-25.)*
+That wait is Windows': it keeps its "a game is running" signal for as long as
+nobody touches the PC, and at the keyboard lets go within a second to a
+minute and a half. Quit and walk away, and the fans wait for your return.
+Nothing to tune; `log_level = "debug"` shows where the time went.
+*(Corrected 2026-09-25.)*
 
 ## Turning it off
 

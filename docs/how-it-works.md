@@ -17,6 +17,8 @@ Windows ships a component for the Game Bar — the overlay you get with `Win+G`.
 When Windows decides a game is running, it starts a small process called
 `GameBarPresenceWriter.exe`. When the game is gone, Windows shuts that process
 down. That process existing *is* Windows' own verdict that you are playing.
+Windows may wait for the game to first come to the front: Battlefield 6, left
+loading behind another window, counted only once it was brought forward.
 
 So the watcher does something very simple: it watches whether that process
 exists.
@@ -97,17 +99,18 @@ carries on. Nothing about detection depends on it.
 
 The commands for "game stopped" can fire well after you have quit.
 
-That wait is Windows'. It keeps its "a game is running" signal until you next
-touch the mouse or the keyboard after the game has closed, then lets go about
-twenty seconds later. Keep using the PC and it takes seconds; quit and walk
-away, and the commands wait for your return — two hours, once. No setting
-changes that. This program adds about two seconds, a grace period in case
-Windows briefly restarts the signal mid-session.
+That wait is Windows'. It never lets go of its "a game is running" signal
+while nobody touches the PC: quit and walk away, and the commands wait for
+your return — two hours, once. At the keyboard it has taken from under a
+second to a minute and a half. No setting changes that. This program adds
+about two seconds, a grace period in case Windows briefly restarts the
+signal mid-session.
 
 Set `log_level = "debug"` and the log says when Windows let go and whether the
 game had already exited.
 
-*Corrected 2026-09-25: this page called the wait unpredictable.*
+*Corrected 2026-09-25: this page called the wait unpredictable, then said
+about twenty seconds.*
 
 ## What it costs your machine
 
