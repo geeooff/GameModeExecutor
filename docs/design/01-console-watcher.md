@@ -93,6 +93,25 @@ titles will ever predict it, there is nothing to tune, and a session that stops
 promptly proves nothing about the next one. Windows releases the writer when it
 decides to.
 
+**Corrected 2026-09-25: it decides on the user's next input.** Four sessions
+of GTA Online, the game's exit read from the Rockstar launcher's own log
+(*Game exited with code 0x0*, BattlEye's driver unloading the same second),
+the release from the watcher's:
+
+| Date | After quitting | Game gone to writer released |
+| --- | --- | --- |
+| 2026-09-23 | nobody at the machine; the screen off by its 5-minute timeout | 2 h 22 min, 23 s after the screen came back on input |
+| 2026-09-24 | hands off four minutes, screen on, then the mouse | 4 min 14 s, seconds after the mouse |
+| 2026-09-24 | the machine used throughout | 16.8 s |
+| 2026-09-25 | as the second, an Xbox party chat open and pinned | 4 min 5 s, seconds after the mouse |
+
+Windows releases the writer some twenty seconds after the first keyboard or
+mouse input that follows the game's exit, and not before — the screen and
+the party chat change nothing. The per-title theory stays dead; what the two
+sessions of each title above differed in is most likely when the maintainer
+next touched the machine, which was not noted then — inferred, not
+measured. [Lot 18](18-game-gone-nobody-there.md) has the details.
+
 The second sessions were measured from independent sources, since the log did
 not yet record the writer's exit: Steam's `gameoverlay_ui.txt` for Battlefield
 6, and the AppX container destruction event (`Microsoft-Windows-AppModel-Runtime/Admin`,
@@ -114,6 +133,12 @@ particular wait after the fact. The delay is random, so a change that saves
 two minutes on one session saves nothing on the next; a few seconds of the
 wrong fan profile is not worth trading away the one signal that has never been
 wrong. Reopen only on new evidence.
+
+**New evidence, 2026-09-25.** The delay is not "random, seconds to two
+minutes": it lasts as long as nobody touches the machine, 2 h 22 min
+measured, and the decision above was weighed against a few seconds of the
+wrong fan profile. It is reopened as a proposal, [Lot 18](18-game-gone-nobody-there.md)
+— not decided.
 
 ## What everyone else does about it
 

@@ -3,6 +3,17 @@
 You want one thing to happen when you start a game, and another when you stop.
 That is all this program does. Here is how to get there in about five minutes.
 
+## TL;DR
+
+1. Run `GameModeExecutor-<version>.msi` from the
+   [latest release](https://github.com/Geeooff/GameModeExecutor/releases/latest)
+   — *More info*, *Run anyway* if Windows warns. A grey controller appears
+   beside the clock.
+2. Right-click it, **Edit configuration**, add your commands — see
+   [Say what to run](#say-what-to-run) — and save. It applies at once.
+3. Play. The icon turns green while a game runs; red means the file has a
+   mistake, and the menu's first line says which.
+
 ## The two files
 
 It ships as the same program twice. They differ in one way: one has a black
@@ -324,10 +335,10 @@ and `%LOCALAPPDATA%\GameModeExecutor\updates\install.log` has its own
 account. The version you had keeps running either way.
 
 **The fans take ages to calm down after I quit.**
-That wait is Windows', not this program's. It releases its own "a game is
-running" signal when it decides to — sometimes in seconds, sometimes in minutes,
-and not predictably per game. There is nothing to tune. The log shows exactly
-where the time went if you set `log_level = "debug"`.
+That wait is Windows': it keeps its "a game is running" signal until you next
+touch the mouse or the keyboard, then lets go about twenty seconds later. Quit
+and walk away, and the fans wait for your return. Nothing to tune;
+`log_level = "debug"` shows where the time went. *(Corrected 2026-09-25.)*
 
 ## Turning it off
 
