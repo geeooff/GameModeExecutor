@@ -23,6 +23,30 @@ evening of 2026-09-18 with its log; what it taught is below.
 - [x] The documentation: *Getting started* and the README point at the release rather than at `cargo build`, the reference gains `purge`, *How it works* gains removal — 2026-09-17
 - [x] Verified in the field: the MSI on two machines, one real upgrade, one purge round trip — the maintainer's machine done 2026-09-17/18, below: install, upgrade, uninstall, purge, and the 0.1.0 → 0.2.0 upgrade through the updater; the second machine's first install, 0.2.0, done 2026-09-18 in the evening by the maintainer and reported with the log, below
 
+Reopened 2026-09-25 for the three proposals the second machine left, all
+taken by the maintainer:
+
+- [x] The recipes as a third artefact, `GameModeExecutor-recipes-x.y.z.zip`, built by the same checklist from the same commit and checksummed with the others — built 2026-09-25
+- [x] A `.cmd` beside each of the FanControl recipe's scripts, running it with `-ExecutionPolicy Bypass` — built 2026-09-25, CRLF kept by `.gitattributes`
+- [x] A Start menu entry from the package, starting the windowless executable; a watcher already running makes it say so in the log at `info` rather than as an error — built 2026-09-25
+- [x] *Writing your own* removed from the recipes, at the maintainer's remark: the starter configuration's comments and the reference already say all of it — 2026-09-25
+- [x] Verified: the package uninstalled and reinstalled from `dist\`, the entry clicked with and without a watcher running; the recipes zip's `.cmd` double-clicked — 2026-09-25, below; a zip carrying Windows' download mark is not measured
+
+**The field check, 2026-09-25**, on the maintainer's machine, the package
+built at `6088eb90`: uninstalled at 11:28 (watcher stopped, logon task
+removed), installed at 11:29:06 (configuration kept, task registered,
+watcher started). The Start menu entry clicked at 11:29:39 with the watcher
+running logged *GameModeExecutor is already running in this session; this
+start stops here* at `info`, nothing on screen; after *Quit* at 11:30:29,
+clicked again at 11:30:50, it started the watcher. `install-tasks.cmd`,
+double-clicked from `dist\`, ran the script — its first step, the elevation
+prompt, came up; refused, it said *Elevation was refused. Nothing was
+changed.* and the two FanControl tasks were as before. The script elevates
+before it lists the configurations, by design; the check's own expectation
+said otherwise and was wrong. The folder came from a local build, so it
+carried no download mark: whether Windows questions a `.cmd` from a
+downloaded zip is left to the first release that ships one.
+
 **Done when** a tag alone produces a release a stranger can install from, and
 the two artefacts on it were built by the workflow from that tag's commit.
 Decided 2026-09-17: two artefacts, MSI and zip, not one or the other — the
@@ -279,7 +303,8 @@ only proposed:
   (`Unblock-File`, then `-ExecutionPolicy Bypass` for the one command),
   taken 2026-09-18; `elevate.ps1` already relaunched its elevated half that
   way. A `.cmd` beside each script, running it with that switch, would
-  spare the typing altogether — proposed, weighed with the next point.
+  spare the typing altogether — proposed, weighed with the next point;
+  taken 2026-09-25.
 - **GitHub offers no way to download one folder.** The recipe was reached
   by downloading the whole repository as a zip and digging the folder out
   of it. The release could carry the recipes as a third artefact,
@@ -287,7 +312,7 @@ only proposed:
   the same commit and linked from `README.txt` — files to run, not pages
   to read, so the argument in
   [Documentation is linked, not shipped](#documentation-is-linked-not-shipped)
-  does not hold against it. Proposed, not decided.
+  does not hold against it. Proposed; taken 2026-09-25.
 - **The configuration was merged rather than replaced.** The recipe's
   `config.toml` is the whole file and the starter one has nothing worth
   keeping, but the page said *copy over your own*, which someone careful
@@ -302,7 +327,7 @@ only proposed:
   a `Shortcut` row to `gamemode-executorw.exe`, which starts the watcher
   or does nothing if one is running — gives *Quit* an obvious undo. The
   shortcut is a package change and would go with the recipes artefact if
-  that is taken; the reload is the next lot's.
+  that is taken; the reload is the next lot's. Both taken 2026-09-25.
 
 ## The package that held one piece — 2026-09-23
 

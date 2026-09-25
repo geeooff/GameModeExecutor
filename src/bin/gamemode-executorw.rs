@@ -27,15 +27,25 @@ fn main() -> std::process::ExitCode {
     match cli::run(cli::Cli::parse(), false) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
+            let code = exit::code_for(&error);
             // There is no console to print to. The log file has the detail
             // when the command got as far as opening one, and the exit code
             // is what Task Scheduler and Windows Installer record.
-            tracing::error!(
-                target: game_mode_executor::logging::target::WATCHER,
-                error = %format!("{error:#}"),
-                "GameModeExecutor could not start"
-            );
-            std::process::ExitCode::from(exit::code_for(&error))
+            if code == exit::ALREADY_RUNNING {
+                // The Start menu entry starts this binary whether or not a
+                // watcher runs; finding one is the answer, not a fault.
+                tracing::info!(
+                    target: game_mode_executor::logging::target::WATCHER,
+                    "GameModeExecutor is already running in this session; this start stops here"
+                );
+            } else {
+                tracing::error!(
+                    target: game_mode_executor::logging::target::WATCHER,
+                    error = %format!("{error:#}"),
+                    "GameModeExecutor could not start"
+                );
+            }
+            std::process::ExitCode::from(code)
         }
     }
 }

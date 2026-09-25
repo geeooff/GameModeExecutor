@@ -126,8 +126,6 @@ deleted.
 - Commit messages: an imperative subject, a short body saying what changed
   and why, and a `Co-Authored-By` trailer for the agent that co-wrote it. The
   collaboration is not hidden.
-- FanControl is mentioned only in its recipe. Everywhere else the program
-  "runs executables".
 
 ## Workflow
 

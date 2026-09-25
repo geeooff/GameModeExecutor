@@ -1,8 +1,8 @@
 name: Release
 
 # A tag alone produces the release: push vX.Y.Z and this runs the same
-# checklist a developer runs, builds the installer and the zip from that
-# exact commit, and publishes them with their checksums. Nothing is built
+# checklist a developer runs, builds the installer, the zip and the recipes
+# from that exact commit, and publishes them with their checksums. Nothing is built
 # or uploaded by hand. docs/design/08-distribution.md has the rules.
 
 on:
@@ -53,6 +53,7 @@ jobs:
           gh release create $env:GITHUB_REF_NAME `
             "dist\GameModeExecutor-$env:GME_VERSION.msi" `
             "dist\GameModeExecutor-$env:GME_VERSION.zip" `
+            "dist\GameModeExecutor-recipes-$env:GME_VERSION.zip" `
             dist\SHA256SUMS.txt `
             --title "GameModeExecutor $env:GME_VERSION" `
             --notes-file dist\notes.md `

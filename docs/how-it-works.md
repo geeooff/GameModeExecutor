@@ -162,7 +162,9 @@ and so is every command.
 
 A named lock makes sure of it. If you run `gamemode-executor run` while the
 background one is going, the second one refuses and exits with a distinct code
-rather than doubling up your commands.
+rather than doubling up your commands. That is also why the Start menu's
+**GameModeExecutor** is safe to click at any time: it starts the watcher, or
+notes in the log that one is already running.
 
 ## What starts it, and why not a service
 

@@ -323,6 +323,7 @@ INSTALLED FROM THE .MSI
     Nothing to do. The installer wrote a starter configuration if you had
     none, registered the logon task and started the watcher: the icon beside
     the clock is the confirmation. Right-click it, Edit configuration.
+    GameModeExecutor in the Start menu starts the watcher again after Quit.
 
 UNPACKED FROM THE .ZIP
     Keep this folder where you put it -- the logon task remembers the path.
@@ -333,7 +334,8 @@ UNPACKED FROM THE .ZIP
 
 WHAT TO RUN
     The starter configuration runs nothing; the icon that appears shows the
-    watcher is working. Worked examples, one folder each, for this build:
+    watcher is working. Worked examples, one folder each, for this build --
+    also on the release page as GameModeExecutor-recipes-$version.zip:
     $recipesLink
 
 THE TWO EXECUTABLES
@@ -357,6 +359,32 @@ https://github.com/Geeooff/GameModeExecutor
     Step "Packaging"
     if (Test-Path $zip) { Remove-Item $zip }
     Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
+
+    # The recipes, as a third artefact: GitHub offers no way to download one
+    # folder, and the second machine's first install dug the FanControl
+    # recipe out of the whole repository (2026-09-18). Every folder under
+    # docs\recipes, as it is at this commit, and a readme pointing at the
+    # same pages online.
+    Step "Recipes"
+    $recipesStage = Join-Path $root "dist\GameModeExecutor-recipes-$version"
+    $recipesZip = Join-Path $root "dist\GameModeExecutor-recipes-$version.zip"
+    if (Test-Path $recipesStage) { Remove-Item -Recurse -Force $recipesStage }
+    New-Item -ItemType Directory -Force -Path $recipesStage | Out-Null
+    $recipes = @(Get-ChildItem (Join-Path $root 'docs\recipes') -Directory)
+    foreach ($recipe in $recipes) {
+        Copy-Item $recipe.FullName (Join-Path $recipesStage $recipe.Name) -Recurse
+    }
+    Set-Content -Path (Join-Path $recipesStage 'README.txt') -Encoding UTF8 -Value @"
+GameModeExecutor $version -- recipes
+
+One folder per recipe, from the commit the executables were built from.
+Each folder's README.md has the steps; the same pages, online, for this
+build:
+$recipesLink
+"@
+    if (Test-Path $recipesZip) { Remove-Item $recipesZip }
+    Compress-Archive -Path $recipesStage -DestinationPath $recipesZip -CompressionLevel Optimal
+    Write-Host "    $($recipes.Name -join ', ')"
 
     # The installer: the same two executables and the license, per-user, no
     # elevation, built by scripts\msi.ps1 from Windows Installer's own
@@ -388,7 +416,7 @@ https://github.com/Geeooff/GameModeExecutor
     # The account as a path or as a logon name, not the bare word: the license
     # carries the author's name, and an account named after its owner matched
     # it the first time the license shipped as a .txt (2026-09-18).
-    $text = Get-ChildItem $stage -Recurse -File -Include *.toml, *.xml, *.ps1, *.txt, *.md
+    $text = Get-ChildItem $stage, $recipesStage -Recurse -File -Include *.toml, *.xml, *.ps1, *.cmd, *.txt, *.md
     $leaks = $text | Select-String -Pattern ([regex]::Escape("\Users\$env:USERNAME")),
                                             ([regex]::Escape("$env:USERDOMAIN\$env:USERNAME")) -List
     if ($leaks) {
@@ -412,6 +440,7 @@ https://github.com/Geeooff/GameModeExecutor
     Write-Host ""
     Write-Host "dist\GameModeExecutor-$version.zip  ($([math]::Round((Get-Item $zip).Length / 1KB)) KB)" -ForegroundColor Green
     Write-Host "dist\GameModeExecutor-$version.msi  ($([math]::Round((Get-Item $msi).Length / 1KB)) KB)" -ForegroundColor Green
+    Write-Host "dist\GameModeExecutor-recipes-$version.zip  ($([math]::Round((Get-Item $recipesZip).Length / 1KB)) KB)" -ForegroundColor Green
 }
 
 # --- go ---------------------------------------------------------------------

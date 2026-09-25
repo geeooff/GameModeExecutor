@@ -1,7 +1,8 @@
 # Recipes
 
 Worked examples, start to finish. Each one is a folder: the instructions, plus
-the files you need, ready to copy.
+the files you need, ready to copy. Each release carries them all as
+`GameModeExecutor-recipes-<version>.zip`.
 
 If you have not set the program up yet, read
 [Getting started](../getting-started.md) first.
@@ -10,7 +11,10 @@ If you have not set the program up yet, read
 | --- | --- | --- |
 | [Fan profiles with FanControl](fancontrol-fan-profiles/) | Quiet fans outside games, a game profile while playing. The full treatment for a program that needs administrator rights. | `config.toml`, two Task Scheduler templates |
 | [Windows power plan](windows-power-plan/) | High performance while playing, balanced the rest of the time. The simple shape most commands have. | `config.toml` |
-| [Writing your own](writing-your-own/) | Every option a command takes, and the placeholders you can put in one. Reference rather than a recipe. | annotated `config.toml` |
+
+Writing your own: the starter configuration's comments list every key a
+command takes and every placeholder, and [the reference](../reference.md#configuration)
+has the full table.
 
 ## How to use one
 

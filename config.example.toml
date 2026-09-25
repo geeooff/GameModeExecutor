@@ -122,7 +122,7 @@ mode = "series"
 # detect and log sessions and do nothing else, which is a fine way to see it
 # work first. To *hear* it work, uncomment the two commands below -- a rising
 # beep when a game starts, a falling one when it ends -- then look at
-# docs/recipes/ for real ones: fan profiles, a power plan, or your own.
+# docs/recipes/ for real ones: fan profiles, a power plan.
 #[[on_game_start.actions]]
 #name = "beep"
 #program = "powershell.exe"

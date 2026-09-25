@@ -15,6 +15,16 @@ a section is written.
 
 ## [Unreleased]
 
+### Added
+
+- **GameModeExecutor** in the Start menu, from the installer: it starts the
+  watcher again after *Quit*, and does nothing if one is already running.
+- The recipes as a separate zip on each release,
+  `GameModeExecutor-recipes-<version>.zip`.
+- The FanControl recipe links FanControl's site and its GitHub project, and
+  its scripts have a `.cmd` to double-click, which runs them even where
+  Windows refuses scripts.
+
 ### Changed
 
 - Telling a game from its launcher by what the graphics card is drawing no
@@ -24,6 +34,11 @@ a section is written.
   1.2 MB in the watcher for the rest of its run, and more for each kind of
   file: a short-lived helper opens them and takes that cost with it when it
   ends.
+
+### Removed
+
+- The *Writing your own* recipe: the starter configuration's comments and the
+  reference already list every key and placeholder.
 
 ## [0.3.0] - 2026-09-23
 
