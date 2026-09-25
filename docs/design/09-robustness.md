@@ -2,7 +2,7 @@
 
 **Status: partly done.** The session marker is built and verified; the
 configuration faults and the live reload are built and verified in the
-field; two smaller items remain.
+field; three smaller items remain.
 
 - [x] Restore at the next start what a logoff could not — done 2026-09-16, a race fixed and re-verified 2026-09-17
 - [x] Configuration faults shown in the tray, and live reload — built 2026-09-19, measured without a game and then verified across two Starfield sessions on 2026-09-20, below

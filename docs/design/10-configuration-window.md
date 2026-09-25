@@ -1,6 +1,7 @@
 # Lot 10 — Configuration window
 
-**Status: proposed.** The first lot with a real window. It edits the
+**Status: proposed; set aside on 2026-09-25** until a UX/UI analysis
+refines it — nothing here is mature enough to start from. The first lot with a real window. It edits the
 configuration through a UI, so hand-editing mistakes — doubled backslashes
 above all — stop being possible.
 

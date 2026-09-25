@@ -155,6 +155,11 @@ workflow both refuse a version the changelog does not carry, dated. Versions
 follow `docs/design/08-distribution.md`: the number moves only in a release
 commit, and 1.0.0 waits for the criteria written there.
 
+Before each release, check by hand that the documentation's external links
+still lead to live pages — FanControl's site and its releases, credited in
+its recipe, above all. `build.ps1` resolves only the repository's own
+links: a check that needs the network would fail with the Wi-Fi.
+
 **The changelog is written here, by the agent, and read by the maintainer
 as a diff.** The workflow cannot summarise, and the release commit is made
 on the maintainer's machine anyway, with the agent present. Rules for a
