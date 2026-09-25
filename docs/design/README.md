@@ -28,6 +28,7 @@ session rather than when the code compiles. Each has its own page.
 | 14 | [Release notes people can read](14-release-notes.md) | done |
 | 15 | [Games Windows knows only from you](15-marked-games.md) | done |
 | 16 | [What the watcher keeps](16-footprint.md) | done |
+| 18 | [When the game is gone and nobody is there](18-game-gone-nobody-there.md) | proposed, not decided |
 
 **Dependency order:** 1 → 2 → 4 → 5 → 6 → 7, with 3 independent and 7 needing
 both 3 and 6. Logging sits before the icon deliberately — the icon logs too,

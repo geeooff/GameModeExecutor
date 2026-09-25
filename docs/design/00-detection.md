@@ -70,7 +70,10 @@ restarted its own process mid-session and the writer never blinked. And the
 time Windows takes to release it after a game quits is **not a property of the
 title** — measured from 2.7 s to over two minutes for the same game on the
 same afternoon. [Lot 1](01-console-watcher.md) has those figures and the
-decision they led to.
+decision they led to. *Corrected 2026-09-25:* what it waits for is the
+user's next keyboard or mouse input after the game has exited — some twenty
+seconds after it, and 2 h 22 min once, with nobody at the machine;
+[Lot 18](18-game-gone-nobody-there.md).
 
 ## The limit found in the field, 2026-09-20
 

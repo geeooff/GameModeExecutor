@@ -95,26 +95,19 @@ carries on. Nothing about detection depends on it.
 
 ## The wait after you quit
 
-You will notice it, so it is worth explaining: the commands for "game stopped"
-can fire well after you have actually quit.
+The commands for "game stopped" can fire well after you have quit.
 
-Almost none of that delay belongs to this program. Windows keeps its "a game is
-running" signal alive for a while after the game itself is gone, and how long is
-genuinely unpredictable. Two titles, each measured twice on the same machine on
-the same afternoon:
+That wait is Windows'. It keeps its "a game is running" signal until you next
+touch the mouse or the keyboard after the game has closed, then lets go about
+twenty seconds later. Keep using the PC and it takes seconds; quit and walk
+away, and the commands wait for your return — two hours, once. No setting
+changes that. This program adds about two seconds, a grace period in case
+Windows briefly restarts the signal mid-session.
 
-| Title | First measurement | Second |
-| --- | --- | --- |
-| Starfield | 52 seconds | 3 seconds |
-| Battlefield 6 | 4 seconds | 2 minutes |
+Set `log_level = "debug"` and the log says when Windows let go and whether the
+game had already exited.
 
-Same game, same machine, wildly different. So there is no setting to tune and no
-table of games that would predict it. This program's own share is about two
-seconds — a deliberate grace period, in case Windows briefly restarts that
-signal mid-session, which does happen.
-
-Set `log_level = "debug"` and the log states plainly when Windows released the
-signal and whether the game had already exited by then.
+*Corrected 2026-09-25: this page called the wait unpredictable.*
 
 ## What it costs your machine
 
