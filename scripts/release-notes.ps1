@@ -65,7 +65,7 @@ $lines = @(
     '',
     "- **GameModeExecutor-$version.msi** -- the installer. Per user, no administrator prompt, into ``%LOCALAPPDATA%\Programs\GameModeExecutor``. It writes a starter configuration if you have none, registers the logon task and starts the watcher: the icon beside the clock is the confirmation. Then right-click it, *Edit configuration*.",
     "- **GameModeExecutor-$version.zip** -- the same executables, to unpack wherever you like. Then ``gamemode-executor init``, edit the file it wrote, ``gamemode-executor install-task``.",
-    "- **GameModeExecutor-recipes-$version.zip** -- the worked examples, one folder each, for this build: fan profiles with FanControl, a Windows power plan.",
+    "- **GameModeExecutor-recipes-$version.zip** -- the worked examples, one folder each, for this build.",
     '',
     "[Documentation for this exact build]($docs).",
     '',

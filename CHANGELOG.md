@@ -19,9 +19,11 @@ a section is written.
 
 - **GameModeExecutor** in the Start menu, from the installer: it starts the
   watcher again after *Quit*, and does nothing if one is already running.
-- The recipes come with each release as `GameModeExecutor-recipes-<version>.zip`,
-  and the FanControl recipe's scripts have a `.cmd` to double-click, which
-  runs them even where Windows refuses scripts.
+- The recipes as a separate zip on each release,
+  `GameModeExecutor-recipes-<version>.zip`.
+- The FanControl recipe links FanControl's site and its GitHub project, and
+  its scripts have a `.cmd` to double-click, which runs them even where
+  Windows refuses scripts.
 
 ### Changed
 
