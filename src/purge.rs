@@ -54,7 +54,9 @@ pub struct Layout {
     pub watcher_running: bool,
     pub task_registered: bool,
     pub config_candidates: Vec<PathBuf>,
-    pub log: Option<PathBuf>,
+    /// The log's folder: every log file in it goes, today's and the days
+    /// kept, and the single file of earlier versions.
+    pub log_dir: Option<PathBuf>,
     pub marker: Option<PathBuf>,
     pub fault_marker: Option<PathBuf>,
     pub local_dir: Option<PathBuf>,
@@ -92,8 +94,12 @@ impl Plan {
         for candidate in &layout.config_candidates {
             push(candidate);
         }
-        if let Some(log) = &layout.log {
-            push(log);
+        if let Some(dir) = &layout.log_dir {
+            let mut logs = logging::log_files(dir);
+            logs.sort();
+            for log in &logs {
+                push(log);
+            }
         }
         if let Some(marker) = &layout.marker {
             push(marker);
@@ -107,15 +113,14 @@ impl Plan {
         // places; a log sent elsewhere leaves its folder behind.
         let mut dirs = Vec::new();
         let ours = [&layout.local_dir, &layout.exe_dir];
-        if let Some(log) = &layout.log
-            && let Some(parent) = log.parent()
+        if let Some(logs) = &layout.log_dir
             && ours
                 .into_iter()
                 .flatten()
-                .any(|place| parent.starts_with(place) && parent != place)
-            && parent.is_dir()
+                .any(|place| logs.starts_with(place) && logs != place)
+            && logs.is_dir()
         {
-            dirs.push(parent.to_path_buf());
+            dirs.push(logs.clone());
         }
         for dir in [&layout.local_dir, &layout.roaming_dir]
             .into_iter()
@@ -211,14 +216,12 @@ pub fn discover(config: Option<&config::Config>, config_path: &Path) -> Layout {
         candidates.insert(0, config_path.to_path_buf());
     }
     let local_dir = config::local_dir();
-    let log_dir = config
-        .and_then(|config| config.general.log_dir.clone())
-        .or_else(|| local_dir.as_ref().map(|dir| dir.join("logs")));
+    let log_dir = config.map_or_else(config::default_log_dir, |config| config.general.log_dir());
     Layout {
         watcher_running: win::SingleInstance::is_held(service::INSTANCE),
         task_registered: task::exists(),
         config_candidates: candidates,
-        log: log_dir.map(|dir| dir.join(logging::LOG_FILE_NAME)),
+        log_dir,
         marker: local_dir.as_ref().map(|dir| dir.join(marker::FILE_NAME)),
         fault_marker: local_dir
             .as_ref()
@@ -333,13 +336,15 @@ mod tests {
         let exe_dir = root.join("program");
         touch(&roaming.join("config.toml"));
         touch(&local.join("logs").join("gamemode-executor.log"));
+        touch(&local.join("logs").join("gamemode-executor.2026-09-25.log"));
+        touch(&local.join("logs").join("notes.txt"));
         touch(&exe_dir.join("gamemode-executor.exe"));
         touch(&exe_dir.join("LICENSE"));
         let layout = Layout {
             watcher_running: false,
             task_registered: true,
             config_candidates: vec![exe_dir.join("config.toml"), roaming.join("config.toml")],
-            log: Some(local.join("logs").join("gamemode-executor.log")),
+            log_dir: Some(local.join("logs")),
             marker: Some(local.join(marker::FILE_NAME)),
             fault_marker: Some(local.join(marker::FAULT_FILE_NAME)),
             local_dir: Some(local.clone()),
@@ -352,12 +357,15 @@ mod tests {
 
         assert!(!plan.stop_watcher);
         assert!(plan.remove_task);
-        // The config next to the executable and the marker do not exist.
+        // The config next to the executable and the marker do not exist;
+        // every log file goes, dated or from before the rotation, and a
+        // file of someone else's in the folder stays.
         assert_eq!(
             plan.files,
             vec![
                 roaming.join("config.toml"),
-                local.join("logs").join("gamemode-executor.log")
+                local.join("logs").join("gamemode-executor.2026-09-25.log"),
+                local.join("logs").join("gamemode-executor.log"),
             ]
         );
         assert_eq!(
@@ -407,7 +415,7 @@ mod tests {
         let elsewhere = root.join("elsewhere");
         touch(&elsewhere.join("gamemode-executor.log"));
         let layout = Layout {
-            log: Some(elsewhere.join("gamemode-executor.log")),
+            log_dir: Some(elsewhere.clone()),
             local_dir: Some(root.join("local")),
             ..Layout::default()
         };

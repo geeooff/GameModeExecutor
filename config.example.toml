@@ -44,11 +44,17 @@ stop_actions_on_exit = true
 # "The log" in docs/reference.md.
 log_level = "info"
 
-# Where the log file goes. Defaults to %LOCALAPPDATA%\GameModeExecutor\logs --
+# Where the log files go. Defaults to %LOCALAPPDATA%\GameModeExecutor\logs --
 # Local rather than Roaming, because a log describes one machine's sessions and
 # has no business following you to another.
-# Timestamps are local time.
+# One file a day, gamemode-executor.YYYY-MM-DD.log. The day changes at midnight
+# UTC, not at your midnight; every line keeps its local time.
 #log_dir = 'C:\Users\me\AppData\Roaming\GameModeExecutor\logs'
+
+# How many days of log to keep, today's included; the oldest files go. A whole
+# number, 1 or more. Without this line, 7. Like log_dir, a change applies at
+# the next start.
+#log_days = 7
 
 # ---------------------------------------------------------------------------
 [detection]

@@ -61,6 +61,7 @@ every field; the essentials:
 stop_actions_on_exit = true   # run the stop commands if the watcher is stopped mid-game
 log_level = "info"            # error | warn | info | debug | trace
 #log_dir = 'C:\somewhere'     # default: %LOCALAPPDATA%\GameModeExecutor\logs
+#log_days = 7                 # days of log kept, today's included; 1 or more
 
 [detection]
 poll_interval = "2s"          # how often to look for a game while idle: the writer, or a game marked by hand
@@ -92,7 +93,7 @@ backslashes need no doubling.
 
 The watcher reads the file again whenever it changes — within about a
 second of a save, the log says `Configuration reloaded` — and applies
-everything but `log_dir`, which waits for the next start. A file it cannot
+everything but `log_dir` and `log_days`, which wait for the next start. A file it cannot
 use disables it until one it can is saved: the icon turns red and its
 menu's first line carries the reason; nothing runs meanwhile, and the exit
 codes below are for the commands, since the watcher no longer exits over
@@ -162,9 +163,15 @@ and shows the fault in its icon instead.
 
 ## The log
 
-`%LOCALAPPDATA%\GameModeExecutor\logs\gamemode-executor.log` unless `log_dir`
-says otherwise, local timestamps, written synchronously. Run the watcher in a
-terminal and the same lines appear there, coloured.
+In `%LOCALAPPDATA%\GameModeExecutor\logs` unless `log_dir` says otherwise, one
+file a day, `gamemode-executor.YYYY-MM-DD.log`, local timestamps, written
+synchronously. The day changes at midnight UTC — the date is
+`tracing-appender`'s, which offers no other — and the running watcher moves to
+the new file at its first line after it. The last `log_days` files are kept,
+7 by default, sometimes one more; the oldest go, the single
+`gamemode-executor.log` of earlier versions among them. *Open log* opens
+the file being written. Run the watcher in a terminal and the same lines
+appear there, coloured.
 
 One log serves two readers, and `log_level` is the dial between them:
 
@@ -202,7 +209,7 @@ Each line is `time  LEVEL  category  message`, with the category one of
 `setup` is written by `init`, `install-task`, `uninstall-task` and `stop`,
 whether a person typed them or the installer ran them: a configuration
 written, kept or replaced; a task registered, kept, replaced or removed; the
-watcher started or stopped. Two processes then write the one file — `stop`
+watcher started or stopped. Two processes then write the same file — `stop`
 and the watcher it stops — and their lines interleave whole: the file is
 opened for appending only, so Windows itself places each write at the end,
 and a line is one write.

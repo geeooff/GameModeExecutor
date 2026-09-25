@@ -11,24 +11,34 @@
 //! That is why an event carries a plain sentence as its message and everything
 //! technical as structured fields: the fields are printed only when the level
 //! asks for them. One event, two readings, nothing written twice.
+//!
+//! The file turns over each day, through `tracing-appender`, decided
+//! 2026-09-24 in `docs/design/17-log-rotation.md` over code of our own: one
+//! file a day, `gamemode-executor.YYYY-MM-DD.log`, the day being UTC's --
+//! the library's, with no way to ask for local time -- and the last
+//! `log_days` of them kept. The appender turns over at the first line after
+//! midnight UTC, in the running process: no restart, measured in the spike
+//! the same page records.
 
 use std::fmt::Write as _;
 use std::io::IsTerminal;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use anyhow::{Context, Result};
+use time::format_description::BorrowedFormatItem;
+use time::macros::format_description;
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level, Subscriber};
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::fmt::format::Writer;
-use tracing_subscriber::fmt::time::FormatTime;
+use tracing_subscriber::fmt::time::{FormatTime, LocalTime};
 use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::{LookupSpan, Registry};
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, fmt, reload};
-use windows::Win32::System::SystemInformation::GetLocalTime;
 
 /// The categories a line can belong to.
 ///
@@ -64,36 +74,28 @@ pub mod target {
     pub(super) const WIDTH: usize = 8;
 }
 
-/// Timestamps in the reader's own time zone.
+/// A line's timestamp, in the reader's own time zone, to the millisecond.
 ///
 /// The default is UTC, which files an event that happened at 00:46 under the
 /// previous day at 22:46. For a log whose only purpose is to be read by the
-/// person who just played a game, that is a defect. `GetLocalTime` avoids both
-/// the `time` crate's local-offset caveats and an extra feature flag, and
-/// matches the format `presence-probe` already writes.
-struct LocalTimestamp;
-
-impl FormatTime for LocalTimestamp {
-    fn format_time(&self, writer: &mut Writer<'_>) -> std::fmt::Result {
-        // SAFETY: `GetLocalTime` takes no input and only returns a struct.
-        let now = unsafe { GetLocalTime() };
-        write!(
-            writer,
-            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
-            now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond, now.wMilliseconds
-        )
-    }
-}
+/// person who just played a game, that is a defect. `tracing-subscriber`'s
+/// `LocalTime` writes it, through the `time` crate: its local-offset
+/// caveat is Unix's, and on Windows it asks
+/// `SystemTimeToTzSpecificLocalTime`, which is thread-safe -- checked
+/// 2026-09-25, `docs/design/17-log-rotation.md`. It matches the format
+/// `presence-probe` writes.
+const LINE_TIME: &[BorrowedFormatItem<'static>] =
+    format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]");
 
 /// The local time as the log writes it, to the second. For anything that
 /// wants to be read next to the log and agree with it.
 pub fn local_now() -> String {
-    // SAFETY: `GetLocalTime` takes no input and only returns a struct.
-    let now = unsafe { GetLocalTime() };
-    format!(
-        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-        now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond
-    )
+    // Only Unix can fail to tell the offset; UTC would at least be a time.
+    let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    now.format(format_description!(
+        "[year]-[month]-[day] [hour]:[minute]:[second]"
+    ))
+    .unwrap_or_default()
 }
 
 const DIM: &str = "\x1b[2m";
@@ -140,7 +142,7 @@ where
         if self.ansi {
             write!(writer, "{DIM}")?;
         }
-        LocalTimestamp.format_time(&mut writer)?;
+        LocalTime::new(LINE_TIME).format_time(&mut writer)?;
         if self.ansi {
             write!(writer, "{RESET}")?;
         }
@@ -212,9 +214,76 @@ impl Visit for Collected {
     }
 }
 
-/// The one file the log is written to. Named here rather than inline because
-/// the tray's "Open log" entry has to point at the same one.
-pub const LOG_FILE_NAME: &str = "gamemode-executor.log";
+/// The start and the end of every log file's name; the appender puts the
+/// date between them. `log` last, so a double-click opens it as text.
+const LOG_PREFIX: &str = "gamemode-executor";
+const LOG_SUFFIX: &str = "log";
+
+/// Whether `name` is one of the log's files, by the rule `tracing-appender`
+/// prunes by: this prefix and this suffix. The single file of earlier
+/// versions, `gamemode-executor.log`, is one too: the appender counts it
+/// among the files it keeps and deletes it when it is the oldest.
+pub fn is_log_file(name: &str) -> bool {
+    name.starts_with(LOG_PREFIX) && name.ends_with(LOG_SUFFIX)
+}
+
+/// Every log file in `dir`, in no particular order. For `purge`, which
+/// removes them all.
+pub fn log_files(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+        .filter(|entry| entry.file_name().to_str().is_some_and(is_log_file))
+        .map(|entry| entry.path())
+        .collect()
+}
+
+/// The file being written: the log file modified last.
+///
+/// `RollingFileAppender` does not say which file it writes, and working
+/// its name out here would copy its date format and its clock. It opens a
+/// file only to write a line in it, though, so the one written last is the
+/// one in use -- by whichever process wrote last, which is the same file.
+pub fn current_log(dir: &Path) -> Option<PathBuf> {
+    log_files(dir)
+        .into_iter()
+        .filter_map(|path| {
+            let modified = path.metadata().and_then(|meta| meta.modified()).ok()?;
+            Some((modified, path))
+        })
+        .max_by_key(|(modified, _)| *modified)
+        .map(|(_, path)| path)
+}
+
+/// What *Open log* opens: the file being written, or the folder when it
+/// holds no log file at all.
+pub fn to_open(dir: &Path) -> PathBuf {
+    current_log(dir).unwrap_or_else(|| dir.to_path_buf())
+}
+
+/// The appender the file layer writes through.
+///
+/// `rotation` is [`Rotation::DAILY`] everywhere but in `presence-probe
+/// log-turnover`, which runs the same appender turning over each minute:
+/// the library's rotations differ in their period and nothing else.
+///
+/// It keeps one file more than `log_days`. An appender built on a day that
+/// has its file already -- any command, any restart -- prunes to one below
+/// its maximum, to make room for a file it then does not create; so with
+/// `log_days + 1` the folder holds `log_days` or `log_days + 1` files, never
+/// fewer. Measured in the spike, `docs/design/17-log-rotation.md`.
+pub fn appender(dir: &Path, log_days: u32, rotation: Rotation) -> Result<RollingFileAppender> {
+    RollingFileAppender::builder()
+        .rotation(rotation)
+        .filename_prefix(LOG_PREFIX)
+        .filename_suffix(LOG_SUFFIX)
+        .max_log_files(log_days as usize + 1)
+        .build(dir)
+        .with_context(|| format!("cannot open the log in `{}`", dir.display()))
+}
 
 /// Record a panic in the log before the process dies.
 ///
@@ -315,7 +384,8 @@ pub fn set_level(level: &str) {
     }
 }
 
-/// Initialise logging. `RUST_LOG` overrides `level` when set.
+/// Initialise logging. `RUST_LOG` overrides `level` when set; `log_days`
+/// is how many days of files the folder keeps.
 ///
 /// `console` says whether this process has a console at all, which is a
 /// property of the binary rather than a preference: `gamemode-executor` is a
@@ -326,7 +396,7 @@ pub fn set_level(level: &str) {
 /// `--hidden` -- and that conflated two unrelated things: whether a window is
 /// visible, and whether anything is written to it. The result was a visible
 /// window that stayed blank forever.
-pub fn init(level: &str, log_dir: Option<&Path>, console: bool) -> Result<()> {
+pub fn init(level: &str, log_dir: Option<&Path>, log_days: u32, console: bool) -> Result<()> {
     let verbose = Arc::new(AtomicBool::new(verbose_for(level)));
     let from_env = std::env::var_os("RUST_LOG").is_some();
     let filter =
@@ -335,37 +405,28 @@ pub fn init(level: &str, log_dir: Option<&Path>, console: bool) -> Result<()> {
 
     let file_layer = match log_dir {
         Some(dir) => {
-            std::fs::create_dir_all(dir)
-                .with_context(|| format!("cannot create log directory `{}`", dir.display()))?;
-            // One file, not a daily rotation. This log gains a handful of lines
-            // per game session, and rotation only bought filenames dated in UTC
-            // -- the very confusion the local timestamps above remove.
+            // Written synchronously, on purpose: the appender itself is the
+            // writer, not `tracing-appender`'s non-blocking worker. Buffering
+            // on a background thread would save nothing at this volume and
+            // costs the only lines that really matter: the release profile
+            // aborts on panic, so nothing is dropped and a buffered crash
+            // report is never flushed.
             //
-            // Written synchronously, on purpose. Buffering it on a background
-            // thread would save nothing at this volume and costs the only lines
-            // that really matter: the release profile aborts on panic, so
-            // nothing is dropped and a buffered crash report is never flushed.
-            //
-            // Two processes write this file at once when `stop` or the
-            // installer asks a running watcher to quit. Append mode opens it
-            // with FILE_APPEND_DATA and not FILE_WRITE_DATA, so Windows
-            // places every WriteFile at the end of the file itself, and the
-            // formatter hands a whole line to one write: lines interleave,
-            // never tear. Measured on 2026-09-18 with 80 processes writing at
-            // once -- 80 lines, all intact.
-            let path = dir.join(LOG_FILE_NAME);
-            let file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&path)
-                .with_context(|| format!("cannot open the log file `{}`", path.display()))?;
+            // Two processes write the same file at once when `stop` or the
+            // installer asks a running watcher to quit. The appender opens
+            // it in append mode, FILE_APPEND_DATA and not FILE_WRITE_DATA, so
+            // Windows places every WriteFile at the end of the file itself,
+            // and the formatter hands a whole line to one write: lines
+            // interleave, never tear. Measured on 2026-09-18 with 80
+            // processes writing at once, and again through the appender in
+            // the spike of 2026-09-25.
             Some(
                 fmt::layer()
                     .event_format(Line {
                         verbose: Arc::clone(&verbose),
                         ansi: false,
                     })
-                    .with_writer(std::sync::Mutex::new(file)),
+                    .with_writer(appender(dir, log_days, Rotation::DAILY)?),
             )
         }
         None => None,
@@ -471,6 +532,22 @@ mod tests {
         assert!(!line.contains("Some("), "{line}");
     }
 
+    /// The timestamp as it has always read: local date and time, to the
+    /// millisecond, the day the same as `local_now`'s.
+    #[test]
+    fn a_line_starts_with_the_local_time_to_the_millisecond() {
+        let line = render(false, || {
+            tracing::info!(target: target::WATCHER, "x");
+        });
+        let stamp = &line[..23];
+        let shape: String = stamp
+            .chars()
+            .map(|c| if c.is_ascii_digit() { '0' } else { c })
+            .collect();
+        assert_eq!(shape, "0000-00-00 00:00:00.000", "{line}");
+        assert_eq!(&stamp[..10], &local_now()[..10], "{line}");
+    }
+
     #[test]
     fn the_category_is_a_word_not_a_module_path() {
         let line = render(false, || {
@@ -495,14 +572,6 @@ mod tests {
     /// it is worth knowing it is written and what it says.
     ///
     /// This runs under unwinding, which the test profile uses. That the hook
-    /// also runs under `panic = "abort"` -- the release profile, where nothing
-    /// is dropped and the log's background writer never flushes -- was checked
-    /// separately with a standalone binary built `-C panic=abort`, and is why
-    /// the hook writes to the file directly instead of going through `tracing`.
-    /// The line a crash leaves behind is the only thing anyone will have, so
-    /// it is worth knowing it is written and what it says.
-    ///
-    /// This runs under unwinding, which the test profile uses. That the hook
     /// also runs under `panic = "abort"` -- the release profile -- was checked
     /// separately with a standalone binary built `-C panic=abort`, and is why
     /// the log is written synchronously rather than buffered on a thread that
@@ -521,6 +590,104 @@ mod tests {
         assert!(written.contains(crate::build_info::VERSION), "{written}");
         // And it belongs in the same category as the rest of the watcher's life.
         assert!(written.contains(target::WATCHER), "{written}");
+    }
+
+    /// A scratch folder of its own for each test that touches files.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "gamemode-executor-logging-{}-{name}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_log_files_are_ours_by_prefix_and_suffix() {
+        assert!(is_log_file("gamemode-executor.2026-09-25.log"));
+        assert!(
+            is_log_file("gamemode-executor.log"),
+            "the file before rotation"
+        );
+        assert!(!is_log_file("gamemode-executor.2026-09-25.txt"));
+        assert!(!is_log_file("notes.log"));
+    }
+
+    #[test]
+    fn the_file_being_written_is_the_log_file_modified_last() {
+        let dir = scratch("current");
+        assert_eq!(to_open(&dir), dir, "no log file yet: the folder");
+        let now = std::time::SystemTime::now();
+        for (name, age) in [
+            ("gamemode-executor.2026-09-24.log", 60),
+            ("gamemode-executor.2026-09-25.log", 10),
+            ("gamemode-executor.log", 3600),
+            ("notes.txt", 0),
+        ] {
+            let file = std::fs::File::create(dir.join(name)).unwrap();
+            file.set_modified(now - std::time::Duration::from_secs(age))
+                .unwrap();
+        }
+        assert_eq!(
+            current_log(&dir),
+            Some(dir.join("gamemode-executor.2026-09-25.log"))
+        );
+        assert_eq!(to_open(&dir), dir.join("gamemode-executor.2026-09-25.log"));
+        let mut all = log_files(&dir);
+        all.sort();
+        assert_eq!(all.len(), 3, "{all:?}");
+    }
+
+    /// The appender as the file layer builds it: the oldest files pruned to
+    /// make `log_days` or one more, the line in the file it opens, and that
+    /// file the one *Open log* finds.
+    #[test]
+    fn the_appender_keeps_log_days_and_writes_where_open_log_looks() {
+        let dir = scratch("appender");
+        // Created one after the other, so their creation times, which the
+        // library sorts by, are in this order.
+        let old = [
+            "gamemode-executor.log",
+            "gamemode-executor.2000-01-01.log",
+            "gamemode-executor.2000-01-02.log",
+            "gamemode-executor.2000-01-03.log",
+        ];
+        for name in old {
+            std::fs::write(dir.join(name), "planted\n").unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        let layer = fmt::layer()
+            .event_format(Line {
+                verbose: Arc::new(AtomicBool::new(false)),
+                ansi: false,
+            })
+            .with_writer(appender(&dir, 2, Rotation::DAILY).unwrap());
+        let subscriber = tracing_subscriber::registry().with(layer);
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!(target: target::WATCHER, "written through the appender");
+        });
+
+        let mut kept: Vec<String> = log_files(&dir)
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        kept.sort();
+        assert_eq!(
+            kept.len(),
+            3,
+            "two days, today's included, and one more: {kept:?}"
+        );
+        assert!(kept.contains(&old[2].to_owned()) && kept.contains(&old[3].to_owned()));
+        let written = current_log(&dir).unwrap();
+        assert!(
+            std::fs::read_to_string(&written)
+                .unwrap()
+                .contains("written through the appender"),
+            "{}",
+            written.display()
+        );
     }
 
     #[test]

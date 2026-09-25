@@ -26,8 +26,10 @@ humantime = "2"
 humantime-serde = "1"
 serde = { version = "1", features = ["derive"] }
 toml = "1"
+time = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "local-time"] }
 
 [target.'cfg(windows)'.dependencies]
 # Microsoft's own bindings, and nothing else for Win32. Every feature below is

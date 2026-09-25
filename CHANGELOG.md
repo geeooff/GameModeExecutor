@@ -27,6 +27,11 @@ a section is written.
 
 ### Changed
 
+- The log turns over each day: one file a day,
+  `gamemode-executor.YYYY-MM-DD.log`, the last seven kept, or as many as
+  `log_days` in the configuration says. The day changes at midnight UTC;
+  the lines keep local time. *Open log* opens today's file, `purge` removes
+  them all, and the old `gamemode-executor.log` goes with the oldest.
 - Telling a game from its launcher by what the graphics card is drawing no
   longer adds some 3.5 MB to the watcher's memory for the rest of its run:
   the counters are read the lighter way Windows offers for them.

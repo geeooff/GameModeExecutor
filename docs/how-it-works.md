@@ -263,8 +263,9 @@ state, and *Edit configuration* is right there. While it is frozen a game
 that ends gets no stop commands, and the session marker remembers that: the
 moment a usable file is saved, the new engine settles what was left — the
 stop commands run if the game is gone, the session resumes if it is still
-on. `log_dir` is the one setting a reload cannot apply, because the log is
-already open; it takes effect at the next start, and the log says so.
+on. `log_dir` and `log_days` are the settings a reload cannot apply, because
+the log is already open; they take effect at the next start, and the log
+says so.
 
 ## Removing it
 
@@ -343,7 +344,7 @@ silent and respect your quiet hours; nothing else is ever said.
 | --- | --- |
 | The program | `%LOCALAPPDATA%\Programs\GameModeExecutor` from the installer — the Windows convention for a per-user install, and it stays writable, which `C:\Program Files` would not. From the zip, wherever you put it |
 | Configuration | `config.toml` next to the executable if there is one, otherwise `%APPDATA%\GameModeExecutor\config.toml` |
-| Log | `%LOCALAPPDATA%\GameModeExecutor\logs\gamemode-executor.log`, one file, local timestamps |
+| Log | `%LOCALAPPDATA%\GameModeExecutor\logs`, one file a day, `gamemode-executor.YYYY-MM-DD.log`, the last seven kept; the day changes at midnight UTC, the lines keep local time |
 | Scheduled tasks | a `GameModeExecutor` folder in Task Scheduler, holding `Watcher` and anything a recipe added |
 | A release being installed | `%LOCALAPPDATA%\GameModeExecutor\updates\`, emptied once the new version has started |
 
