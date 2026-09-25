@@ -4,6 +4,9 @@
 switches to your gaming ones the moment Windows sees a game start — then back
 when you stop.
 
+FanControl is Rémi Mercier's work: [getfancontrol.com](https://getfancontrol.com/),
+and its releases on [GitHub](https://github.com/Rem0o/FanControl.Releases).
+
 FanControl calls a saved set of fan curves a **configuration** — that is the
 word its menus use and the name of the folder they land in — and so does this
 guide. To keep the two apart, *this program's* `config.toml` is always called

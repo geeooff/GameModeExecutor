@@ -19,7 +19,7 @@ no known defects. Closed 2026-09-10.
 - [x] Real game sessions: detected, named, commands run on both edges
 - [x] Logon task confirmed across a reboot
 - [x] Measured what happens between closing a game and the writer being released
-- [-] Act on the game process exiting as well as the writer — dropped, see below
+- [-] Act on the game process exiting as well as the writer — dropped, see below; reopened as a proposal on 2026-09-25, [Lot 18](18-game-gone-nobody-there.md)
 
 ## Reaching a program that requires administrator rights
 

@@ -19,15 +19,16 @@ session rather than when the code compiles. Each has its own page.
 | 5 | [A Windows program with no window](05-windowless-watcher.md) | done |
 | 6 | [Notification area icon](06-notification-icon.md) | done |
 | 7 | [Icon, tooltip and menu as one state](07-tray-state.md) | done |
-| 8 | [Distribution](08-distribution.md) | done |
-| 9 | [Robustness](09-robustness.md) | partly done; faults and live reload done, two smaller items open |
-| 10 | [Configuration window](10-configuration-window.md) | proposed |
+| 8 | [Distribution](08-distribution.md) | done; three proposals from the second machine undecided |
+| 9 | [Robustness](09-robustness.md) | partly done; faults and live reload done, three smaller items open |
+| 10 | [Configuration window](10-configuration-window.md) | proposed; set aside until a UX/UI analysis refines it |
 | 11 | [Documentation for the people who use it](11-user-documentation.md) | done |
 | 12 | [Editing the configuration without breaking it](12-editing-on-a-copy.md) | proposed |
 | 13 | [Updating](13-updating.md) | done |
 | 14 | [Release notes people can read](14-release-notes.md) | done |
 | 15 | [Games Windows knows only from you](15-marked-games.md) | done |
 | 16 | [What the watcher keeps](16-footprint.md) | done |
+| 17 | [A log that turns over each day](17-log-rotation.md) | proposed; decided on `tracing-appender` |
 | 18 | [When the game is gone and nobody is there](18-game-gone-nobody-there.md) | proposed, not decided |
 
 **Dependency order:** 1 → 2 → 4 → 5 → 6 → 7, with 3 independent and 7 needing
