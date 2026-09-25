@@ -30,7 +30,22 @@ taken by the maintainer:
 - [x] A `.cmd` beside each of the FanControl recipe's scripts, running it with `-ExecutionPolicy Bypass` — built 2026-09-25, CRLF kept by `.gitattributes`
 - [x] A Start menu entry from the package, starting the windowless executable; a watcher already running makes it say so in the log at `info` rather than as an error — built 2026-09-25
 - [x] *Writing your own* removed from the recipes, at the maintainer's remark: the starter configuration's comments and the reference already say all of it — 2026-09-25
-- [ ] Verified: the package uninstalled and reinstalled from `dist\`, the entry clicked with and without a watcher running; the recipes zip downloaded from a build and its `.cmd` double-clicked
+- [x] Verified: the package uninstalled and reinstalled from `dist\`, the entry clicked with and without a watcher running; the recipes zip's `.cmd` double-clicked — 2026-09-25, below; a zip carrying Windows' download mark is not measured
+
+**The field check, 2026-09-25**, on the maintainer's machine, the package
+built at `6088eb90`: uninstalled at 11:28 (watcher stopped, logon task
+removed), installed at 11:29:06 (configuration kept, task registered,
+watcher started). The Start menu entry clicked at 11:29:39 with the watcher
+running logged *GameModeExecutor is already running in this session; this
+start stops here* at `info`, nothing on screen; after *Quit* at 11:30:29,
+clicked again at 11:30:50, it started the watcher. `install-tasks.cmd`,
+double-clicked from `dist\`, ran the script — its first step, the elevation
+prompt, came up; refused, it said *Elevation was refused. Nothing was
+changed.* and the two FanControl tasks were as before. The script elevates
+before it lists the configurations, by design; the check's own expectation
+said otherwise and was wrong. The folder came from a local build, so it
+carried no download mark: whether Windows questions a `.cmd` from a
+downloaded zip is left to the first release that ships one.
 
 **Done when** a tag alone produces a release a stranger can install from, and
 the two artefacts on it were built by the workflow from that tag's commit.
