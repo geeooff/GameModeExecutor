@@ -3,3 +3,5 @@
 *.ico binary
 # Task Scheduler exports: UTF-16 with a BOM and CRLF, kept byte for byte.
 *.xml -text
+# cmd.exe reads batch files with CRLF; LF ones misread labels and long lines.
+*.cmd text eol=crlf

@@ -2,7 +2,8 @@
 #
 # Per-user, no elevation, no UI: the two executables, the license and the
 # readme -- the same four files the zip carries -- go to
-# %LOCALAPPDATA%\Programs\GameModeExecutor. The user's configuration, log,
+# %LOCALAPPDATA%\Programs\GameModeExecutor, and an entry in the user's Start
+# menu starts the watcher. The user's configuration, log,
 # marker and scheduled tasks are not components, so no repair, upgrade or
 # uninstall reaches them. Five custom actions, all the program's own
 # commands and all idempotent, run through the windowless executable:
@@ -168,6 +169,8 @@ try {
         LaunchCondition        = 'Condition, Description'
         CustomAction           = 'Action, Type, Source, Target, ExtendedType'
         Icon                   = 'Name, Data'
+        Registry               = 'Registry, Root, Key, Name, Value, Component_'
+        Shortcut               = 'Shortcut, Directory_, Name, Component_, Target, Arguments, Description, Hotkey, Icon_, IconIndex, ShowCmd, WkDir'
         _Validation            = 'Table, Column, Nullable, MinValue, MaxValue, KeyTable, KeyColumn, Category, Set, Description'
         _Streams               = 'Name, Data'
     }
@@ -206,6 +209,9 @@ try {
     Exec-Sql "CREATE TABLE ``LaunchCondition`` (``Condition`` CHAR(255) NOT NULL, ``Description`` CHAR(255) NOT NULL LOCALIZABLE PRIMARY KEY ``Condition``)"
     Exec-Sql "CREATE TABLE ``CustomAction`` (``Action`` CHAR(72) NOT NULL, ``Type`` SHORT NOT NULL, ``Source`` CHAR(72), ``Target`` CHAR(255), ``ExtendedType`` LONG PRIMARY KEY ``Action``)"
     Exec-Sql "CREATE TABLE ``Icon`` (``Name`` CHAR(72) NOT NULL, ``Data`` OBJECT NOT NULL PRIMARY KEY ``Name``)"
+    # Both as the SDK's schema database (orca.dat) declares them, read 2026-09-25.
+    Exec-Sql "CREATE TABLE ``Registry`` (``Registry`` CHAR(72) NOT NULL, ``Root`` SHORT NOT NULL, ``Key`` CHAR(255) NOT NULL LOCALIZABLE, ``Name`` CHAR(255) LOCALIZABLE, ``Value`` LONGCHAR LOCALIZABLE, ``Component_`` CHAR(72) NOT NULL PRIMARY KEY ``Registry``)"
+    Exec-Sql "CREATE TABLE ``Shortcut`` (``Shortcut`` CHAR(72) NOT NULL, ``Directory_`` CHAR(72) NOT NULL, ``Name`` CHAR(128) NOT NULL LOCALIZABLE, ``Component_`` CHAR(72) NOT NULL, ``Target`` CHAR(72) NOT NULL, ``Arguments`` CHAR(255), ``Description`` CHAR(255) LOCALIZABLE, ``Hotkey`` SHORT, ``Icon_`` CHAR(72), ``IconIndex`` SHORT, ``ShowCmd`` SHORT, ``WkDir`` CHAR(72), ``DisplayResourceDLL`` CHAR(100), ``DisplayResourceId`` LONG, ``DescriptionResourceDLL`` CHAR(100), ``DescriptionResourceId`` LONG PRIMARY KEY ``Shortcut``)"
     Exec-Sql "CREATE TABLE ``_Validation`` (``Table`` CHAR(32) NOT NULL, ``Column`` CHAR(32) NOT NULL, ``Nullable`` CHAR(4) NOT NULL, ``MinValue`` LONG, ``MaxValue`` LONG, ``KeyTable`` CHAR(255), ``KeyColumn`` SHORT, ``Category`` CHAR(32), ``Set`` CHAR(255), ``Description`` CHAR(255) PRIMARY KEY ``Table``, ``Column``)"
 
     # Per-user takes all three, measured 2026-09-17 on an administrator
@@ -270,6 +276,23 @@ try {
             Insert 'MsiFileHash' @($f.Key, 0, $parts[0], $parts[1], $parts[2], $parts[3])
         }
     }
+    # The Start menu entry: the windowless executable, which starts the
+    # watcher, or says in the log that one is already running and stops --
+    # Quit's undo, for someone who does not know the logon task is there
+    # (the second machine, 2026-09-18). ProgramMenuFolder is the user's own
+    # Start menu in a per-user install, so its component takes an HKCU value
+    # as key path, as ICE38 and ICE43 require of anything in the profile.
+    # The target names the folder rather than the file key: [#file] would
+    # tie this component to the executable's, which ICE69 reports.
+    Insert 'Directory' @('ProgramMenuFolder', 'TARGETDIR', '.')
+    Insert 'Component' @('C_StartMenu', (New-NameGuid 'component/start-menu'), 'ProgramMenuFolder', 4, $null, 'R_StartMenu')
+    Insert 'Registry' @('R_StartMenu', 1, 'Software\GameModeExecutor', 'StartMenuEntry', '#1', 'C_StartMenu')
+    $shortcutIcon = if ($properties.Contains('ARPPRODUCTICON')) { $properties.ARPPRODUCTICON } else { $null }
+    Insert 'Shortcut' @('S_Watcher', 'ProgramMenuFolder', 'GAMEMO~1|GameModeExecutor', 'C_StartMenu',
+        '[INSTALLDIR]gamemode-executorw.exe', $null, 'Starts the watcher, if it is not running already.',
+        $null, $shortcutIcon, 0, 1, 'INSTALLDIR')
+    Insert 'FeatureComponents' @('Main', 'C_StartMenu')
+
     Insert 'Media' @(1, $sequence, $null, '#files.cab', $null, $null)
     Insert '_Streams' @('files.cab', "stream:$cab")
 
@@ -317,8 +340,10 @@ try {
             @('InstallValidate', 1400), @('InstallInitialize', 1500),
             @('RemoveExistingProducts', 1510),
             @('ProcessComponents', 1600), @('UnpublishFeatures', 1800),
+            @('RemoveRegistryValues', 2600), @('RemoveShortcuts', 3200),
             @('UnregisterTask', 3400), @('RemoveFiles', 3500), @('InstallFiles', 4000),
             @('InitConfig', 4100), @('RegisterTask', 4200),
+            @('CreateShortcuts', 4500), @('WriteRegistryValues', 5000),
             @('RegisterUser', 6000), @('RegisterProduct', 6100),
             @('PublishFeatures', 6300), @('PublishProduct', 6400),
             @('InstallFinalize', 6600)
@@ -337,6 +362,7 @@ try {
         )
         AdvtExecuteSequence = @(
             @('CostInitialize', 800), @('CostFinalize', 1000), @('InstallValidate', 1400), @('InstallInitialize', 1500),
+            @('CreateShortcuts', 4500),
             @('PublishFeatures', 6300), @('PublishProduct', 6400), @('InstallFinalize', 6600)
         )
     }
@@ -362,7 +388,8 @@ try {
     }
 
     # The column specifications ICE03 checks against, for the tables above
-    # only. Copied from the SDK's schema database (orca.dat) on 2026-09-17.
+    # only. Copied from the SDK's schema database (orca.dat) on 2026-09-17,
+    # Registry and Shortcut on 2026-09-25.
     $validation = @'
 _Validation | Table | N |  |  |  |  | Identifier |  | Name of table
 _Validation | Column | N |  |  |  |  | Identifier |  | Name of column
@@ -446,6 +473,28 @@ Upgrade | Remove | Y |  |  |  |  | Formatted |  | The list of features to remove
 Upgrade | UpgradeCode | N |  |  |  |  | Guid |  | The UpgradeCode GUID belonging to the products in this set.
 Upgrade | VersionMax | Y |  |  |  |  | Text |  | The maximum ProductVersion of the products in this set.  The set may or may not include products with this particular version.
 Upgrade | VersionMin | Y |  |  |  |  | Text |  | The minimum ProductVersion of the products in this set.  The set may or may not include products with this particular version.
+Registry | Component_ | N |  |  | Component | 1 | Identifier |  | Foreign key into the Component table referencing component that controls the installing of the registry value.
+Registry | Key | N |  |  |  |  | RegPath |  | The key for the registry value.
+Registry | Name | Y |  |  |  |  | Formatted |  | The registry value name.
+Registry | Registry | N |  |  |  |  | Identifier |  | Primary key, non-localized token.
+Registry | Root | N | -1 | 3 |  |  |  |  | The predefined root key for the registry value, one of rrkEnum.
+Registry | Value | Y |  |  |  |  | Formatted |  | The registry value.
+Shortcut | Arguments | Y |  |  |  |  | Formatted |  | The command-line arguments for the shortcut.
+Shortcut | Component_ | N |  |  | Component | 1 | Identifier |  | Foreign key into the Component table denoting the component whose selection gates the the shortcut creation/deletion.
+Shortcut | Description | Y |  |  |  |  | Text |  | The description for the shortcut.
+Shortcut | DescriptionResourceDLL | Y |  |  |  |  | Formatted |  | Formatted string value representing the full path to the language neutral file that contains the MUI manifest for the shortcut description.
+Shortcut | DescriptionResourceId | Y | 0 | 2147483647 |  |  |  |  | The description index for the shortcut.
+Shortcut | Directory_ | N |  |  | Directory | 1 | Identifier |  | Foreign key into the Directory table denoting the directory where the shortcut file is created.
+Shortcut | DisplayResourceDLL | Y |  |  |  |  | Formatted |  | Formatted string value representing the full path to the language neutral file that contains the MUI manifest for the shortcut display name.
+Shortcut | DisplayResourceId | Y | 0 | 2147483647 |  |  |  |  | The display name index for the shortcut.
+Shortcut | Hotkey | Y | 0 | 32767 |  |  |  |  | The hotkey for the shortcut. It has the virtual-key code for the key in the low-order byte, and the modifier flags in the high-order byte.
+Shortcut | Icon_ | Y |  |  | Icon | 1 | Identifier |  | Foreign key into the File table denoting the external icon file for the shortcut.
+Shortcut | IconIndex | Y | -32767 | 32767 |  |  |  |  | The icon index for the shortcut.
+Shortcut | Name | N |  |  |  |  | Filename |  | The name of the shortcut to be created.
+Shortcut | Shortcut | N |  |  |  |  | Identifier |  | Primary key, non-localized token.
+Shortcut | ShowCmd | Y |  |  |  |  |  | 1;3;7 | The show command for the application window.The following values may be used.
+Shortcut | Target | N |  |  |  |  | Shortcut |  | The shortcut target. This is usually a property that is expanded to a file or a folder that the shortcut points to.
+Shortcut | WkDir | Y |  |  |  |  | Identifier |  | Name of property defining location of working directory.
 '@
     foreach ($line in $validation -split "`n") {
         $line = $line.Trim()
