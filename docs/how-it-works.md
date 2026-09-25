@@ -17,6 +17,8 @@ Windows ships a component for the Game Bar — the overlay you get with `Win+G`.
 When Windows decides a game is running, it starts a small process called
 `GameBarPresenceWriter.exe`. When the game is gone, Windows shuts that process
 down. That process existing *is* Windows' own verdict that you are playing.
+Windows may wait for the game to first come to the front: Battlefield 6, left
+loading behind another window, counted only once it was brought forward.
 
 So the watcher does something very simple: it watches whether that process
 exists.
@@ -89,25 +91,26 @@ A real session looked like this:
 17:53:35  Game identified more precisely: bf6.exe (74% of the rendering)
 ```
 
-This only ever changes the *name*. If the counters cannot be read, or the game
-is still on a loading screen, the watcher keeps whatever matched first and
-carries on. Nothing about detection depends on it.
+Still on a loading screen, nothing drawing yet? It asks again every twenty
+seconds, for two minutes at most, then keeps whatever matched first. This
+only ever changes the *name*: nothing about detection depends on it.
 
 ## The wait after you quit
 
 The commands for "game stopped" can fire well after you have quit.
 
-That wait is Windows'. It keeps its "a game is running" signal until you next
-touch the mouse or the keyboard after the game has closed, then lets go about
-twenty seconds later. Keep using the PC and it takes seconds; quit and walk
-away, and the commands wait for your return — two hours, once. No setting
-changes that. This program adds about two seconds, a grace period in case
-Windows briefly restarts the signal mid-session.
+That wait is Windows'. It never lets go of its "a game is running" signal
+while nobody touches the PC: quit and walk away, and the commands wait for
+your return — two hours, once. At the keyboard it has taken from under a
+second to a minute and a half. No setting changes that. This program adds
+about two seconds, a grace period in case Windows briefly restarts the
+signal mid-session.
 
 Set `log_level = "debug"` and the log says when Windows let go and whether the
 game had already exited.
 
-*Corrected 2026-09-25: this page called the wait unpredictable.*
+*Corrected 2026-09-25: this page called the wait unpredictable, then said
+about twenty seconds.*
 
 ## What it costs your machine
 
@@ -119,7 +122,7 @@ size* column in *Details*; its *Memory* column shows less.
 | --- | --- | --- |
 | Waiting for a game, looking every two seconds | 0.03 % of one core | about 2 MB |
 | During a game | nothing measurable: it waits for Windows to wake it | unchanged |
-| Naming a game from what the graphics card draws, once a session | | about 0.25 MB, once |
+| Naming a game from what the graphics card draws, early in a session | | about 0.25 MB, once; asking again adds nothing |
 | The icon's menu, the first time it opens | | about 1 MB, once — Windows' cost for a program's first menu |
 | *Edit configuration*, *Open log*, *Documentation* | | nothing that stays: a short-lived helper opens them and takes the cost with it |
 | *Check for updates* | | about 1 MB, until the watcher next starts |

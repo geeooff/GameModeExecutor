@@ -131,4 +131,8 @@ next start — [Lot 9](09-robustness.md).
 
 No icon, no menu, nothing drawn. No `ShutdownBlockReasonCreate` either
 ("Restoring the fan profile…" on Windows' shutdown screen) — worth having,
-belongs with the rest of the shutdown work in Lot 9.
+belongs with the rest of the shutdown work in Lot 9. *Corrected
+2026-09-25:* not worth having. Windows never lists a program without a
+visible window on that screen, registering a reason is what would put it
+there, and nothing is restored at session end to announce; decided against
+in [Lot 9](09-robustness.md).

@@ -111,6 +111,9 @@ the party chat change nothing. The per-title theory stays dead; what the two
 sessions of each title above differed in is most likely when the maintainer
 next touched the machine, which was not noted then — inferred, not
 measured. [Lot 18](18-game-gone-nobody-there.md) has the details.
+*Corrected the same afternoon:* not twenty seconds. With the maintainer at
+the keyboard, six titles took 0.6 s to 85 s; only "never while nobody
+touches the machine" stands.
 
 The second sessions were measured from independent sources, since the log did
 not yet record the writer's exit: Steam's `gameoverlay_ui.txt` for Battlefield

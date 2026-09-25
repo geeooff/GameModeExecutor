@@ -35,6 +35,12 @@ a section is written.
   file: a short-lived helper opens them and takes that cost with it when it
   ends.
 
+### Fixed
+
+- A game still on its loading screen twenty seconds in no longer keeps its
+  launcher's name for the whole session: the watcher asks again every
+  twenty seconds, for two minutes at most.
+
 ### Removed
 
 - The *Writing your own* recipe: the starter configuration's comments and the

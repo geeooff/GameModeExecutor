@@ -23,12 +23,33 @@ input from the maintainer's own notes:
 | 2026-09-24, A | hands off four minutes, screen on, then the mouse at about 02:37 | 02:33:08 | 02:37:22 | **4 min 14 s** |
 | 2026-09-24, B | the machine used throughout | 16:53:04 | 16:53:20 | **16.8 s** |
 | 2026-09-25, C | as A, an Xbox party chat open and pinned in front; the mouse at about 02:13 | 02:09:18 | 02:13:23 | **4 min 5 s** |
+| 2026-09-25, Battlefield 6 | the machine used throughout: the log opened from the menu, the game relaunched | 15:05:04 | 15:05:22 | **18 s** |
+| 2026-09-25, American Truck Simulator | the machine used throughout, the next game launched from Steam | 16:03:54 | 16:03:55 | **0.6 s** |
+| 2026-09-25, Euro Truck Simulator 2 | the same | 16:05:04 | 16:06:03 | **58.5 s** |
+| 2026-09-25, American Truck Simulator | the same | 16:07:34 | 16:08:25 | **50.3 s** |
+| 2026-09-25, Euro Truck Simulator 2 | the same | 16:10:56 | 16:10:57 | **1.0 s** |
+| 2026-09-25, Euro Truck Simulator 2, after the first beside it | writing a message | 16:14:10 | 16:15:34 | **85 s** |
+| 2026-09-25, Wreckfest 2's settings window | the machine used throughout | 16:24:54 | 16:24:59 | **5.2 s** |
+| 2026-09-25, Starfield, after Wreckfest 2 beside it | the same | 16:30:33 | 16:30:52 | **19 s** |
+
+The Battlefield 6 row's exit is read from the EA anti-cheat's file-system
+filter unloading (`Microsoft-Windows-FilterManager` event 1), the rows
+after it from `presence-probe watch`, which sees a process gone within
+200 ms; they come from [Lot 9](09-robustness.md)'s runs of two games back
+to back. The maintainer was at the keyboard throughout all of them, idle
+two or three seconds at most.
 
 **Measured:** Windows does not release its "a game is running" signal while
 nobody touches the machine, and releases it some twenty seconds after the
 first keyboard or mouse input that follows the game's exit. The screen is
 not the trigger — it stayed on in A and C — and the party chat changes
 nothing. The watcher's own share was its two-second `stop_delay` every time.
+*Corrected 2026-09-25, afternoon:* the twenty seconds do not hold. With the
+maintainer at the keyboard, the rows from American Truck Simulator on range
+from 0.6 s to 85 s, and the foreground window at the release — Steam,
+Claude, Explorer — does not sort the fast from the slow. What stands is the
+first half: never while nobody touches the machine. What decides the time
+once someone does is not known.
 
 **Inferred, not measured:** that the delays of 52 seconds and two minutes
 recorded in [Lot 1](01-console-watcher.md) were the time until the
@@ -84,7 +105,9 @@ Against:
 
 1. **Say it, and nothing more.** Done on 2026-09-25: How it works and
    Getting started now say the wait lasts until the next touch of the
-   mouse or the keyboard. The evening case stays as it is.
+   mouse or the keyboard. The evening case stays as it is. Reworded the
+   same afternoon: the wait never ends while nobody touches the PC, and
+   took from under a second to a minute and a half at the keyboard.
 2. **End on the game's own exit, when the game is named.** The engine would
    wait on the named process as well as on the writer, and end the session
    once no process matching the title's Known Game List entry is left —
@@ -92,7 +115,10 @@ Against:
    its session, and whatever the name, since the game itself still matches
    while it runs. An unnamed session keeps the writer alone. It rewrites
    Lot 3's rule and reopens the Lot 1 decision, and the two risks above are
-   what it would have to be measured against.
+   what it would have to be measured against. The same wait is
+   [Lot 9](09-robustness.md)'s second way to name the game — re-identify
+   when the named process exits — left here on 2026-09-25 so that the
+   handle is measured once, for both uses.
 3. **A Windows signal not found yet.** Microsoft's documentation read
    again first, for a documented signal of a game's end that does not wait
    for input — Game Mode, GameDVR, the Game Bar's own writes. None is known
@@ -110,4 +136,6 @@ clever* argues against, unless the maintainer wants one.
   few weeks of the maintainer's titles: Forza, Battlefield 6 and its
   anti-cheat launcher, Starfield.
 - Whether the input rule holds for other titles and on the second machine,
-  with the same protocol as A and B.
+  with the same protocol as A and B. At the keyboard, six titles measured
+  on 2026-09-25 took 0.6 s to 85 s; A, hands off, has been run on GTA
+  Online alone.

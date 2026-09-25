@@ -68,9 +68,11 @@ stop_delay = "2s"
 # A title brings several processes that all match Windows' known game list: a
 # launcher stub, an anti-cheat service, and the game. The satellites usually
 # start first, so the name captured at the very start is often the wrong one.
-# Once, this far into a session, the per-process GPU counters are read and the
-# candidate that is actually rendering wins. Set to "0s" to skip it and keep
-# whichever process matched first.
+# This far into a session, the per-process GPU counters are read and the
+# candidate that is actually rendering wins. While there is no answer yet --
+# nothing rendering, no match -- they are read again at the same interval, six
+# times at most. Set to "0s" to skip it and keep whichever process matched
+# first.
 #
 # This only ever changes the *name*: detection never depends on it, and being
 # unable to read the counters simply means no answer.

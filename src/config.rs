@@ -99,7 +99,8 @@ pub struct Detection {
     #[serde(with = "humantime_serde")]
     pub stop_delay: Duration,
     /// How long into a session to wait before asking which of the matched
-    /// processes is really the game. Zero skips the question entirely.
+    /// processes is really the game, and between the attempts that follow
+    /// while there is no answer. Zero skips the question entirely.
     #[serde(with = "humantime_serde")]
     pub identify_after: Duration,
     /// How long to sample the GPU counters for. Utilisation is a rate, so it

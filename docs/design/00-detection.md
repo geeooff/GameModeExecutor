@@ -62,6 +62,17 @@ back during the Starfield session did not release the reference, so the writer
 does not blink on focus changes — its lifetime is the session. Starfield was
 launched into the background and the writer still started, with another
 application in the foreground, so detection does not depend on focus.
+*Corrected 2026-09-25:* it can. Battlefield 6, launched and left loading
+behind another window, ran from 15:05:34 without a writer; the writer
+started at 15:08:02, the second the maintainer brought the game to the
+front, and stayed when the focus went away again. Windows' page says the
+writer is told when a game gets focus, and this is Windows starting it on
+that event. Starfield's run stands as measured; what differs between the
+two was not looked at. Either way it is Windows' verdict, and a game
+loading behind another window has no need of its gaming commands yet.
+The same day, Wreckfest 2's *Change settings* window started the writer
+too: it is `Wreckfest2.exe` itself, and Windows took it for the game, a
+14-second session.
 `GameDVR\LastGameActivity` matched the start timestamp to the second in both
 sessions. As a negative control, launching and focusing Notepad spawned nothing.
 
@@ -73,7 +84,16 @@ same afternoon. [Lot 1](01-console-watcher.md) has those figures and the
 decision they led to. *Corrected 2026-09-25:* what it waits for is the
 user's next keyboard or mouse input after the game has exited — some twenty
 seconds after it, and 2 h 22 min once, with nobody at the machine;
-[Lot 18](18-game-gone-nobody-there.md).
+[Lot 18](18-game-gone-nobody-there.md). *And later that day:* not twenty
+seconds. With the maintainer at the keyboard, six titles took 0.6 s to
+85 s. The writer is never released while nobody touches the machine; what
+decides the time otherwise is not known.
+
+Nor is the writer one per title. Two games running together share it:
+American Truck Simulator and Euro Truck Simulator 2, then Wreckfest 2 from
+Steam and Starfield from the Store, on 2026-09-25. Each pair had one writer
+process from the first game's start to after the second's exit
+([Lot 9](09-robustness.md)).
 
 ## The limit found in the field, 2026-09-20
 

@@ -2,13 +2,15 @@
 
 **Status: partly done.** The session marker is built and verified; the
 configuration faults and the live reload are built and verified in the
-field; three smaller items remain.
+field. Of the three smaller items, on 2026-09-25: the refinement's retry is
+built and waits for a game to meet its case, `ShutdownBlockReasonCreate`
+was decided against, and two games back to back are measured and closed.
 
 - [x] Restore at the next start what a logoff could not — done 2026-09-16, a race fixed and re-verified 2026-09-17
 - [x] Configuration faults shown in the tray, and live reload — built 2026-09-19, measured without a game and then verified across two Starfield sessions on 2026-09-20, below
-- [ ] Stop timing the refinement; let the OS say when — below
-- [ ] `ShutdownBlockReasonCreate`, so Windows' shutdown screen says what is being restored rather than naming the process
-- [ ] Behaviour across two games launched back to back
+- [ ] Stop timing the refinement; let the OS say when — the first of the two changes below built 2026-09-25, an attempt with no verdict followed by another; not yet met in a game, four Battlefield 6 sessions settling at the first attempt. The second, waiting on the named process, goes with [Lot 18](18-game-gone-nobody-there.md)
+- [x] `ShutdownBlockReasonCreate`, so Windows' shutdown screen says what is being restored rather than naming the process — decided against on 2026-09-25, from Microsoft's documentation and the log: the screen never lists the watcher, a reason is what would put it there, and nothing is restored at session end to announce. Below
+- [x] Behaviour across two games launched back to back — measured 2026-09-25 with four titles from Steam and the Store and pinned by two scenarios, below: two sessions in a row, one when the two run together, named after the first. Closed the same day, the name left to Lot 18
 - [x] Give the engine a seam, so its loop can be tested without a game — done 2026-09-17, below
 
 ## The session marker
@@ -294,6 +296,209 @@ Two changes worth weighing, in order of appetite:
   re-identifying when it exits, needs no timer and no polling. The event that
   mattered — the launcher exiting — would have woken it exactly then. The same
   OS-native shape the rest of detection uses.
+
+**Decided 2026-09-25: the first, now.** The maintainer took the
+recommendation: retry until a verdict, with a cap, and leave the wait on the
+named process to [Lot 18](18-game-gone-nobody-there.md), whose second option
+is the same handle put to a bigger use — ending the session on it — and
+should be measured once for both.
+
+**As built.** `refine` returns one of three answers instead of a name or
+nothing, and only the third is followed by another attempt:
+
+| What the attempt found | Answer | Why |
+| --- | --- | --- |
+| A candidate the GPU finds drawing, not the name in use; or one match left, the named process gone | renamed | the case the refinement exists for |
+| The GPU finds the name in use drawing; or one match, and it is the name in use or that process is still alive | kept | a verdict: Starfield and Skyrim, most sessions |
+| No process matches the list | undecided | a session that started unnamed, or a list Windows has not written yet |
+| The list or the counters cannot be read | undecided | may be passing; if not, the cap ends it |
+| Nothing rendering | undecided | the loading screen, the case that cost Battlefield 6 its name |
+
+The attempts are `identify_after` apart — 20 s by default, so the first is
+where it always was — and six at most, `REFINE_ATTEMPTS` in the engine: two
+minutes, longer than any loading screen measured here, and a game compiling
+its shaders draws its progress screen, so it is rendering. No new key: the
+interval is the one the file already has, and a count nobody has a reason
+to change is a constant. After the sixth the name stays, said at `debug`,
+and the wait on the writer asks for no timeout again.
+
+**The cost, measured 2026-09-25** with `presence-probe footprint` and a
+temporary thirty more reads: the counters' first read leaves 18 handles and
+0.4 MB, three more no handle and at most 0.1 MB, thirty more nothing at all. So
+the retries cost their one-second sample each, in the first two minutes of a
+session that has not settled, and nothing after. A session that settles at
+the first attempt — every one in this record but one Battlefield 6 —
+costs what it did.
+
+**Scenarios.** Five in `engine/tests.rs`: nothing rendering, then the game
+drawing at the second attempt — Battlefield 6's shape; nothing ever
+rendering, six attempts and no seventh; the launcher still alive at the
+first attempt and gone at the second, the survivor rule getting its chance;
+an unnamed session named when a match appears; one match that is the name
+in use, a verdict at the first attempt. The scripted sensor now records the
+timeout each wait asked for, which is how "no seventh" is seen. With the
+count set to one — the old rule — the three that need a second attempt
+fail, and pass with six.
+
+**To see in the field.** A session whose first attempt finds nothing
+rendering, then the rename at a later one: at `debug`, *No verdict on the
+game's name yet, so the refinement asks again in 20s* between the two. Not
+seen yet; the item stays open until it is.
+
+**Two Battlefield 6 sessions on this build, 2026-09-25**, and neither
+needed a second attempt. At 14:59:34 the session was named after the EA
+anti-cheat launcher, and the first attempt, 21 s in, read `bf6.exe` at 16 %
+of the rendering in the game's menu and renamed it. At 15:08:02 `bf6.exe`
+was named directly, the only match, a verdict at the first attempt. Since
+Windows can wait for the game to come to the front before starting the
+writer ([Detection](00-detection.md), corrected the same day), the game is
+often drawing by the time the first attempt comes.
+
+**Provoking it failed, and why, 2026-09-25.** Two more launches, the
+interval shortened in the maintainer's file before each. At `3s`, `bf6.exe`
+had started 5 s before the session and read 2 % at the first attempt:
+renamed. At `10s`, the maintainer went to another window at the start beep
+and stayed away: `bf6.exe` read 32 % at the first attempt, still drawing
+behind that window, and was renamed. Four sessions of Battlefield 6 that
+day, a verdict at the first attempt each time. On this machine and this
+title the case the retry covers does not come up any more, and nothing
+short of it exercises the retry. The five scenarios cover it; the item
+stays open until a session meets it, and the `debug` line will say so.
+Changing the file mid-game resumed the session as Lot 9's reload says,
+nothing run.
+
+## `ShutdownBlockReasonCreate`: decided against
+
+The item assumed that Windows' shutdown screen names the watcher while it
+restores the profile, and that a reason string would say what it restores
+instead. Read against Microsoft's documentation and the log on 2026-09-25,
+both halves of that are wrong.
+
+**What Microsoft documents.** [Shutdown Changes for Windows
+Vista](https://learn.microsoft.com/en-us/windows/win32/shutdown/shutdown-changes-for-windows-vista),
+[Application Shutdown Changes in Windows
+Vista](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ms700677(v=vs.85))
+and the [function's own
+page](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-shutdownblockreasoncreate):
+
+- The full-screen shutdown screen lists the applications that *block*:
+  that answer `FALSE` to `WM_QUERYENDSESSION`, or take more than five
+  seconds over it or over `WM_ENDSESSION`. An application that answers
+  `TRUE` is closed whether or not it registered a reason.
+- An application with no visible top-level window is not allowed to block
+  at all: it is terminated if it refuses, or after five seconds on either
+  message. It is never listed.
+- Registering a reason changes that: Windows then treats the application
+  as one with a visible window. It is listed when another application
+  blocks, shown after five seconds of its own, and given thirty seconds for
+  `WM_ENDSESSION` once the user forces the shutdown. The archived article
+  offers that as a usage model of its own: a windowless application that
+  needs more than five seconds for `WM_ENDSESSION`.
+- Microsoft's first rule for all of it: applications should not block
+  shutdown.
+
+**What the watcher does.** It answers `TRUE` at once, starts stopping,
+and holds `WM_ENDSESSION` until the engine returns. Its window is
+`WS_OVERLAPPED` and never shown, so it has no visible top-level window; the
+notification icon is not a window of its own. The log on the maintainer's
+machine has nine session ends from 2026-09-18 to 2026-09-25, all without a
+game: from Windows' request to *Stopped* in 2 to 51 ms. Of the two mid-game
+logoffs recorded here, the one in [Lot 5](05-windowless-watcher.md)
+released the session in 62 ms, and in the race above the command had
+failed 110 ms after the request; both commands were dead on arrival. So
+today the screen shows nothing of the watcher. That is read from the
+documentation and the log, not watched on a shutdown mid-game.
+
+**Why not build it.**
+
+1. Nothing is restored at session end. A process started after
+   `WM_QUERYENDSESSION` dies with `STATUS_DLL_INIT_FAILED`
+   ([Lot 5](05-windowless-watcher.md)), and the profile comes back at the
+   next start, through the marker. A reason reading "Restoring the fan
+   profile" would be untrue.
+2. The reason is what would put the watcher on the screen. With one
+   registered for the length of a game, a shutdown that some other program
+   holds up would list GameModeExecutor beside it, as a program blocking.
+   That runs against *Discreet* and against Microsoft's first rule.
+3. Its one real use, more than five seconds for `WM_ENDSESSION`, has no
+   work to spend them on: the commands die within 100 ms.
+
+**Decided 2026-09-25:** not built. The maintainer confirmed the
+recommendation, and Lot 5's "worth having" line is corrected in place.
+
+## Two games back to back: measured
+
+**What the engine does**, read from the code on 2026-09-25:
+
+| Case | The engine |
+| --- | --- |
+| The second game starts before Windows releases the writer, and the same writer serves it | One session. The first game's name for both, in the tray and in the stop commands' `{process_name}`. The start and stop commands run once. |
+| The writer is released and a writer is back within `stop_delay` | The same: `comes_back` goes on with the session, and nothing is named again. |
+| The next writer comes after `stop_delay` | Two sessions: the stop commands, then the start commands, seconds apart. |
+| Both games running at once | Whatever the writer does. If one serves both, one session until it is released, named after the first game. |
+| A game marked by hand, then a game with a writer | The engine waits on the marked game's handle, so the other game is seen only when the first exits. The session then goes on, still under the marked name. |
+
+**The protocol.** `presence-probe watch 3600` in a terminal logs the writer
+starting, exiting or restarting, with its process id, and each game
+identified and exited. The installed watcher runs at `debug` beside it.
+
+- A: a game, quit, a second game within ten seconds of quitting.
+- B: the same with a minute between the two games.
+- C: the second game started while the first is on. C′, the maintainer's
+  addition: the same with a Steam game and a Store one.
+
+Each game has to come to the front at least once: Windows may not start
+the writer for a game loading behind another window
+([Detection](00-detection.md)).
+
+**Measured 2026-09-25, 16:02–16:15**, by the maintainer with American Truck
+Simulator and Euro Truck Simulator 2 from Steam, on the installed build
+`babdcf4d`:
+
+| Run | Game | Writer | Game exited | Writer released | The watcher |
+| --- | --- | --- | --- | --- | --- |
+| A | ATS | 13512, from 16:03:24 | 16:03:54.2 | 16:03:54.8 | `amtrucks.exe`, 16:03:24 to 16:03:56 |
+| A | ETS2, 12 s after | 33200, from 16:04:06 | 16:05:04.4 | 16:06:02.9 | `eurotrucks2.exe`, 16:04:06 to 16:06:04 |
+| B | ATS | 34704, from 16:06:10 | 16:07:34.2 | 16:08:24.5 | `amtrucks.exe`, 16:06:10 to 16:08:26 |
+| B | ETS2 | 30796, from 16:08:42 | 16:10:55.9 | 16:10:56.9 | `eurotrucks2.exe`, 16:08:42 to 16:10:58 |
+| C | ATS, then ETS2 beside it for 15–20 s | 18008, from 16:12:06 | ATS 16:13:28.7, ETS2 16:14:09.7 | 16:15:34.4 | `amtrucks.exe`, 16:12:07 to 16:15:36 |
+| C′ | Wreckfest 2 from Steam, then Starfield from the Store beside it for 30–50 s | 34536, from 16:26:04 | Wreckfest 2 16:29:22.4, Starfield 16:30:33.3 | 16:30:52.3 | `Wreckfest2.exe`, 16:26:05 to 16:30:54 |
+
+- **A second game gets a writer of its own when the first was released.**
+  A and B are two sessions each, each named right, both edges under its
+  own name. In A the stop and start commands ran ten seconds apart. A
+  second game launched before the release did not happen: ATS let its
+  writer go 0.6 s after it exited.
+- **Two games at once share one writer.** In C, writer 18008 lasted from
+  the first game's start to 85 s after the second's exit. One session, the
+  commands right and once on each edge. But the name was `amtrucks.exe`
+  throughout, in the tray and in the stop commands, while ETS2 ran alone
+  for 41 s. C′ is the same across a Win32 game and a packaged one: one
+  writer, one session named `Wreckfest2.exe`, Starfield alone for 71 s
+  under that name. The table's first case, a second game launched before
+  the release, would be the same shape: inferred from C, not seen.
+- Before C′, Wreckfest 2's *Change settings* window was a session of its
+  own, 14 s: it is `Wreckfest2.exe`, and Windows took it for the game
+  ([Detection](00-detection.md)).
+- Battlefield 6, relaunched earlier the same day after its writer was
+  released, gave B's shape with one title.
+- The release came 0.6 s to 85 s after the game's exit, the maintainer
+  at the keyboard throughout. That corrects
+  [Lot 18](18-game-gone-nobody-there.md)'s "some twenty seconds after the
+  first input", and its table has the rows.
+
+**Scenarios.** Two in `engine/tests.rs`, pinning both shapes as measured:
+two games one after the other are two sessions, each identified and
+refined afresh, the edges logged by a command under each game's name; two
+games under one writer are one session under the first name.
+
+**Closed 2026-09-25 with this record**, the maintainer agreeing. Two games
+in a row are two sessions and two at once are one, which is what the
+commands need. Someone who would rather keep A as one session can lengthen
+`stop_delay`. The one flaw is C's name, and naming the second game takes
+the wait on the named process. That is the third time it has come up, after the
+refinement's second option and [Lot 18](18-game-gone-nobody-there.md)'s
+option 2, and it would be measured once for all three.
 
 ## The engine has no tests, and the reason is structural
 

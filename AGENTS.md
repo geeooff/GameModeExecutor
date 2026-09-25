@@ -71,7 +71,17 @@ own; propose, with the reasoning, and let the maintainer decide.
 
 **Needs explicit approval, every time:** creating the public repository,
 pushing to it, publishing a release, changing the scheduled tasks or the
-configuration on the maintainer's machine, and any history rewrite.
+configuration on the maintainer's machine, and rewriting the history of
+`main`.
+
+**A branch's history is the agent's to rewrite until it reaches `main`**,
+unpushed or pushed for a pull request, and it should be: before a push,
+reduce a lot's commits to its logical steps. A fix to code written on the
+same branch, a second attempt, a page touched again for the same purpose
+belong in the commit they complete, not after it. A reader of `main` sees
+one commit per thing done; nobody returns to a state corrected an hour
+later, and the repository does not carry it. Force-pushing a pull
+request's branch is part of this; `main` is never rewritten.
 
 **The standing rule:** a change to what the user sees updates
 `docs/getting-started.md` and `docs/how-it-works.md` in the same commit. A
@@ -235,8 +245,6 @@ commands; do not.
 - A process started after `WM_QUERYENDSESSION` dies with
   `STATUS_DLL_INIT_FAILED`. Nothing can run a command at logoff; the session
   marker runs it at the next start instead.
-- The refinement's single timed attempt is a known margin, not a calibration
-  — `docs/design/09-robustness.md`.
 - `.git/HEAD` does not change on commit; `build.rs` watches the ref it names
   and `packed-refs` too, or the stamp goes stale.
 

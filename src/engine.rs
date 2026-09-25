@@ -33,6 +33,30 @@ use crate::marker::Marker;
 use crate::sensor::{HAND_MADE, Sensor, Sighting};
 use crate::win::{StopReason, StopSignal};
 
+/// How many times a session asks which process is the game, `identify_after`
+/// apart, before it settles for the name in use: two minutes at the default.
+///
+/// Only an attempt that reaches no verdict is followed by another -- nothing
+/// rendering yet, no match, counters that did not answer. Two Battlefield 6
+/// sessions an hour apart read 0.0 % for every candidate at 10 s and 75 % at
+/// 20 s, so a single timed attempt was a lottery; a loading screen longer
+/// than the first interval now costs a retry, not the name. Measured
+/// 2026-09-25: the counters' first read leaves 18 handles, thirty more leave
+/// nothing, so a retry costs its second of sampling and no more.
+const REFINE_ATTEMPTS: u32 = 6;
+
+/// What one attempt at naming the game more precisely came to.
+#[derive(Debug)]
+enum Refinement {
+    /// A better name than the one in use.
+    Renamed(GameSignal),
+    /// The name in use stands: the GPU confirmed it, or the one match gives
+    /// no reason to change it.
+    Kept,
+    /// Nothing to decide on yet, so the attempt does not settle the name.
+    Undecided,
+}
+
 /// What the engine tells the outside world about the session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Session {
@@ -236,27 +260,48 @@ impl<S: Sensor> Engine<S> {
             // matched first is not necessarily the one rendering: Battlefield 6
             // came up as its EA anti-cheat. Measured, that is the minority case.
             // Starfield and Skyrim each left a single candidate and this pass
-            // found nothing to arbitrate. So: once, a little way into the
-            // session, ask which candidate is actually rendering, and expect
-            // "no better answer" more often than not. A game marked by hand
-            // was found by its exact path, so there is nothing to refine.
-            let mut refine_due = fresh
+            // found nothing to arbitrate. So: a little way into the session,
+            // ask which candidate is actually rendering, and expect "no better
+            // answer" more often than not -- asking again only while there is
+            // no answer at all. A game marked by hand was found by its exact
+            // path, so there is nothing to refine.
+            let mut attempts_left = if fresh
                 && matches!(anchor, Sighting::Writer(_))
-                && !self.config.detection.identify_after.is_zero();
+                && !self.config.detection.identify_after.is_zero()
+            {
+                REFINE_ATTEMPTS
+            } else {
+                0
+            };
 
             let stopped = loop {
-                let timeout = refine_due.then_some(self.config.detection.identify_after);
+                let timeout = (attempts_left > 0).then_some(self.config.detection.identify_after);
                 // Waiting on the handle rather than sleeping keeps the
                 // refinement from being blind to a game ending in the meantime.
                 match self.sensor.wait_for_exit(anchor.pid(), stop, timeout)? {
                     WaitOutcome::Stopped => break true,
                     WaitOutcome::TimedOut => {
-                        refine_due = false;
-                        if let Some(better) = self.refine(signal.as_ref()) {
-                            signal = Some(better);
-                            // The name on screen was the launcher's until now.
-                            self.report(&Session::Playing(signal.clone()));
-                            self.remember(signal.as_ref());
+                        attempts_left = attempts_left.saturating_sub(1);
+                        match self.refine(signal.as_ref()) {
+                            Refinement::Renamed(better) => {
+                                attempts_left = 0;
+                                signal = Some(better);
+                                // The name on screen was the launcher's until now.
+                                self.report(&Session::Playing(signal.clone()));
+                                self.remember(signal.as_ref());
+                            }
+                            Refinement::Kept => attempts_left = 0,
+                            Refinement::Undecided if attempts_left > 0 => tracing::debug!(
+                                target: target::GAME,
+                                attempts_left,
+                                "No verdict on the game's name yet, so the refinement asks again in {}",
+                                humantime::format_duration(self.config.detection.identify_after)
+                            ),
+                            Refinement::Undecided => tracing::debug!(
+                                target: target::GAME,
+                                "No verdict on the game's name after {REFINE_ATTEMPTS} attempts, \
+                                 so the current name stays for the session"
+                            ),
                         }
                         continue;
                     }
@@ -458,23 +503,32 @@ impl<S: Sensor> Engine<S> {
 
     /// Ask the GPU which of the matched processes is really the game.
     ///
-    /// Returns `None` when there is nothing better to say: counters this
-    /// account may not read, a game still on its loading screen, or a single
-    /// candidate that is already the name in use. A single candidate that is
-    /// *not* the name in use is news, and needs no GPU to establish.
-    /// Naming is a convenience: no answer is a fine answer.
-    fn refine(&self, current: Option<&GameSignal>) -> Option<GameSignal> {
+    /// The name in use is [`Refinement::Kept`] when the GPU confirms it, or
+    /// when one process matches and it is that one or the named process is
+    /// still alive. One match that is *not* the name in use, the named
+    /// process gone, is news, and needs no GPU to establish. [`Refinement::Undecided`]
+    /// is everything that says nothing about the game yet: no match, a list
+    /// or counters that cannot be read, nothing rendering. Naming is a
+    /// convenience: no answer is a fine answer.
+    fn refine(&self, current: Option<&GameSignal>) -> Refinement {
         let candidates = match self.sensor.candidates() {
             Ok(candidates) => candidates,
             Err(error) => {
                 tracing::debug!(
                     target: target::GAME,
                     error = %format!("{error:#}"),
-                    "Refinement skipped"
+                    "Cannot read the game list to refine the name"
                 );
-                return None;
+                return Refinement::Undecided;
             }
         };
+        if candidates.is_empty() {
+            tracing::debug!(
+                target: target::GAME,
+                "No running process matches the game list"
+            );
+            return Refinement::Undecided;
+        }
         if candidates.len() < 2 {
             // One match left is not the same as nothing to say. Battlefield 6
             // does this every session: the EA anti-cheat *launcher* matches the
@@ -485,7 +539,6 @@ impl<S: Sensor> Engine<S> {
             let named_is_alive = current
                 .and_then(|signal| signal.process_id)
                 .is_some_and(|pid| self.sensor.is_running(pid));
-            let count = candidates.len();
             if let Some(survivor) = detect::lone_survivor(candidates, current, named_is_alive) {
                 tracing::info!(
                     target: target::GAME,
@@ -494,14 +547,13 @@ impl<S: Sensor> Engine<S> {
                     "Game identified more precisely: {} (the only match left)",
                     survivor.name()
                 );
-                return Some(survivor);
+                return Refinement::Renamed(survivor);
             }
             tracing::debug!(
                 target: target::GAME,
-                candidates = count,
                 "Refinement has nothing to arbitrate, keeping the current name"
             );
-            return None;
+            return Refinement::Kept;
         }
 
         let load = match self.sensor.rendering_load(self.config.detection.gpu_sample) {
@@ -510,13 +562,15 @@ impl<S: Sensor> Engine<S> {
                 tracing::debug!(
                     target: target::GAME,
                     error = %format!("{error:#}"),
-                    "Cannot read the GPU counters, keeping the first match"
+                    "Cannot read the GPU counters"
                 );
-                return None;
+                return Refinement::Undecided;
             }
         };
 
-        let best = detect::most_active(candidates, &load)?;
+        let Some(best) = detect::most_active(candidates, &load) else {
+            return Refinement::Undecided;
+        };
         let share = best
             .process_id
             .and_then(|pid| load.get(&pid))
@@ -527,9 +581,9 @@ impl<S: Sensor> Engine<S> {
         if share <= 0.0 {
             tracing::debug!(
                 target: target::GAME,
-                "None of the matched processes is rendering yet, keeping the current name"
+                "None of the matched processes is rendering yet"
             );
-            return None;
+            return Refinement::Undecided;
         }
         if current.and_then(|signal| signal.process_id) == best.process_id {
             tracing::debug!(
@@ -539,7 +593,7 @@ impl<S: Sensor> Engine<S> {
                 "The GPU confirms the name already in use: {}",
                 best.name()
             );
-            return None;
+            return Refinement::Kept;
         }
         tracing::info!(
             target: target::GAME,
@@ -549,7 +603,7 @@ impl<S: Sensor> Engine<S> {
             "Game identified more precisely: {} ({share:.0}% of the rendering)",
             best.name()
         );
-        Some(best)
+        Refinement::Renamed(best)
     }
 
     fn fire_start(&self, signal: Option<&GameSignal>) {
