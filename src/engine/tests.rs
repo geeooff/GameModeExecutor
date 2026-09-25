@@ -26,7 +26,10 @@ struct Scripted {
     /// Answers to `candidates`, one per call; the last one repeats.
     candidates: RefCell<VecDeque<Vec<GameSignal>>>,
     alive: HashSet<u32>,
-    load: HashMap<u32, f64>,
+    /// Answers to `rendering_load`, one per call; the last one repeats.
+    loads: RefCell<VecDeque<HashMap<u32, f64>>>,
+    /// The timeout each `wait_for_exit` was asked for, in order.
+    timeouts: RefCell<Vec<Option<Duration>>>,
     /// `candidates` fails, as it does when the list cannot be read.
     list_unreadable: bool,
     /// `rendering_load` fails, as it does on an account that may not read
@@ -52,7 +55,8 @@ impl Scripted {
             waits: RefCell::new(VecDeque::new()),
             candidates: RefCell::new(VecDeque::new()),
             alive: HashSet::new(),
-            load: HashMap::new(),
+            loads: RefCell::new(VecDeque::new()),
+            timeouts: RefCell::new(Vec::new()),
             list_unreadable: false,
             counters_unreadable: false,
             session_ends_with_writer: false,
@@ -118,8 +122,11 @@ impl Scripted {
         self
     }
 
-    fn rendering(mut self, load: &[(u32, f64)]) -> Self {
-        self.load.extend(load.iter().copied());
+    /// One answer to `rendering_load`; call again for the next attempt's.
+    fn rendering(self, load: &[(u32, f64)]) -> Self {
+        self.loads
+            .borrow_mut()
+            .push_back(load.iter().copied().collect());
         self
     }
 }
@@ -139,8 +146,9 @@ impl Sensor for Scripted {
         &self,
         _pid: u32,
         _stop: &StopSignal,
-        _timeout: Option<Duration>,
+        timeout: Option<Duration>,
     ) -> Result<WaitOutcome> {
+        self.timeouts.borrow_mut().push(timeout);
         let outcome = self
             .waits
             .borrow_mut()
@@ -177,7 +185,11 @@ impl Sensor for Scripted {
         if self.counters_unreadable {
             anyhow::bail!("scripted: the counters are unreadable");
         }
-        Ok(self.load.clone())
+        let mut answers = self.loads.borrow_mut();
+        if answers.len() > 1 {
+            return Ok(answers.pop_front().unwrap());
+        }
+        Ok(answers.front().cloned().unwrap_or_default())
     }
 }
 
@@ -519,20 +531,68 @@ fn the_gpu_hands_the_session_to_the_process_that_is_drawing() {
     );
 }
 
+/// The timeouts a session asks for when the refinement makes `attempts`
+/// attempts and then waits for the end with none.
+fn asked(attempts: u32) -> Vec<Option<Duration>> {
+    let mut timeouts = vec![Some(quick_config().detection.identify_after); attempts as usize];
+    timeouts.push(None);
+    timeouts
+}
+
 #[test]
-fn nothing_rendering_keeps_the_first_name() {
-    // A game still on its loading screen: the one attempt is spent and the
-    // name stays. Recorded as a known margin in the design record.
+fn nothing_rendering_yet_is_asked_again_until_something_is() {
+    // Battlefield 6 on 2026-09-16: every candidate at 0.0 % ten seconds
+    // before the attempt, bf6.exe at 75 % ten seconds after. A loading
+    // screen longer than the first interval used to keep the first name for
+    // the whole session; the attempt that reads nothing now does not count.
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
-        .waits(&[WaitOutcome::TimedOut, WaitOutcome::Exited])
+        .waits(&[
+            WaitOutcome::TimedOut,
+            WaitOutcome::TimedOut,
+            WaitOutcome::Exited,
+        ])
+        .candidates(&[&[game(5, "anticheat.exe"), game(10, "bf6.exe")]])
+        .alive(&[5, 10])
+        .rendering(&[(5, 0.0), (10, 0.0)])
+        .rendering(&[(5, 0.0), (10, 75.0)]);
+    let (sink, log) = recorder();
+
+    let mut engine = Engine::new(quick_config(), &sensor).reporting_to(sink);
+    engine.run(&stop).unwrap();
+
+    assert_eq!(
+        seen(&log),
+        vec![
+            Session::Playing(Some(game(5, "anticheat.exe"))),
+            Session::Playing(Some(game(10, "bf6.exe"))),
+            Session::Idle,
+        ]
+    );
+    assert_eq!(
+        *sensor.timeouts.borrow(),
+        asked(2),
+        "the rename was the verdict: no third attempt"
+    );
+}
+
+#[test]
+fn a_session_with_no_verdict_stops_asking_after_the_last_attempt() {
+    // Nothing ever renders: the attempts run out and the first name stays,
+    // and the wait for the end asks for no timeout any more.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let mut waits = vec![WaitOutcome::TimedOut; REFINE_ATTEMPTS as usize];
+    waits.push(WaitOutcome::Exited);
+    let sensor = Scripted::new(&stop)
+        .writer(&[Some(7)])
+        .waits(&waits)
         .candidates(&[&[game(5, "anticheat.exe"), game(10, "bf6.exe")]])
         .alive(&[5, 10])
         .rendering(&[(5, 0.0), (10, 0.0)]);
     let (sink, log) = recorder();
 
-    let mut engine = Engine::new(quick_config(), sensor).reporting_to(sink);
+    let mut engine = Engine::new(quick_config(), &sensor).reporting_to(sink);
     engine.run(&stop).unwrap();
 
     assert_eq!(
@@ -542,6 +602,91 @@ fn nothing_rendering_keeps_the_first_name() {
             Session::Idle
         ]
     );
+    assert_eq!(*sensor.timeouts.borrow(), asked(REFINE_ATTEMPTS));
+}
+
+#[test]
+fn the_launcher_that_outlives_the_first_attempt_is_replaced_on_a_later_one() {
+    // The launcher still there and nothing rendering at the first attempt;
+    // by the second the launcher has gone and the game is the one match
+    // left. The survivor rule needs no GPU, and it gets its chance.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let sensor = Scripted::new(&stop)
+        .writer(&[Some(7)])
+        .waits(&[
+            WaitOutcome::TimedOut,
+            WaitOutcome::TimedOut,
+            WaitOutcome::Exited,
+        ])
+        .candidates(&[
+            &[game(5, "launcher.exe")],
+            &[game(5, "launcher.exe"), game(10, "bf6.exe")],
+            &[game(10, "bf6.exe")],
+        ])
+        .alive(&[10])
+        .rendering(&[(5, 0.0), (10, 0.0)]);
+    let (sink, log) = recorder();
+
+    let mut engine = Engine::new(quick_config(), &sensor).reporting_to(sink);
+    engine.run(&stop).unwrap();
+
+    assert_eq!(
+        seen(&log),
+        vec![
+            Session::Playing(Some(game(5, "launcher.exe"))),
+            Session::Playing(Some(game(10, "bf6.exe"))),
+            Session::Idle,
+        ]
+    );
+    assert_eq!(*sensor.timeouts.borrow(), asked(2));
+}
+
+#[test]
+fn a_game_the_list_did_not_match_at_first_is_named_when_it_does() {
+    // No match is not a verdict either: the session started unnamed, and a
+    // later attempt that finds one match takes it.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let sensor = Scripted::new(&stop)
+        .writer(&[Some(7)])
+        .waits(&[
+            WaitOutcome::TimedOut,
+            WaitOutcome::TimedOut,
+            WaitOutcome::Exited,
+        ])
+        .candidates(&[&[], &[], &[game(10, "game.exe")]]);
+    let (sink, log) = recorder();
+
+    let mut engine = Engine::new(quick_config(), &sensor).reporting_to(sink);
+    engine.run(&stop).unwrap();
+
+    assert_eq!(
+        seen(&log),
+        vec![
+            Session::Playing(None),
+            Session::Playing(Some(game(10, "game.exe"))),
+            Session::Idle,
+        ]
+    );
+    assert_eq!(*sensor.timeouts.borrow(), asked(2));
+}
+
+#[test]
+fn the_one_match_being_the_name_in_use_is_a_verdict() {
+    // Starfield and Skyrim, most sessions: one process matches and it is
+    // the one named. Nothing to arbitrate, and nothing to ask again.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let sensor = Scripted::new(&stop)
+        .writer(&[Some(7)])
+        .waits(&[WaitOutcome::TimedOut, WaitOutcome::Exited])
+        .candidates(&[&[game(10, "Starfield.exe")]])
+        .alive(&[10]);
+    let (sink, log) = recorder();
+
+    let mut engine = Engine::new(quick_config(), &sensor).reporting_to(sink);
+    engine.run(&stop).unwrap();
+
+    assert_eq!(seen(&log).len(), 2);
+    assert_eq!(*sensor.timeouts.borrow(), asked(1));
 }
 
 #[test]
@@ -555,12 +700,17 @@ fn a_confirmed_name_is_not_reported_again() {
         .rendering(&[(10, 90.0)]);
     let (sink, log) = recorder();
 
-    let mut engine = Engine::new(quick_config(), sensor).reporting_to(sink);
+    let mut engine = Engine::new(quick_config(), &sensor).reporting_to(sink);
     engine.run(&stop).unwrap();
 
     // Two changes only: the start and the stop. The confirmation is a log
     // line, not a report, or the tray would redraw the same icon.
     assert_eq!(seen(&log).len(), 2);
+    assert_eq!(
+        *sensor.timeouts.borrow(),
+        asked(1),
+        "and a verdict: nothing to ask again"
+    );
 }
 
 #[test]
@@ -576,10 +726,11 @@ fn refinement_is_skipped_when_identify_after_is_zero() {
     let mut config = quick_config();
     config.detection.identify_after = Duration::ZERO;
 
-    let mut engine = Engine::new(config, sensor).reporting_to(sink);
+    let mut engine = Engine::new(config, &sensor).reporting_to(sink);
     engine.run(&stop).unwrap();
 
     assert_eq!(seen(&log).len(), 2);
+    assert_eq!(*sensor.timeouts.borrow(), vec![None]);
 }
 
 // ------------------------------------------------- the writer blinking --

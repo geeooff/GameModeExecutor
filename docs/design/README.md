@@ -20,7 +20,7 @@ session rather than when the code compiles. Each has its own page.
 | 6 | [Notification area icon](06-notification-icon.md) | done |
 | 7 | [Icon, tooltip and menu as one state](07-tray-state.md) | done |
 | 8 | [Distribution](08-distribution.md) | done; the second machine's three proposals built and verified 2026-09-25 |
-| 9 | [Robustness](09-robustness.md) | partly done; faults and live reload done, three smaller items open |
+| 9 | [Robustness](09-robustness.md) | partly done; faults and live reload done, three smaller items open; 2026-09-25: the refinement's retry built |
 | 10 | [Configuration window](10-configuration-window.md) | proposed; set aside until a UX/UI analysis refines it |
 | 11 | [Documentation for the people who use it](11-user-documentation.md) | done |
 | 12 | [Editing the configuration without breaking it](12-editing-on-a-copy.md) | proposed |

@@ -54,12 +54,15 @@ allowed in exactly one narrow form, and its absence is a normal outcome.
 
 ## The refinement
 
-Once, a little way into the session (`identify_after`, 20 s by default), the
+A little way into the session (`identify_after`, 20 s by default), the
 candidates the Known Game List produced are ranked by their share of the 3D
 GPU engine over a one-second sample. The one rendering wins. The rule never
-promotes a process the list did not match; a single candidate, unreadable
-counters, or a game still on its loading screen all mean "keep the current
-name", and the log says which.
+promotes a process the list did not match; a single candidate that is the
+name in use, or the GPU confirming it, means "keep the current name", and
+the log says which. *Corrected 2026-09-25:* this said "once", and that
+unreadable counters and a loading screen kept the name too. Those, and no
+match at all, are no answer rather than a verdict, and the question is asked
+again at the same interval, six times at most — [Lot 9](09-robustness.md).
 
 **One match left is not nothing to say.** Measured 2026-09-15 on Battlefield 6:
 the EA anti-cheat *launcher* matches the install folder, starts before the
@@ -93,7 +96,9 @@ harmless.
 session, `status` read 0.0 % for every candidate; ten seconds later, 75 %. The
 single timed attempt landed just inside the window that makes it work. That is
 a margin, not a calibration — [Lot 9](09-robustness.md) has the design that
-would replace the timer.
+would replace the timer. *Since 2026-09-25* an attempt that reads nothing
+rendering is followed by another, so a loading screen costs twenty seconds
+rather than the name.
 
 ## Packaged titles are matched wherever they are installed
 

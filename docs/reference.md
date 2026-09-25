@@ -65,7 +65,7 @@ log_level = "info"            # error | warn | info | debug | trace
 [detection]
 poll_interval = "2s"          # how often to look for a game while idle: the writer, or a game marked by hand
 stop_delay = "2s"             # grace after the writer exits before the session ends
-identify_after = "20s"        # when to ask the GPU which matched process is the game
+identify_after = "20s"        # when to ask the GPU which matched process is the game, and again while it has no answer (six times at most)
 gpu_sample = "1s"
 
 [on_game_start]

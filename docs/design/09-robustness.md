@@ -2,11 +2,12 @@
 
 **Status: partly done.** The session marker is built and verified; the
 configuration faults and the live reload are built and verified in the
-field; three smaller items remain.
+field; three smaller items remain, the first built 2026-09-25 and waiting
+for a game to meet its case.
 
 - [x] Restore at the next start what a logoff could not — done 2026-09-16, a race fixed and re-verified 2026-09-17
 - [x] Configuration faults shown in the tray, and live reload — built 2026-09-19, measured without a game and then verified across two Starfield sessions on 2026-09-20, below
-- [ ] Stop timing the refinement; let the OS say when — below
+- [ ] Stop timing the refinement; let the OS say when — the first of the two changes below built 2026-09-25, an attempt with no verdict followed by another; not yet met in a game, four Battlefield 6 sessions settling at the first attempt. The second, waiting on the named process, goes with [Lot 18](18-game-gone-nobody-there.md)
 - [ ] `ShutdownBlockReasonCreate`, so Windows' shutdown screen says what is being restored rather than naming the process
 - [ ] Behaviour across two games launched back to back
 - [x] Give the engine a seam, so its loop can be tested without a game — done 2026-09-17, below
@@ -294,6 +295,76 @@ Two changes worth weighing, in order of appetite:
   re-identifying when it exits, needs no timer and no polling. The event that
   mattered — the launcher exiting — would have woken it exactly then. The same
   OS-native shape the rest of detection uses.
+
+**Decided 2026-09-25: the first, now.** The maintainer took the
+recommendation: retry until a verdict, with a cap, and leave the wait on the
+named process to [Lot 18](18-game-gone-nobody-there.md), whose second option
+is the same handle put to a bigger use — ending the session on it — and
+should be measured once for both.
+
+**As built.** `refine` returns one of three answers instead of a name or
+nothing, and only the third is followed by another attempt:
+
+| What the attempt found | Answer | Why |
+| --- | --- | --- |
+| A candidate the GPU finds drawing, not the name in use; or one match left, the named process gone | renamed | the case the refinement exists for |
+| The GPU finds the name in use drawing; or one match, and it is the name in use or that process is still alive | kept | a verdict: Starfield and Skyrim, most sessions |
+| No process matches the list | undecided | a session that started unnamed, or a list Windows has not written yet |
+| The list or the counters cannot be read | undecided | may be passing; if not, the cap ends it |
+| Nothing rendering | undecided | the loading screen, the case that cost Battlefield 6 its name |
+
+The attempts are `identify_after` apart — 20 s by default, so the first is
+where it always was — and six at most, `REFINE_ATTEMPTS` in the engine: two
+minutes, longer than any loading screen measured here, and a game compiling
+its shaders draws its progress screen, so it is rendering. No new key: the
+interval is the one the file already has, and a count nobody has a reason
+to change is a constant. After the sixth the name stays, said at `debug`,
+and the wait on the writer asks for no timeout again.
+
+**The cost, measured 2026-09-25** with `presence-probe footprint` and a
+temporary thirty more reads: the counters' first read leaves 18 handles and
+0.4 MB, three more no handle and at most 0.1 MB, thirty more nothing at all. So
+the retries cost their one-second sample each, in the first two minutes of a
+session that has not settled, and nothing after. A session that settles at
+the first attempt — every one in this record but one Battlefield 6 —
+costs what it did.
+
+**Scenarios.** Five in `engine/tests.rs`: nothing rendering, then the game
+drawing at the second attempt — Battlefield 6's shape; nothing ever
+rendering, six attempts and no seventh; the launcher still alive at the
+first attempt and gone at the second, the survivor rule getting its chance;
+an unnamed session named when a match appears; one match that is the name
+in use, a verdict at the first attempt. The scripted sensor now records the
+timeout each wait asked for, which is how "no seventh" is seen. With the
+count set to one — the old rule — the three that need a second attempt
+fail, and pass with six.
+
+**To see in the field.** A session whose first attempt finds nothing
+rendering, then the rename at a later one: at `debug`, *No verdict on the
+game's name yet, so the refinement asks again in 20s* between the two. Not
+seen yet; the item stays open until it is.
+
+**Two Battlefield 6 sessions on this build, 2026-09-25**, and neither
+needed a second attempt. At 14:59:34 the session was named after the EA
+anti-cheat launcher, and the first attempt, 21 s in, read `bf6.exe` at 16 %
+of the rendering in the game's menu and renamed it. At 15:08:02 `bf6.exe`
+was named directly, the only match, a verdict at the first attempt. Since
+Windows can wait for the game to come to the front before starting the
+writer ([Detection](00-detection.md), corrected the same day), the game is
+often drawing by the time the first attempt comes.
+
+**Provoking it failed, and why, 2026-09-25.** Two more launches, the
+interval shortened in the maintainer's file before each. At `3s`, `bf6.exe`
+had started 5 s before the session and read 2 % at the first attempt:
+renamed. At `10s`, the maintainer went to another window at the start beep
+and stayed away: `bf6.exe` read 32 % at the first attempt, still drawing
+behind that window, and was renamed. Four sessions of Battlefield 6 that
+day, a verdict at the first attempt each time. On this machine and this
+title the case the retry covers does not come up any more, and nothing
+short of it exercises the retry. The five scenarios cover it; the item
+stays open until a session meets it, and the `debug` line will say so.
+Changing the file mid-game resumed the session as Lot 9's reload says,
+nothing run.
 
 ## The engine has no tests, and the reason is structural
 

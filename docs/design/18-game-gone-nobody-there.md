@@ -115,7 +115,10 @@ Against:
    its session, and whatever the name, since the game itself still matches
    while it runs. An unnamed session keeps the writer alone. It rewrites
    Lot 3's rule and reopens the Lot 1 decision, and the two risks above are
-   what it would have to be measured against.
+   what it would have to be measured against. The same wait is
+   [Lot 9](09-robustness.md)'s second way to name the game — re-identify
+   when the named process exits — left here on 2026-09-25 so that the
+   handle is measured once, for both uses.
 3. **A Windows signal not found yet.** Microsoft's documentation read
    again first, for a documented signal of a game's end that does not wait
    for input — Game Mode, GameDVR, the Game Bar's own writes. None is known

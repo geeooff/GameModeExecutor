@@ -235,8 +235,6 @@ commands; do not.
 - A process started after `WM_QUERYENDSESSION` dies with
   `STATUS_DLL_INIT_FAILED`. Nothing can run a command at logoff; the session
   marker runs it at the next start instead.
-- The refinement's single timed attempt is a known margin, not a calibration
-  — `docs/design/09-robustness.md`.
 - `.git/HEAD` does not change on commit; `build.rs` watches the ref it names
   and `packed-refs` too, or the stamp goes stale.
 

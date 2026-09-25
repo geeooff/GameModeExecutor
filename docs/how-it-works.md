@@ -91,9 +91,9 @@ A real session looked like this:
 17:53:35  Game identified more precisely: bf6.exe (74% of the rendering)
 ```
 
-This only ever changes the *name*. If the counters cannot be read, or the game
-is still on a loading screen, the watcher keeps whatever matched first and
-carries on. Nothing about detection depends on it.
+Still on a loading screen, nothing drawing yet? It asks again every twenty
+seconds, for two minutes at most, then keeps whatever matched first. This
+only ever changes the *name*: nothing about detection depends on it.
 
 ## The wait after you quit
 
@@ -122,7 +122,7 @@ size* column in *Details*; its *Memory* column shows less.
 | --- | --- | --- |
 | Waiting for a game, looking every two seconds | 0.03 % of one core | about 2 MB |
 | During a game | nothing measurable: it waits for Windows to wake it | unchanged |
-| Naming a game from what the graphics card draws, once a session | | about 0.25 MB, once |
+| Naming a game from what the graphics card draws, early in a session | | about 0.25 MB, once; asking again adds nothing |
 | The icon's menu, the first time it opens | | about 1 MB, once — Windows' cost for a program's first menu |
 | *Edit configuration*, *Open log*, *Documentation* | | nothing that stays: a short-lived helper opens them and takes the cost with it |
 | *Check for updates* | | about 1 MB, until the watcher next starts |
