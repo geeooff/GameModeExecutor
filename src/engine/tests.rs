@@ -245,6 +245,34 @@ fn touch(path: &Path) -> Action {
     }
 }
 
+/// A command that appends its event and the game's name to `path`, so a
+/// test can read which edges ran, in order, and under which name.
+///
+/// One argument per word, for the reason `touch` gives.
+fn log_edge(path: &Path) -> Action {
+    let name = path.file_name().unwrap().to_string_lossy().into_owned();
+    Action {
+        name: Some("log edge".to_owned()),
+        program: "cmd.exe".into(),
+        args: ["/c", "echo", "{event}", "{process_name}", ">>", &name]
+            .map(str::to_owned)
+            .to_vec(),
+        working_dir: Some(path.parent().unwrap().to_path_buf()),
+        wait: true,
+        timeout: Some(Duration::from_secs(10)),
+        ..Action::default()
+    }
+}
+
+/// The edges `log_edge` wrote, one `event name` per line.
+fn edges(path: &Path) -> Vec<String> {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .map(|line| line.trim().to_owned())
+        .collect()
+}
+
 fn stop_event(actions: Vec<Action>) -> Event {
     Event {
         mode: Mode::Series,
@@ -892,6 +920,112 @@ fn opting_out_of_stop_on_exit_runs_nothing_and_closes_the_marker() {
     assert_eq!(
         seen(&log),
         vec![Session::Playing(Some(game(10, "game.exe")))]
+    );
+}
+
+// ------------------------------------------------- two games in a row --
+
+#[test]
+fn two_games_one_after_the_other_are_two_sessions_each_named() {
+    // Measured 2026-09-25 with American Truck Simulator and Euro Truck
+    // Simulator 2: Windows released the writer within a second of the
+    // first game's exit and started another for the second, twelve seconds
+    // later. Two sessions, each identified and refined afresh, each edge
+    // under its own name.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let sensor = Scripted::new(&stop)
+        .writer(&[Some(7), None, Some(8)])
+        .waits(&[
+            WaitOutcome::TimedOut,
+            WaitOutcome::Exited,
+            WaitOutcome::TimedOut,
+            WaitOutcome::Exited,
+        ])
+        .candidates(&[
+            &[game(10, "amtrucks.exe")],
+            &[game(10, "amtrucks.exe")],
+            &[game(20, "eurotrucks2.exe")],
+        ])
+        .alive(&[10, 20]);
+    let dir = scratch();
+    let log_file = dir.join("edges.txt");
+    let mut config = quick_config();
+    config.on_game_start = stop_event(vec![log_edge(&log_file)]);
+    config.on_game_stop = stop_event(vec![log_edge(&log_file)]);
+    let (sink, log) = recorder();
+
+    let mut engine = Engine::new(config, &sensor)
+        .reporting_to(sink)
+        .remembering(Marker::in_dir(&dir));
+    engine.run(&stop).unwrap();
+
+    assert_eq!(
+        edges(&log_file),
+        [
+            "game_start amtrucks.exe",
+            "game_stop amtrucks.exe",
+            "game_start eurotrucks2.exe",
+            "game_stop eurotrucks2.exe",
+        ]
+    );
+    assert_eq!(
+        seen(&log),
+        vec![
+            Session::Playing(Some(game(10, "amtrucks.exe"))),
+            Session::Idle,
+            Session::Playing(Some(game(20, "eurotrucks2.exe"))),
+            Session::Idle,
+        ]
+    );
+    let mut asked_twice = asked(1);
+    asked_twice.extend(asked(1));
+    assert_eq!(
+        *sensor.timeouts.borrow(),
+        asked_twice,
+        "the second session had its own refinement"
+    );
+    assert!(Marker::in_dir(&dir).pending().is_none());
+}
+
+#[test]
+fn two_games_under_one_writer_are_one_session_named_after_the_first() {
+    // Measured 2026-09-25: Euro Truck Simulator 2 started while American
+    // Truck Simulator ran, and Windows kept the one writer for both, until
+    // after the second had exited; the same with Wreckfest 2 from Steam and
+    // Starfield from the Store. One session: the commands right, once
+    // on each edge, but the name the first game's throughout -- the
+    // refinement had settled before the second game started. Naming it
+    // would take the wait on the named process, left with Lot 18.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let sensor = Scripted::new(&stop)
+        .writer(&[Some(7)])
+        .waits(&[WaitOutcome::TimedOut, WaitOutcome::Exited])
+        .candidates(&[
+            &[game(10, "amtrucks.exe")],
+            &[game(10, "amtrucks.exe")],
+            &[game(10, "amtrucks.exe"), game(20, "eurotrucks2.exe")],
+        ])
+        .alive(&[10, 20]);
+    let dir = scratch();
+    let log_file = dir.join("edges.txt");
+    let mut config = quick_config();
+    config.on_game_start = stop_event(vec![log_edge(&log_file)]);
+    config.on_game_stop = stop_event(vec![log_edge(&log_file)]);
+    let (sink, log) = recorder();
+
+    let mut engine = Engine::new(config, &sensor).reporting_to(sink);
+    engine.run(&stop).unwrap();
+
+    assert_eq!(
+        edges(&log_file),
+        ["game_start amtrucks.exe", "game_stop amtrucks.exe"]
+    );
+    assert_eq!(
+        seen(&log),
+        vec![
+            Session::Playing(Some(game(10, "amtrucks.exe"))),
+            Session::Idle
+        ]
     );
 }
 
