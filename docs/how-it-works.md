@@ -283,11 +283,13 @@ gamemode-executor purge
 ```
 
 It lists what it is about to remove and waits for a `yes`: the logon task,
-the configuration wherever it found it, the log wherever it was written, the
-session marker, its two profile folders once they are empty, and last the
-executables — through Windows Installer when they were installed from the
-package, or by deleting them once the command has exited when they were
-unpacked from the zip. It refuses while a game is running, because a purge
+the configuration wherever it found it, every log file wherever the log was
+written, the session marker, the folder updates are downloaded to, its two
+profile folders once they are empty,
+and last the executables — through Windows Installer when they were
+installed from the package, waiting for it to finish so that the few lines
+the uninstall itself logs go too, or by deleting them once the command has
+exited when they were unpacked from the zip. It refuses while a game is running, because a purge
 then would leave your gaming configuration on with nothing left to restore
 it; and it stops the running watcher first, the way *Quit* does.
 

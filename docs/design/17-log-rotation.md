@@ -13,6 +13,7 @@ release, the old single file pruned around 2026-10-01, and the next real
 - [x] `log_days` in `config.toml`: optional, 7 when absent, a whole number of 1 or more, validated like every other key — built 2026-09-25
 - [x] What the library now does removed from our code, and nothing kept that it already answers — 2026-09-25, below, the local timestamps included
 - [x] *Open log*, `purge` and the documentation following the dated files — built 2026-09-25
+- [x] `purge` of an installed copy leaving no log behind, the uninstall's own lines included — built 2026-09-25, seen on a real purge 2026-09-26, below
 - [ ] The commands that write the same log — `stop`, `init`, `install-task`, `uninstall-task`, `update` — lose no line and prune nothing they should not — the package's install and uninstall, `purge` and `update --check` seen 2026-09-26, below; the updater's zip path waits for the next release
 - [x] Verified in the field across a real turnover on the maintainer's machine — 2026-09-26, below
 
@@ -222,6 +223,48 @@ dated, old and foreign files; an appender built with `log_days = 2` over
 four old files keeping two of them and writing its line where *Open log*
 looks; the timestamp's format pinned. The new dependencies are
 `tracing-appender`, and `time` directly for the timestamp's format.
+
+## What an uninstall writes after `purge`, 2026-09-25
+
+Found while moving `purge` to the dated files, and older than this lot:
+`purge` removes an installed copy by starting `msiexec /x` once it has
+exited, and the package's uninstall runs `stop` and `uninstall-task`. Each
+logs what it did, as every setup command does. The configuration is gone
+by then, so they log to the default folder, whatever `log_dir` said, and a
+file and its two folders were back in `%LOCALAPPDATA%` after every purge of
+an installed copy. The configuration is not: `init`, the one command that
+writes one, runs on an install or an upgrade only.
+
+Two ways were weighed. A property on `msiexec`'s command line, turned into
+a hidden flag that keeps those two commands off the file, would change the
+package and two setup commands — three callers to verify again — for two
+lines nobody reads. **Decided by the maintainer: the simple one.** The shell
+`purge` leaves behind waits for `msiexec`, then deletes the log files in
+the default folder and removes that folder and `%LOCALAPPDATA%\GameModeExecutor`
+if that leaves them empty.
+
+Testing it found a second, smaller thing. `purge` had relied on
+`Remove-Item` without `-Recurse` to leave a folder that still holds
+something: the command wants to prompt then, and a non-interactive shell
+makes that an error and exits with 1. The folder stayed, but by accident,
+and the test's shell said so. Both uses now ask whether the folder is empty
+first. A test runs the sweep through the real hidden shell on two scratch
+profiles: one where the log was all there was, gone entirely; one sharing
+both folders with other files, which stay, the log files alone going.
+
+**The real purge, 2026-09-26, 15:24–15:25**, by the maintainer on the
+installed copy, configuration and logs saved first. The plan listed the
+three log files — the day's two and the single file of before — and the
+sweep; Windows Installer logged the removal done at 15:25:10. Afterwards
+`%LOCALAPPDATA%\GameModeExecutor\logs` was gone, the uninstall's own lines
+with it. But `%LOCALAPPDATA%\GameModeExecutor` stayed, and `purge` had said
+so: *Left … alone: it holds something else*. That something was
+`updates`, empty, the updater's folder since 2026-09-18. The updater
+empties it once a new version has started and never removes it, and
+`purge` did not know it — a gap from [Lot 13](13-updating.md), found here.
+Nothing else ever writes there, so `purge` now takes it whole, the path
+coming from `update::updates_dir`, the one place that names it. Built and
+tested the same day; the next real purge will show the folder gone.
 
 ## Decided 2026-09-25
 

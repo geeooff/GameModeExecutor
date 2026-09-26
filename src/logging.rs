@@ -227,6 +227,12 @@ pub fn is_log_file(name: &str) -> bool {
     name.starts_with(LOG_PREFIX) && name.ends_with(LOG_SUFFIX)
 }
 
+/// The same rule as a wildcard, for a shell that sweeps the folder after
+/// this program has gone.
+pub fn log_file_pattern() -> String {
+    format!("{LOG_PREFIX}*{LOG_SUFFIX}")
+}
+
 /// Every log file in `dir`, in no particular order. For `purge`, which
 /// removes them all.
 pub fn log_files(dir: &Path) -> Vec<PathBuf> {

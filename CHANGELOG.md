@@ -42,6 +42,10 @@ a section is written.
 
 ### Fixed
 
+- `purge` leaves nothing behind any more: the lines the uninstall itself
+  writes to the log are deleted once it is over, and the folder updates
+  are downloaded to goes too, where it used to stay, empty, and keep
+  `%LOCALAPPDATA%\GameModeExecutor` with it.
 - A game still on its loading screen twenty seconds in no longer keeps its
   launcher's name for the whole session: the watcher asks again every
   twenty seconds, for two minutes at most.
