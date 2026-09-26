@@ -41,7 +41,7 @@ way.
 | `uninstall-task` | Remove that task. No task is not an error. The installer runs this on an uninstall, not on an upgrade. Logged under `setup`. |
 | `update [--check]` | Look for a newer release on GitHub; with `--check`, say so and stop. Otherwise download it, verify it against the release's `SHA256SUMS.txt` and install it the way the package or the zip's shell does — a running watcher hands its game session to the new one. The one command that connects to anything. Logged under `update`. |
 | `stop [--handover]` | Stop the running watcher the way *Quit* in its menu does — mid-game, the stop commands run on the way out — and wait until it has gone. With `--handover` an open game session is left to the watcher that follows: the stop commands do not run, and the next start resumes the session with nothing run twice — for an update or an upgrade, where one follows within seconds. None running is not an error. The task is left alone; `install-task` starts it again. The installer runs this before removing (plain) or replacing (`--handover`) the executables. Logged under `setup`. |
-| `purge [--yes]` | Remove every trace of the program: the logon task, the configuration, the log, the session marker, the executables. It lists what it will remove and asks; `--yes` is for scripts. Refuses while a game is running. See [Removing it](how-it-works.md#removing-it). |
+| `purge [--yes]` | Remove every trace of the program: the logon task, the configuration, every log file, the session marker, the updater's folder, the executables. It lists what it will remove and asks; `--yes` is for scripts. Refuses while a game is running. See [Removing it](how-it-works.md#removing-it). |
 | `open <what>` | Not in the help, because it is the menu's own: *Edit configuration*, *Open log*, *Documentation* and a release page start the watcher's executable with it, so that what the shell loads to open a file stays in a process that ends rather than in the watcher. Opens `<what>` the way Explorer would — a file no program is associated with, in Notepad — and exits: 0 when it opened, 1 when nothing could. |
 
 Global options: `--config <PATH>`, `--log-level <LEVEL>`, `--version`.
@@ -61,6 +61,7 @@ every field; the essentials:
 stop_actions_on_exit = true   # run the stop commands if the watcher is stopped mid-game
 log_level = "info"            # error | warn | info | debug | trace
 #log_dir = 'C:\somewhere'     # default: %LOCALAPPDATA%\GameModeExecutor\logs
+#log_days = 7                 # days of log kept, today's included; 1 or more
 
 [detection]
 poll_interval = "2s"          # how often to look for a game while idle: the writer, or a game marked by hand
@@ -92,7 +93,7 @@ backslashes need no doubling.
 
 The watcher reads the file again whenever it changes — within about a
 second of a save, the log says `Configuration reloaded` — and applies
-everything but `log_dir`, which waits for the next start. A file it cannot
+everything but `log_dir` and `log_days`, which wait for the next start. A file it cannot
 use disables it until one it can is saved: the icon turns red and its
 menu's first line carries the reason; nothing runs meanwhile, and the exit
 codes below are for the commands, since the watcher no longer exits over
@@ -162,9 +163,15 @@ and shows the fault in its icon instead.
 
 ## The log
 
-`%LOCALAPPDATA%\GameModeExecutor\logs\gamemode-executor.log` unless `log_dir`
-says otherwise, local timestamps, written synchronously. Run the watcher in a
-terminal and the same lines appear there, coloured.
+In `%LOCALAPPDATA%\GameModeExecutor\logs` unless `log_dir` says otherwise, one
+file a day, `gamemode-executor.YYYY-MM-DD.log`, local timestamps, written
+synchronously. The day changes at midnight UTC — the date is
+`tracing-appender`'s, which offers no other — and the running watcher moves to
+the new file at its first line after it. The last `log_days` files are kept,
+7 by default, sometimes one more; the oldest go, the single
+`gamemode-executor.log` of earlier versions among them. *Open log* opens
+the file being written. Run the watcher in a terminal and the same lines
+appear there, coloured.
 
 One log serves two readers, and `log_level` is the dial between them:
 
@@ -202,7 +209,7 @@ Each line is `time  LEVEL  category  message`, with the category one of
 `setup` is written by `init`, `install-task`, `uninstall-task` and `stop`,
 whether a person typed them or the installer ran them: a configuration
 written, kept or replaced; a task registered, kept, replaced or removed; the
-watcher started or stopped. Two processes then write the one file — `stop`
+watcher started or stopped. Two processes then write the same file — `stop`
 and the watcher it stops — and their lines interleave whole: the file is
 opened for appending only, so Windows itself places each write at the end,
 and a line is one write.

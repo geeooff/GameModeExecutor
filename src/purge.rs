@@ -4,12 +4,20 @@
 //! The rule, from `docs/design/08-distribution.md`: it removes what it
 //! recognises as its own and leaves the rest, saying what it left. Its own
 //! is the logon task, the configuration wherever it was found, the log
-//! wherever it was written, the session marker, the two profile folders
-//! once they are empty, and last the executables -- through Windows
+//! wherever it was written, the session marker, the updater's folder and
+//! what it holds, the two profile folders once they are empty, and last
+//! the executables -- through Windows
 //! Installer when the installer owns them, through a detached shell that
 //! waits for this process to exit when they were unpacked by hand. A task
 //! it did not register, a folder holding anything else, a file it does not
 //! know: left alone.
+//!
+//! The uninstall writes to the log once more: Windows Installer runs `stop`
+//! and `uninstall-task`, and each says what it did, in the default log
+//! folder since the configuration is gone by then. So the shell that runs
+//! the uninstall waits for it and sweeps that folder afterwards -- decided
+//! 2026-09-25 over a flag telling those commands not to log, which would
+//! have changed the package and two setup commands for two lines.
 //!
 //! It refuses while a game session is open. A purge then would leave the
 //! machine on its gaming configuration with nothing left to restore it,
@@ -37,8 +45,12 @@ use crate::win;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Program {
     /// Windows Installer registered this product; `msiexec /x` removes it,
-    /// its registration and its folder.
-    Installed { product_code: String },
+    /// its registration and its folder. `default_log_dir` is where the
+    /// uninstall's own commands log, swept once it is over.
+    Installed {
+        product_code: String,
+        default_log_dir: Option<PathBuf>,
+    },
     /// Unpacked by hand: these files, the zip's documentation tree when it
     /// is there, then the folder if that leaves it empty.
     Unpacked {
@@ -54,7 +66,15 @@ pub struct Layout {
     pub watcher_running: bool,
     pub task_registered: bool,
     pub config_candidates: Vec<PathBuf>,
-    pub log: Option<PathBuf>,
+    /// The log's folder: every log file in it goes, today's and the days
+    /// kept, and the single file of earlier versions.
+    pub log_dir: Option<PathBuf>,
+    /// Where the log goes without a configuration, which is where an
+    /// uninstall's commands write theirs.
+    pub default_log_dir: Option<PathBuf>,
+    /// The updater's folder, ours whole: an update leaves it empty but
+    /// there.
+    pub updates_dir: Option<PathBuf>,
     pub marker: Option<PathBuf>,
     pub fault_marker: Option<PathBuf>,
     pub local_dir: Option<PathBuf>,
@@ -69,6 +89,9 @@ pub struct Plan {
     pub stop_watcher: bool,
     pub remove_task: bool,
     pub files: Vec<PathBuf>,
+    /// Folders that are the program's own through and through, removed
+    /// with whatever they hold.
+    pub trees: Vec<PathBuf>,
     /// Removed only if empty once the files are gone, deepest first.
     pub dirs: Vec<PathBuf>,
     pub program: Option<Program>,
@@ -92,8 +115,12 @@ impl Plan {
         for candidate in &layout.config_candidates {
             push(candidate);
         }
-        if let Some(log) = &layout.log {
-            push(log);
+        if let Some(dir) = &layout.log_dir {
+            let mut logs = logging::log_files(dir);
+            logs.sort();
+            for log in &logs {
+                push(log);
+            }
         }
         if let Some(marker) = &layout.marker {
             push(marker);
@@ -102,20 +129,26 @@ impl Plan {
             push(marker);
         }
 
+        let trees: Vec<PathBuf> = layout
+            .updates_dir
+            .iter()
+            .filter(|dir| dir.is_dir())
+            .cloned()
+            .collect();
+
         // Deepest first, so a parent is judged after its children are gone.
         // The log's folder counts as ours only inside the program's own
         // places; a log sent elsewhere leaves its folder behind.
         let mut dirs = Vec::new();
         let ours = [&layout.local_dir, &layout.exe_dir];
-        if let Some(log) = &layout.log
-            && let Some(parent) = log.parent()
+        if let Some(logs) = &layout.log_dir
             && ours
                 .into_iter()
                 .flatten()
-                .any(|place| parent.starts_with(place) && parent != place)
-            && parent.is_dir()
+                .any(|place| logs.starts_with(place) && logs != place)
+            && logs.is_dir()
         {
-            dirs.push(parent.to_path_buf());
+            dirs.push(logs.clone());
         }
         for dir in [&layout.local_dir, &layout.roaming_dir]
             .into_iter()
@@ -129,6 +162,7 @@ impl Plan {
         let program = match (&layout.product_code, &layout.exe_dir) {
             (Some(code), _) => Some(Program::Installed {
                 product_code: code.clone(),
+                default_log_dir: layout.default_log_dir.clone(),
             }),
             (None, Some(dir)) => {
                 let files: Vec<PathBuf> = EXECUTABLES
@@ -153,6 +187,7 @@ impl Plan {
             stop_watcher: layout.watcher_running,
             remove_task: layout.task_registered,
             files,
+            trees,
             dirs,
             program,
         }
@@ -162,6 +197,7 @@ impl Plan {
         !self.stop_watcher
             && !self.remove_task
             && self.files.is_empty()
+            && self.trees.is_empty()
             && self.dirs.is_empty()
             && self.program.is_none()
     }
@@ -178,12 +214,16 @@ impl Plan {
         for file in &self.files {
             lines.push(format!("delete {}", file.display()));
         }
+        for tree in &self.trees {
+            lines.push(format!("delete {} and what it holds", tree.display()));
+        }
         for dir in &self.dirs {
             lines.push(format!("remove {} if it is then empty", dir.display()));
         }
         match &self.program {
-            Some(Program::Installed { product_code }) => lines.push(format!(
-                "uninstall the program through Windows Installer (product {product_code})"
+            Some(Program::Installed { product_code, .. }) => lines.push(format!(
+                "uninstall the program through Windows Installer (product {product_code}), \
+                 then delete the log it writes on the way"
             )),
             Some(Program::Unpacked { dir, files, docs }) => {
                 for file in files {
@@ -211,14 +251,14 @@ pub fn discover(config: Option<&config::Config>, config_path: &Path) -> Layout {
         candidates.insert(0, config_path.to_path_buf());
     }
     let local_dir = config::local_dir();
-    let log_dir = config
-        .and_then(|config| config.general.log_dir.clone())
-        .or_else(|| local_dir.as_ref().map(|dir| dir.join("logs")));
+    let log_dir = config.map_or_else(config::default_log_dir, |config| config.general.log_dir());
     Layout {
         watcher_running: win::SingleInstance::is_held(service::INSTANCE),
         task_registered: task::exists(),
         config_candidates: candidates,
-        log: log_dir.map(|dir| dir.join(logging::LOG_FILE_NAME)),
+        log_dir,
+        default_log_dir: config::default_log_dir(),
+        updates_dir: crate::update::updates_dir(),
         marker: local_dir.as_ref().map(|dir| dir.join(marker::FILE_NAME)),
         fault_marker: local_dir
             .as_ref()
@@ -230,6 +270,40 @@ pub fn discover(config: Option<&config::Config>, config_path: &Path) -> Layout {
             .and_then(|exe| exe.parent().map(Path::to_path_buf)),
         product_code: package::installed_product(),
     }
+}
+
+/// A shell step removing `dir` if it holds nothing, and leaving it alone
+/// otherwise. Asked outright: `Remove-Item` without `-Recurse` on a folder
+/// that is not empty wants to prompt, and a non-interactive shell turns
+/// that into an error and an exit code of 1 -- the folder stays, but by
+/// accident, measured on 2026-09-25.
+fn remove_if_empty(dir: &Path) -> String {
+    let dir = quoted(dir);
+    format!(
+        "if (-not (Get-ChildItem -LiteralPath {dir} -Force -ErrorAction SilentlyContinue)) \
+         {{ Remove-Item -LiteralPath {dir} -ErrorAction SilentlyContinue }}"
+    )
+}
+
+/// The shell's steps for an installed copy: the uninstall, waited for, then
+/// the log its `stop` and `uninstall-task` wrote and the folders that leaves
+/// empty.
+fn uninstall_steps(product_code: &str, default_log_dir: Option<&Path>) -> Vec<String> {
+    let mut steps = vec![format!(
+        "Start-Process msiexec.exe -ArgumentList '/x {product_code} /passive' -Wait"
+    )];
+    if let Some(logs) = default_log_dir {
+        steps.push(format!(
+            "Get-ChildItem -LiteralPath {} -File -Filter '{}' -ErrorAction SilentlyContinue \
+             | Remove-Item -Force -ErrorAction SilentlyContinue",
+            quoted(logs),
+            logging::log_file_pattern()
+        ));
+        for dir in [Some(logs), logs.parent()].into_iter().flatten() {
+            steps.push(remove_if_empty(dir));
+        }
+    }
+    steps
 }
 
 /// Carry the plan out. The executables go last and outlive this process:
@@ -246,6 +320,11 @@ pub fn execute(plan: &Plan) -> Result<()> {
         std::fs::remove_file(file).with_context(|| format!("cannot delete {}", file.display()))?;
         println!("Deleted {}.", file.display());
     }
+    for tree in &plan.trees {
+        std::fs::remove_dir_all(tree)
+            .with_context(|| format!("cannot delete {}", tree.display()))?;
+        println!("Deleted {}.", tree.display());
+    }
     for dir in &plan.dirs {
         match std::fs::remove_dir(dir) {
             Ok(()) => println!("Removed {}.", dir.display()),
@@ -254,12 +333,13 @@ pub fn execute(plan: &Plan) -> Result<()> {
         }
     }
     match &plan.program {
-        Some(Program::Installed { product_code }) => {
+        Some(Program::Installed {
+            product_code,
+            default_log_dir,
+        }) => {
             // Once this process is gone: it lives in the folder the installer
             // is about to empty, and Windows Installer would find it in use.
-            after_exit(&[format!(
-                "Start-Process msiexec.exe -ArgumentList '/x {product_code} /passive'"
-            )])?;
+            after_exit(&uninstall_steps(product_code, default_log_dir.as_deref()))?;
             println!("Windows Installer will now remove the program.");
         }
         Some(Program::Unpacked { dir, files, docs }) => {
@@ -278,12 +358,8 @@ pub fn execute(plan: &Plan) -> Result<()> {
                     quoted(docs)
                 ));
             }
-            // The folder itself: only if that left it empty, which is what
-            // Remove-Item without -Recurse does.
-            steps.push(format!(
-                "Remove-Item -LiteralPath {} -ErrorAction SilentlyContinue",
-                quoted(dir)
-            ));
+            // The folder itself: only if that left it empty.
+            steps.push(remove_if_empty(dir));
             after_exit(&steps)?;
             println!("The executables will be deleted once this command has exited.");
             // A folder cannot go while a shell sits in it, and the shell this
@@ -333,13 +409,18 @@ mod tests {
         let exe_dir = root.join("program");
         touch(&roaming.join("config.toml"));
         touch(&local.join("logs").join("gamemode-executor.log"));
+        touch(&local.join("logs").join("gamemode-executor.2026-09-25.log"));
+        touch(&local.join("logs").join("notes.txt"));
+        touch(&local.join("updates").join("GameModeExecutor-0.4.0.msi"));
         touch(&exe_dir.join("gamemode-executor.exe"));
         touch(&exe_dir.join("LICENSE"));
         let layout = Layout {
             watcher_running: false,
             task_registered: true,
             config_candidates: vec![exe_dir.join("config.toml"), roaming.join("config.toml")],
-            log: Some(local.join("logs").join("gamemode-executor.log")),
+            log_dir: Some(local.join("logs")),
+            default_log_dir: Some(local.join("logs")),
+            updates_dir: Some(local.join("updates")),
             marker: Some(local.join(marker::FILE_NAME)),
             fault_marker: Some(local.join(marker::FAULT_FILE_NAME)),
             local_dir: Some(local.clone()),
@@ -352,13 +433,21 @@ mod tests {
 
         assert!(!plan.stop_watcher);
         assert!(plan.remove_task);
-        // The config next to the executable and the marker do not exist.
+        // The config next to the executable and the marker do not exist;
+        // every log file goes, dated or from before the rotation, and a
+        // file of someone else's in the folder stays.
         assert_eq!(
             plan.files,
             vec![
                 roaming.join("config.toml"),
-                local.join("logs").join("gamemode-executor.log")
+                local.join("logs").join("gamemode-executor.2026-09-25.log"),
+                local.join("logs").join("gamemode-executor.log"),
             ]
+        );
+        assert_eq!(
+            plan.trees,
+            vec![local.join("updates")],
+            "the updater's folder, taken whole"
         );
         assert_eq!(
             plan.dirs,
@@ -382,16 +471,48 @@ mod tests {
         let layout = Layout {
             product_code: Some("{00000000-0000-0000-0000-000000000000}".to_owned()),
             exe_dir: Some(PathBuf::from(r"C:\nowhere")),
+            default_log_dir: Some(PathBuf::from(r"C:\local\GameModeExecutor\logs")),
             ..Layout::default()
         };
         let plan = Plan::compute(&layout);
         assert_eq!(
             plan.program,
             Some(Program::Installed {
-                product_code: "{00000000-0000-0000-0000-000000000000}".to_owned()
+                product_code: "{00000000-0000-0000-0000-000000000000}".to_owned(),
+                default_log_dir: Some(PathBuf::from(r"C:\local\GameModeExecutor\logs")),
             })
         );
         assert!(plan.files.is_empty() && plan.dirs.is_empty());
+    }
+
+    /// The uninstall's `stop` and `uninstall-task` log what they did, after
+    /// the purge has deleted the log: the shell waits for the installer,
+    /// then deletes the log files alone, then the two folders only if that
+    /// left them empty.
+    #[test]
+    fn an_uninstall_is_waited_for_and_the_log_it_writes_swept() {
+        let logs = Path::new(r"C:\local\GameModeExecutor\logs");
+        let steps = uninstall_steps("{CODE}", Some(logs));
+        assert_eq!(
+            steps[0],
+            "Start-Process msiexec.exe -ArgumentList '/x {CODE} /passive' -Wait"
+        );
+        assert!(
+            steps[1].starts_with(r"Get-ChildItem -LiteralPath 'C:\local\GameModeExecutor\logs' -File -Filter 'gamemode-executor*log'"),
+            "{}",
+            steps[1]
+        );
+        assert_eq!(
+            steps[2..],
+            [
+                remove_if_empty(logs),
+                remove_if_empty(Path::new(r"C:\local\GameModeExecutor")),
+            ]
+        );
+        assert!(
+            steps.iter().all(|step| !step.contains("-Recurse")),
+            "{steps:?}"
+        );
     }
 
     #[test]
@@ -407,7 +528,7 @@ mod tests {
         let elsewhere = root.join("elsewhere");
         touch(&elsewhere.join("gamemode-executor.log"));
         let layout = Layout {
-            log: Some(elsewhere.join("gamemode-executor.log")),
+            log_dir: Some(elsewhere.clone()),
             local_dir: Some(root.join("local")),
             ..Layout::default()
         };
@@ -425,6 +546,7 @@ mod tests {
         let local = root.join("local");
         let kept = root.join("kept");
         touch(&local.join("logs").join("gamemode-executor.log"));
+        touch(&local.join("updates").join("unpacked").join("README.txt"));
         touch(&kept.join("config.toml"));
         touch(&kept.join("something-else.txt"));
         let plan = Plan {
@@ -434,17 +556,50 @@ mod tests {
                 local.join("logs").join("gamemode-executor.log"),
                 kept.join("config.toml"),
             ],
+            trees: vec![local.join("updates")],
             dirs: vec![local.join("logs"), local.clone(), kept.clone()],
             program: None,
         };
 
         execute(&plan).unwrap();
 
-        assert!(!local.exists(), "empty folders go");
+        assert!(
+            !local.exists(),
+            "the updater's folder goes whole, then the empty folders"
+        );
         assert!(
             kept.join("something-else.txt").exists(),
             "a folder holding something else stays"
         );
+    }
+
+    #[test]
+    fn the_sweep_after_an_uninstall_takes_the_log_and_only_empty_folders() {
+        // The steps after the uninstall, run by the real hidden shell: in
+        // one profile the log is all there is, in the other something else
+        // shares both folders and stays, with them.
+        let alone = scratch().join("GameModeExecutor");
+        let shared = scratch().join("GameModeExecutor");
+        for local in [&alone, &shared] {
+            touch(&local.join("logs").join("gamemode-executor.2026-09-26.log"));
+            touch(&local.join("logs").join("gamemode-executor.log"));
+        }
+        touch(&shared.join("logs").join("notes.txt"));
+        touch(&shared.join("updates").join("pending.txt"));
+
+        for local in [&alone, &shared] {
+            let steps = uninstall_steps("{CODE}", Some(&local.join("logs")));
+            let status = crate::shell::hidden(&steps[1..].join("; "))
+                .unwrap()
+                .wait()
+                .unwrap();
+            assert!(status.success(), "{status:?}");
+        }
+
+        assert!(!alone.exists(), "the log was all there was");
+        assert!(logging::log_files(&shared.join("logs")).is_empty());
+        assert!(shared.join("logs").join("notes.txt").exists());
+        assert!(shared.join("updates").join("pending.txt").exists());
     }
 
     /// The hand-installed case hands the executables to a shell that waits

@@ -57,9 +57,6 @@ pub const INSTANCE: &str = "GameModeExecutor";
 /// watcher that is wedged.
 const STOP_PATIENCE: Duration = Duration::from_secs(30);
 
-/// The level the log opens at when the configuration cannot say.
-const DEFAULT_LEVEL: &str = "info";
-
 /// Run the watcher until it is stopped.
 ///
 /// The configuration is loaded here rather than by the caller, because a
@@ -75,22 +72,16 @@ pub fn serve(config_path: &Path, level: Option<&str>, console: bool) -> Result<(
     let (text, loaded) = load(config_path);
     // The watcher always keeps a log file. A windowless instance has nowhere
     // else to write, and a console one is usually left running unattended.
-    // A file that cannot be read cannot say where: the default, then.
-    let log_dir = loaded
+    // A file that cannot be read cannot say where, nor how long to keep it:
+    // the defaults, then.
+    let general = loaded
         .as_ref()
         .ok()
-        .and_then(|config| config.general.log_dir.clone())
-        .or_else(|| config::local_dir().map(|dir| dir.join("logs")));
-    let opened_at = level
-        .map(str::to_owned)
-        .or_else(|| {
-            loaded
-                .as_ref()
-                .ok()
-                .map(|config| config.general.log_level.clone())
-        })
-        .unwrap_or_else(|| DEFAULT_LEVEL.to_owned());
-    logging::init(&opened_at, log_dir.as_deref(), console)?;
+        .map(|config| config.general.clone())
+        .unwrap_or_default();
+    let log_dir = general.log_dir();
+    let opened_at = level.map_or_else(|| general.log_level.clone(), str::to_owned);
+    logging::init(&opened_at, log_dir.as_deref(), general.log_days, console)?;
     // Installed as early as the log exists, so a panic anywhere after this
     // leaves a FATAL line behind rather than a process that simply vanished.
     logging::install_panic_hook();
@@ -120,10 +111,7 @@ pub fn serve(config_path: &Path, level: Option<&str>, console: bool) -> Result<(
     // to say so and carry on watching, not to refuse to start.
     let targets = tray::Targets {
         config: config_path.to_path_buf(),
-        log: log_dir
-            .clone()
-            .unwrap_or_default()
-            .join(logging::LOG_FILE_NAME),
+        log_dir: log_dir.clone().unwrap_or_default(),
     };
     if let Err(error) = tray::install(window_id, targets, Arc::clone(&stop)) {
         tracing::warn!(
@@ -193,6 +181,7 @@ pub fn serve(config_path: &Path, level: Option<&str>, console: bool) -> Result<(
         level: level.map(str::to_owned),
         applied_level: opened_at,
         log_dir: log_dir.clone(),
+        log_days: general.log_days,
         sink,
         faults,
         marker,
@@ -255,6 +244,8 @@ struct Supervised {
     applied_level: String,
     /// Where the log was opened; a file that moves it is told to wait.
     log_dir: Option<std::path::PathBuf>,
+    /// How many days the log keeps; a change waits too.
+    log_days: u32,
     sink: engine::SessionSink,
     faults: FaultSink,
     marker: Option<crate::marker::Marker>,
@@ -361,22 +352,26 @@ impl Supervised {
 
     /// Apply what a configuration says about the log itself: the level
     /// follows live unless the command line fixed it; the folder cannot
-    /// move under an open file and waits for the next start.
+    /// move under an open file, and the days kept are the appender's, built
+    /// once: both wait for the next start.
     fn follow(&mut self, config: &Config) {
         if self.level.is_none() && config.general.log_level != self.applied_level {
             logging::set_level(&config.general.log_level);
             self.applied_level = config.general.log_level.clone();
         }
-        let wanted = config
-            .general
-            .log_dir
-            .clone()
-            .or_else(|| config::local_dir().map(|dir| dir.join("logs")));
+        let wanted = config.general.log_dir();
         if wanted != self.log_dir {
             tracing::warn!(
                 target: logging::target::WATCHER,
                 wanted = wanted.as_deref().map(|dir| dir.display().to_string()),
                 "log_dir changed; the log moves there at the next start"
+            );
+        }
+        if config.general.log_days != self.log_days {
+            tracing::warn!(
+                target: logging::target::WATCHER,
+                wanted = config.general.log_days,
+                "log_days changed; the log keeps that many days from the next start"
             );
         }
     }

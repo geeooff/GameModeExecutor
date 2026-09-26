@@ -120,8 +120,8 @@ gamemode-executor trigger stop
 Save the file, and that is all: the watcher notices within a second, reads
 it again and writes `Configuration reloaded` in the log. Nothing to restart,
 and a game in progress is not disturbed — the commands that run when it ends
-are the ones you just saved. The one setting that waits for the next start
-is `log_dir`, since the log is already open; the log says so.
+are the ones you just saved. The settings that wait for the next start are
+`log_dir` and `log_days`, since the log is already open; the log says so.
 
 If the file cannot be used, the icon turns **red, with a slash**, a
 notification with the error glyph says what is wrong in full — the line
@@ -176,7 +176,7 @@ arrow next to the clock, and drag it onto the taskbar to keep it there.
 | Entry | What it does |
 | --- | --- |
 | **Edit configuration** | opens your `config.toml` in whatever you use for text files — Notepad if `.toml` is not associated with anything |
-| **Open log** | opens the log the same way |
+| **Open log** | opens today's log the same way |
 | **Documentation** | opens this page for **the exact build you are running**, not for whatever the project looks like today |
 | **Check for updates** | asks GitHub whether a newer release exists — the only time this program ever connects to anything, and only when you click. The menu closes, as menus do; the answer arrives as a silent notification a second later, and waits in the menu too: *0.1.0 is the latest version*, or **Download and install 0.2.0** beside a **What changed in 0.2.0** that opens the release page |
 | **Quit** | stops the watcher, running the stop commands on the way out so you are not left on a gaming profile |
@@ -219,7 +219,9 @@ Tells you what it sees right now: whether a game is running, which one, and
 whether Windows recognises it.
 
 The log keeps the history of every session. It lives in
-`%LOCALAPPDATA%\GameModeExecutor\logs\gamemode-executor.log` and reads like this:
+`%LOCALAPPDATA%\GameModeExecutor\logs`, one file a day — the last seven, or
+`log_days` in the configuration — and **Open log** opens today's. It reads
+like this:
 
 ```
 2026-09-10 17:51:02.433  INFO  watcher   GameModeExecutor 0.1.0 starting

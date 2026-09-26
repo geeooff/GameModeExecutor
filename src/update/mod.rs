@@ -467,6 +467,13 @@ pub struct Context {
     pub wake: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
+/// The updater's own folder: the downloaded release, the notes it leaves
+/// for the next start, the installer's log. Nothing else writes there, so
+/// `purge` takes it whole.
+pub fn updates_dir() -> Option<PathBuf> {
+    crate::config::local_dir().map(|dir| dir.join("updates"))
+}
+
 impl Context {
     /// The context of this process. Which kind of copy it is waits for the
     /// question -- see `kind`.
@@ -479,9 +486,8 @@ impl Context {
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_else(|| PathBuf::from("."));
-        let updates_dir = crate::config::local_dir()
-            .ok_or_else(|| anyhow::anyhow!("no local profile folder"))?
-            .join("updates");
+        let updates_dir =
+            updates_dir().ok_or_else(|| anyhow::anyhow!("no local profile folder"))?;
         Ok(Self {
             repository: crate::build_info::REPOSITORY.to_owned(),
             kind: None,

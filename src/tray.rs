@@ -533,10 +533,11 @@ impl Theme {
     }
 }
 
-/// What the menu opens.
+/// What the menu opens. The log is a folder of dated files; which one
+/// *Open log* opens is `logging`'s to say, at the click.
 pub struct Targets {
     pub config: PathBuf,
-    pub log: PathBuf,
+    pub log_dir: PathBuf,
 }
 
 struct Tray {
@@ -971,7 +972,7 @@ fn run_command(id: usize) {
                     if id == ID_CONFIG {
                         tray.targets.config.clone()
                     } else {
-                        tray.targets.log.clone()
+                        crate::logging::to_open(&tray.targets.log_dir)
                     }
                 })
             });

@@ -205,11 +205,11 @@ pub fn run(cli: Cli, console: bool) -> Result<()> {
             Ok(())
         }
         Some(Command::Status) => {
-            logging::init(&level, None, console)?;
+            logging::init(&level, None, config.general.log_days, console)?;
             status()
         }
         Some(Command::Trigger { event }) => {
-            logging::init(&level, None, console)?;
+            logging::init(&level, None, config.general.log_days, console)?;
             // The commands and nothing else: no detection, no session, no
             // marker. A trigger is for testing what the commands do.
             let (label, actions) = match event {
@@ -273,22 +273,18 @@ fn update_command(check_only: bool) -> Result<()> {
 /// runs before any configuration exists, and a broken one is no reason to
 /// lose the line that says what was done.
 fn setup_logging(explicit: Option<&Path>, level: Option<&str>, console: bool) -> Result<()> {
-    let config = resolve_config_path(explicit.map(Path::to_path_buf))
+    let general = resolve_config_path(explicit.map(Path::to_path_buf))
         .ok()
-        .and_then(|path| Config::load(&path).ok());
-    let level = level
-        .map(str::to_owned)
-        .or_else(|| {
-            config
-                .as_ref()
-                .map(|config| config.general.log_level.clone())
-        })
-        .unwrap_or_else(|| "info".to_owned());
-    let dir = config
-        .as_ref()
-        .and_then(|config| config.general.log_dir.clone())
-        .or_else(|| config::local_dir().map(|dir| dir.join("logs")));
-    logging::init(&level, dir.as_deref(), console)
+        .and_then(|path| Config::load(&path).ok())
+        .map(|config| config.general)
+        .unwrap_or_default();
+    let level = level.map_or_else(|| general.log_level.clone(), str::to_owned);
+    logging::init(
+        &level,
+        general.log_dir().as_deref(),
+        general.log_days,
+        console,
+    )
 }
 
 fn resolve_config_path(explicit: Option<PathBuf>) -> Result<PathBuf> {

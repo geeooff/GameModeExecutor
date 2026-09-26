@@ -30,6 +30,9 @@
 //!                                    the rendering load the refinement reads, busiest first
 //! presence-probe microsoft-list <exe path>...
 //!                                    whether Microsoft's own game list covers each executable
+//! presence-probe log-turnover [log_days]
+//!                                    the log's appender turning over each minute, in a scratch
+//!                                    folder, under one long writer and two short ones
 //! presence-probe activate            activate the class ourselves and time it
 //! ```
 
@@ -1043,6 +1046,146 @@ fn cmd_gpu_load(ms: u64, rounds: u32) -> windows::core::Result<()> {
     Ok(())
 }
 
+// ----------------------------------------------------- the log's turnover --
+
+/// Lot 17's spike, kept runnable: the log's appender, built by
+/// `logging::appender` as the watcher builds it but turning over each
+/// minute -- the library's rotations differ in their period alone -- in a
+/// fresh scratch folder, with the files a first start would find planted
+/// there. One writer runs for 95 s from second 40 of a UTC minute, as the
+/// watcher does; two short ones write three lines each and exit, as `stop`
+/// does, before and after the first boundary. `docs/design/17-log-rotation.md`
+/// has what it showed on 2026-09-25.
+fn cmd_log_turnover(log_days: u32) {
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    let utc_second = || {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs() % 60)
+    };
+    let wait_for_second = |second: u64| {
+        while utc_second() != second {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    };
+    let dir = std::env::temp_dir().join(format!(
+        "gamemode-executor-log-turnover-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).expect("cannot create the scratch folder");
+    // Oldest first: the appender sorts by creation time.
+    for name in [
+        "gamemode-executor.log",
+        "gamemode-executor.2000-01-01-00-00.log",
+        "gamemode-executor.2000-01-01-00-01.log",
+        "notes.txt",
+        "gamemode-executor-extra.txt",
+    ] {
+        std::fs::write(dir.join(name), "planted\n").expect("cannot plant a file");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let show = |what: &str| {
+        let mut names: Vec<String> = std::fs::read_dir(&dir)
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        println!(
+            "{} UTC second {:02}  {what}\n    {}",
+            timestamp(),
+            utc_second(),
+            names.join(", ")
+        );
+    };
+    let me = std::env::current_exe().expect("cannot find this executable");
+    let writer = |seconds: u64, tag: &str| {
+        std::process::Command::new(&me)
+            .arg("log-turnover-writer")
+            .arg(&dir)
+            .arg(seconds.to_string())
+            .arg(tag)
+            .arg(log_days.to_string())
+            .spawn()
+            .expect("cannot start a writer")
+    };
+
+    println!(
+        "log_days = {log_days}, the appender keeping {} files",
+        log_days + 1
+    );
+    show("planted");
+    wait_for_second(40);
+    let mut long = writer(95, "watcher");
+    std::thread::sleep(Duration::from_millis(500));
+    show("the long writer started");
+    wait_for_second(50);
+    let _ = writer(3, "command-before").wait();
+    show("a short writer ran, before the boundary");
+    wait_for_second(10);
+    show("past the boundary, before any short writer");
+    let _ = writer(3, "command-after").wait();
+    show("a short writer ran, after the boundary");
+    let _ = long.wait();
+    show("the long writer finished, two boundaries crossed");
+
+    println!("\nWhat each log file holds:");
+    let mut logs = game_mode_executor::logging::log_files(&dir);
+    logs.sort();
+    for path in logs {
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let lines: Vec<&str> = text.lines().collect();
+        let whole = lines
+            .iter()
+            .filter(|line| line.contains(" pid=") || **line == "planted")
+            .count();
+        println!(
+            "  {}: {} lines, {} whole",
+            path.file_name().unwrap_or_default().to_string_lossy(),
+            lines.len(),
+            whole
+        );
+        for line in [lines.first(), lines.last()].into_iter().flatten() {
+            println!("    {line}");
+        }
+    }
+    println!("\nFolder, left for reading: {}", dir.display());
+}
+
+/// One writer of `log-turnover`: a line a second for `seconds`, through the
+/// appender `logging::appender` builds, turning over each minute.
+fn cmd_log_turnover_writer(dir: &std::path::Path, seconds: u64, tag: &str, log_days: u32) {
+    use tracing_appender::rolling::Rotation;
+
+    let appender = game_mode_executor::logging::appender(dir, log_days, Rotation::MINUTELY)
+        .expect("cannot build the appender");
+    // Synchronous, as the watcher's: the appender itself is the writer.
+    tracing_subscriber::fmt()
+        .with_writer(appender)
+        .with_ansi(false)
+        .with_target(false)
+        .init();
+    let pid = std::process::id();
+    let started = std::time::Instant::now();
+    let mut line = 0u32;
+    while started.elapsed() < std::time::Duration::from_secs(seconds) {
+        line += 1;
+        tracing::info!(
+            target: game_mode_executor::logging::target::WATCHER,
+            "{tag} pid={pid} line={line}"
+        );
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+    tracing::info!(
+        target: game_mode_executor::logging::target::WATCHER,
+        "{tag} pid={pid} done after {line} lines"
+    );
+}
+
 /// What one click of the menu leaves in this process, sampled for five
 /// minutes: `open`, the shell road *Edit configuration* takes, here to a
 /// hidden `cmd /c exit 0` so nothing shows; `check`, *Check for updates*
@@ -1277,6 +1420,26 @@ fn main() -> windows::core::Result<()> {
                 .unwrap_or(5),
         ),
         Some("menu-cost") => cmd_menu_cost(std::env::args().nth(2).as_deref().unwrap_or("")),
+        Some("log-turnover") => {
+            cmd_log_turnover(
+                std::env::args()
+                    .nth(2)
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(2),
+            );
+            Ok(())
+        }
+        // The writers `log-turnover` starts, one process each.
+        Some("log-turnover-writer") => {
+            let arg = |n: usize| std::env::args().nth(n).unwrap_or_default();
+            cmd_log_turnover_writer(
+                std::path::Path::new(&arg(2)),
+                arg(3).parse().unwrap_or(3),
+                &arg(4),
+                arg(5).parse().unwrap_or(2),
+            );
+            Ok(())
+        }
         Some("watch-methods") => match std::env::args().nth(3) {
             Some(sid) => cmd_watch_methods(seconds(), &sid),
             None => {

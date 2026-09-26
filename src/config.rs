@@ -23,6 +23,9 @@ pub const APP_DIR_NAME: &str = "GameModeExecutor";
 /// The five positions of `log_level`, the ones the log's filter reads.
 pub const LOG_LEVELS: [&str; 5] = ["error", "warn", "info", "debug", "trace"];
 
+/// How many days of log are kept when `log_days` is not in the file.
+pub const DEFAULT_LOG_DAYS: u32 = 7;
+
 /// Root of the configuration file.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -69,8 +72,12 @@ pub struct General {
     pub stop_actions_on_exit: bool,
     /// `error`, `warn`, `info`, `debug` or `trace`.
     pub log_level: String,
-    /// Directory holding the log file. Defaults to the roaming profile.
+    /// Directory holding the log files. Defaults to [`default_log_dir`].
     pub log_dir: Option<PathBuf>,
+    /// How many days of log files are kept, today's included. Absent, it is
+    /// [`DEFAULT_LOG_DAYS`]: the log always turns over, only the history
+    /// kept is a choice.
+    pub log_days: u32,
 }
 
 impl Default for General {
@@ -79,7 +86,15 @@ impl Default for General {
             stop_actions_on_exit: true,
             log_level: "info".to_owned(),
             log_dir: None,
+            log_days: DEFAULT_LOG_DAYS,
         }
+    }
+}
+
+impl General {
+    /// Where the log goes: the file's `log_dir`, or [`default_log_dir`].
+    pub fn log_dir(&self) -> Option<PathBuf> {
+        self.log_dir.clone().or_else(default_log_dir)
     }
 }
 
@@ -322,6 +337,11 @@ impl Config {
         if self.detection.poll_interval.is_zero() {
             anyhow::bail!("detection.poll_interval must be greater than zero");
         }
+        // A whole number the parser already insists on; zero would keep no
+        // file at all. One is today's file alone, and allowed.
+        if self.general.log_days == 0 {
+            anyhow::bail!("general.log_days must be 1 or more, not 0");
+        }
         // No commands at all is a valid configuration -- the one `init`
         // writes. The watcher then detects, names and logs sessions and runs
         // nothing, which is how someone sees it work before deciding what it
@@ -376,6 +396,12 @@ pub fn roaming_dir() -> Option<PathBuf> {
 /// where Windows puts what belongs to the machine rather than the person.
 pub fn local_dir() -> Option<PathBuf> {
     std::env::var_os("LOCALAPPDATA").map(|local| PathBuf::from(local).join(APP_DIR_NAME))
+}
+
+/// Where the log goes when the configuration does not say, or cannot be
+/// read: `logs` in [`local_dir`].
+pub fn default_log_dir() -> Option<PathBuf> {
+    local_dir().map(|dir| dir.join("logs"))
 }
 
 /// How long after the last change notification the file is read again.
@@ -624,6 +650,35 @@ mode = \"concurrent\"
                 let text = format!("[general]\nlog_level = \"{spelling}\"\n");
                 Config::parse(&text, path).unwrap();
             }
+        }
+    }
+
+    #[test]
+    fn log_days_is_seven_when_absent_and_a_whole_number_of_one_or_more() {
+        let path = Path::new("config.toml");
+        let absent = Config::parse("", path).unwrap();
+        assert_eq!(absent.general.log_days, DEFAULT_LOG_DAYS);
+        for days in [1, 2, 7, 30] {
+            let text = format!("[general]\nlog_days = {days}\n");
+            assert_eq!(Config::parse(&text, path).unwrap().general.log_days, days);
+        }
+        // Zero, the validation says so by name.
+        let error = Config::parse("[general]\nlog_days = 0\n", path).unwrap_err();
+        assert!(
+            error.summary().contains("log_days must be 1 or more"),
+            "{}",
+            error.summary()
+        );
+        // Not a whole number, the parser refuses it on its line, as it does
+        // any value of the wrong type.
+        for refused in ["-3", "7.5", "\"7\""] {
+            let text = format!("[general]\nlog_days = {refused}\n");
+            let error = Config::parse(&text, path).unwrap_err();
+            assert!(
+                error.summary().starts_with("line 2:"),
+                "{refused}: {}",
+                error.summary()
+            );
         }
     }
 
