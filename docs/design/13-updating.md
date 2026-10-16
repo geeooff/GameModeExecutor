@@ -111,7 +111,7 @@ leaves it saying so.
 | --- | --- | --- |
 | Who follows | nobody | a watcher, within the second |
 | Stop commands | run now — the standing promise, "not left on a gaming configuration" | **do not run** |
-| Marker | removed once the commands are confirmed | **left in place**: the session is open, and handed on |
+| Marker | removed once the commands ran, kept if one failed — *until 2026-10-16, once they were confirmed* | **left in place**: the session is open, and handed on |
 | Log | `Stopping while a game is running, so the stop commands run now` | `Stopping for an update; the game session is handed to the next watcher` |
 
 And at start, `recover()` learns the distinction [Lot 9](09-robustness.md)

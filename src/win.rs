@@ -1,7 +1,7 @@
 //! Thin, safe wrappers around the few Win32 calls the program needs.
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -32,21 +32,31 @@ use windows::core::{BOOL, HSTRING, PCWSTR};
 
 /// Why the watcher is stopping, which decides what a stop mid-game does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
 pub enum StopReason {
-    /// Nobody follows: *Quit*, `stop`, Ctrl-C, a logoff. The stop commands
-    /// run, so the machine is not left on its gaming configuration.
-    Restore,
+    /// Nobody follows: *Quit*, `stop`, Ctrl-C. The stop commands run, so the
+    /// machine is not left on its gaming configuration.
+    Restore = 1,
     /// A watcher follows within seconds: an update, an upgrade, the
     /// development loop. The session stays open in the marker and the next
     /// watcher resumes it, so nothing runs twice. Decided 2026-09-18.
-    Handover,
+    Handover = 2,
     /// The configuration file changed: the engine stops so that one built
     /// on the new file can take its place, in the same process. A session
     /// that is open stays open, as for a handover, and the next engine
     /// resumes it. Only ever the reason of a signal made with
     /// [`StopSignal::child_of`]. Decided 2026-09-19.
-    Reload,
+    Reload = 3,
+    /// Windows is ending the session: a logoff, a restart, a shutdown. A
+    /// program started now dies unborn, so the stop commands are not tried;
+    /// the session stays in the marker and the next start runs them.
+    /// Decided 2026-10-16, from two logoffs here and eight session ends in
+    /// a second machine's log, every command started then refused.
+    SessionEnd = 4,
 }
+
+/// No reason recorded yet: the signal is not set, or was set without one.
+const NO_REASON: u8 = 0;
 
 /// A manual-reset event used to unblock every wait in the program at once.
 ///
@@ -57,15 +67,13 @@ pub enum StopReason {
 /// is, and the parent's reason wins. That is how one engine run stops for
 /// a reload without the process-wide stop ever being reset -- the child's
 /// own event carries the reload and is reset between runs; the parent
-/// carries *Quit*, the logoff and `stop`, and stays set once set.
+/// carries *Quit*, the session end and `stop`, and stays set once set.
 pub struct StopSignal {
     event: HANDLE,
-    /// Set before the event when the stop is a handover. The first reason to
-    /// arrive wins: a *Quit* after a handover request still hands over, a
-    /// handover after a *Quit* has nothing left to hand.
-    handover: AtomicBool,
-    /// Set before the event when the stop is a reload of this run only.
-    reload: AtomicBool,
+    /// Recorded before the event is set. The first reason to arrive wins: a
+    /// *Quit* after a handover request still hands over, a handover after a
+    /// *Quit* has nothing left to hand.
+    reason: AtomicU8,
     /// The signal this one also answers to.
     parent: Option<Arc<StopSignal>>,
 }
@@ -84,8 +92,7 @@ impl StopSignal {
             .context("cannot create the stop event")?;
         Ok(Self {
             event,
-            handover: AtomicBool::new(false),
-            reload: AtomicBool::new(false),
+            reason: AtomicU8::new(NO_REASON),
             parent: None,
         })
     }
@@ -103,16 +110,17 @@ impl StopSignal {
 
     /// Stop, and restore: the stop commands run if a game is on.
     pub fn signal(&self) {
-        // SAFETY: the event is open for as long as `self` lives.
-        let _ = unsafe { SetEvent(self.event) };
+        self.signal_for(StopReason::Restore);
     }
 
     /// Stop, and hand an open session to the watcher that follows.
     pub fn signal_handover(&self) {
-        if !self.is_set() {
-            self.handover.store(true, Ordering::SeqCst);
-        }
-        self.signal();
+        self.signal_for(StopReason::Handover);
+    }
+
+    /// Stop, because Windows is ending the session.
+    pub fn signal_session_end(&self) {
+        self.signal_for(StopReason::SessionEnd);
     }
 
     /// Stop this run only, to start again on a changed configuration. Nothing
@@ -122,8 +130,21 @@ impl StopSignal {
         if self.is_set() {
             return;
         }
-        self.reload.store(true, Ordering::SeqCst);
-        self.signal();
+        self.signal_for(StopReason::Reload);
+    }
+
+    fn signal_for(&self, reason: StopReason) {
+        if !self.is_set() {
+            // A loss means another reason got there first, and it stands.
+            let _ = self.reason.compare_exchange(
+                NO_REASON,
+                reason as u8,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            );
+        }
+        // SAFETY: the event is open for as long as `self` lives.
+        let _ = unsafe { SetEvent(self.event) };
     }
 
     /// Whether the stop under way is a reload, and if so, clear it so the
@@ -133,7 +154,12 @@ impl StopSignal {
         if self.parent.as_ref().is_some_and(|parent| parent.is_set()) || !self.own_is_set() {
             return false;
         }
-        if !self.reload.swap(false, Ordering::SeqCst) {
+        let reload = StopReason::Reload as u8;
+        if self
+            .reason
+            .compare_exchange(reload, NO_REASON, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
             return false;
         }
         // SAFETY: as for `signal`.
@@ -147,13 +173,15 @@ impl StopSignal {
         {
             return parent.reason();
         }
-        if self.handover.load(Ordering::SeqCst) {
-            StopReason::Handover
-        } else if self.reload.load(Ordering::SeqCst) {
-            StopReason::Reload
-        } else {
-            StopReason::Restore
-        }
+        let recorded = self.reason.load(Ordering::SeqCst);
+        [
+            StopReason::Handover,
+            StopReason::Reload,
+            StopReason::SessionEnd,
+        ]
+        .into_iter()
+        .find(|reason| *reason as u8 == recorded)
+        .unwrap_or(StopReason::Restore)
     }
 
     pub fn is_set(&self) -> bool {
@@ -230,25 +258,34 @@ unsafe extern "system" fn window_proc(
 ) -> LRESULT {
     match message {
         // "Are you willing to let the session end?" Yes -- and start stopping
-        // now, so the stop actions have the whole of Windows' own countdown
-        // rather than only what is left of it at WM_ENDSESSION.
+        // now, with the whole of Windows' own countdown rather than only what
+        // is left of it at WM_ENDSESSION.
         WM_QUERYENDSESSION => {
             if let Some(state) = SESSION.get() {
-                // Logged because the alternative is a log that simply stops.
-                // This path runs once, unattended, on a machine nobody is
-                // watching, and "Windows never asked" has to be tellable from
-                // "we never answered".
-                tracing::debug!(
+                // At `info`, and here, before answering: "the session can end
+                // any time after all applications have returned" from
+                // WM_ENDSESSION, Microsoft says, and a second machine's log
+                // lost the `Stopped` that follows about half the time
+                // (2026-10-16). Without this line a session end and a watcher
+                // that vanished look alike.
+                //
+                // Every request is a session end. `ENDSESSION_CLOSEAPP` is
+                // documented as the Restart Manager closing an application
+                // for an installer, but both real shutdowns here on
+                // 2026-10-17 carried it, so it cannot tell the two apart;
+                // the flags go in the annex for whoever reads a puzzling one.
+                tracing::info!(
                     target: crate::logging::target::WATCHER,
-                    "Windows asked to end the session, so the watcher starts stopping now"
+                    flags = format!("{:#x}", lparam.0),
+                    "Windows is ending the session, so the watcher stops"
                 );
-                state.stop.signal();
+                state.stop.signal_session_end();
             }
             LRESULT(1)
         }
-        // "The session is ending." Hold this thread until the stop actions are
-        // done, so the fan profile is restored before the process is killed.
-        // This is the whole reason the window exists.
+        // "The session is ending." Hold this thread until the engine has
+        // returned, so that what it leaves in the session marker for the next
+        // start is written before the process is killed.
         WM_ENDSESSION => {
             if let Some(state) = SESSION.get().filter(|_| wparam.0 != 0) {
                 let held = std::time::Instant::now();
@@ -256,17 +293,13 @@ unsafe extern "system" fn window_proc(
                     tracing::debug!(
                         target: crate::logging::target::WATCHER,
                         waited = ?held.elapsed(),
-                        "The stop commands finished, the session may end"
+                        "The watcher has finished, the session may end"
                     );
                 } else {
-                    // The one case where a configured command does not get to
-                    // run. Worth a warning rather than silence: the user meets
-                    // it as a fan profile that stayed on gaming settings, and
-                    // the next log they read should say why.
                     tracing::warn!(
                         target: crate::logging::target::WATCHER,
                         grace = ?state.grace,
-                        "The stop commands did not finish before the session ended"
+                        "The watcher had not finished when the session ended"
                     );
                 }
             }
@@ -349,8 +382,11 @@ pub fn close_session_window(reason: StopReason) -> Result<()> {
             StopReason::Restore => WM_CLOSE,
             StopReason::Handover => WM_HANDOVER,
             // A reload is the watcher's own business, between its engine
-            // runs; nothing asks it of another process.
-            StopReason::Reload => anyhow::bail!("a reload cannot be asked of a running watcher"),
+            // runs, and a session end is Windows'; nothing asks either of
+            // another process.
+            StopReason::Reload | StopReason::SessionEnd => {
+                anyhow::bail!("a {reason:?} cannot be asked of a running watcher")
+            }
         },
         found: false,
     };
@@ -368,9 +404,10 @@ pub fn close_session_window(reason: StopReason) -> Result<()> {
 /// It was built for one message, `WM_QUERYENDSESSION`, to preserve what the
 /// console build was believed to do at logoff through `ctrlc`. A real logoff
 /// showed that a command started at that point cannot run -- see
-/// `docs/design/05-windowless-watcher.md` -- so the handshake is kept for a
-/// `Quit`, and the window earns its place as what the notification icon and
-/// the theme broadcasts hang off.
+/// `docs/design/05-windowless-watcher.md` -- so the handshake now only says
+/// the session is ending and holds it while the engine leaves the session in
+/// the marker, and the window earns its place as what the notification icon
+/// and the theme broadcasts hang off.
 ///
 /// **Not a message-only window.** Those are documented as not receiving
 /// broadcast messages, and both `WM_QUERYENDSESSION` and the `WM_SETTINGCHANGE`
@@ -381,7 +418,7 @@ pub struct SessionWindow {
 }
 
 impl SessionWindow {
-    /// `grace` caps how long `WM_ENDSESSION` waits for the stop actions.
+    /// `grace` caps how long `WM_ENDSESSION` waits for the engine to return.
     pub fn create(
         stop: Arc<StopSignal>,
         finished: Arc<StopSignal>,

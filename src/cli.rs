@@ -342,6 +342,14 @@ fn print_pending(pending: &marker::Pending, marker: &marker::Marker) {
         "  since              : {}",
         pending.since.as_deref().unwrap_or("unknown")
     );
+    println!(
+        "  state              : {}",
+        if pending.abandoned {
+            "open - held by a watcher, or by one that ended without stopping"
+        } else {
+            "left - a watcher stopped and left it to the next start"
+        }
+    );
     println!("  file               : {}", marker.path().display());
 }
 

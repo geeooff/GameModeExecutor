@@ -1,9 +1,17 @@
 //! A file that says "a game session is open and its stop commands have not run".
 //!
-//! Written when the start commands run, removed once the stop commands are
-//! confirmed. Found at the next start, it means the last session never closed
-//! -- a logoff, a shutdown, a crash, a power cut -- and the stop commands run
-//! then instead.
+//! Written when the start commands run, removed once the stop commands ran
+//! without a failure. Found at the next start, it means the last session never
+//! closed -- a logoff, a shutdown, a crash, a power cut, a failed command --
+//! and the stop commands run then instead.
+//!
+//! Its `state` says whether a watcher still held the session when it was last
+//! written. `open` is written with the session; `left` once a watcher stops
+//! in an orderly way and leaves the session to the next start -- an update, a
+//! reload, a session end, a stop command that failed. A start that finds
+//! `open` knows the last watcher ended without stopping: ended from outside,
+//! or the machine stopped. Added 2026-10-16, when two watchers had vanished
+//! mid-game, here and on a second machine, and their logs could not say so.
 //!
 //! This exists because of a measurement, not a hypothetical. A real logoff on
 //! 2026-09-16 showed that a process started even one millisecond after
@@ -42,12 +50,22 @@ pub struct Marker {
     path: PathBuf,
 }
 
-/// What a marker left behind says about the session it belonged to. Both
-/// fields are informational; the file's presence is the signal.
+/// A watcher holds the session.
+const OPEN: &str = "open";
+/// A watcher stopped and left the session to the next start.
+const LEFT: &str = "left";
+
+/// What a marker left behind says about the session it belonged to. Every
+/// field is informational; the file's presence is the signal.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Pending {
     pub game: Option<String>,
     pub since: Option<String>,
+    /// The file still says `state = open`: the watcher that held the session
+    /// ended without stopping. False for `left`, and for a file with no
+    /// state at all -- written before 2026-10-16, or by hand -- which says
+    /// nothing either way.
+    pub abandoned: bool,
 }
 
 impl Marker {
@@ -70,14 +88,40 @@ impl Marker {
     /// Record that a session is open. Overwrites, so a rename mid-session
     /// keeps the file current.
     pub fn open(&self, game: Option<&str>, since: &str) -> io::Result<()> {
+        self.write(game, Some(since), OPEN)
+    }
+
+    /// A watcher takes up the session the file holds, name and time
+    /// unchanged.
+    pub fn hold(&self) -> io::Result<()> {
+        self.restate(OPEN)
+    }
+
+    /// The watcher stops and leaves the session to the next start, name and
+    /// time unchanged.
+    pub fn leave(&self) -> io::Result<()> {
+        self.restate(LEFT)
+    }
+
+    fn restate(&self, state: &str) -> io::Result<()> {
+        let pending = self.pending().unwrap_or_default();
+        self.write(pending.game.as_deref(), pending.since.as_deref(), state)
+    }
+
+    fn write(&self, game: Option<&str>, since: Option<&str>, state: &str) -> io::Result<()> {
         let mut text = String::from(
             "# GameModeExecutor: a game session is open and its stop commands have not run.\n\
-             # If this file is still here when the watcher starts, they run then.\n",
+             # If this file is still here when the watcher starts, they run then.\n\
+             # state: open while a watcher holds the session, left once one stopped\n\
+             # and left it to the next start.\n",
         );
         if let Some(game) = game {
             text.push_str(&format!("game = {game}\n"));
         }
-        text.push_str(&format!("since = {since}\n"));
+        if let Some(since) = since {
+            text.push_str(&format!("since = {since}\n"));
+        }
+        text.push_str(&format!("state = {state}\n"));
         // The folder may not exist yet: the log can be configured elsewhere,
         // and then nothing else has had a reason to create it.
         if let Some(dir) = self.path.parent() {
@@ -161,6 +205,7 @@ fn parse(text: &str) -> Pending {
         match key.trim() {
             "game" if !value.is_empty() => pending.game = Some(value.to_owned()),
             "since" if !value.is_empty() => pending.since = Some(value.to_owned()),
+            "state" => pending.abandoned = value == OPEN,
             _ => {}
         }
     }
@@ -222,8 +267,41 @@ mod tests {
             Some(Pending {
                 game: Some("Starfield.exe".to_owned()),
                 since: Some("2026-09-16 00:16:51".to_owned()),
+                abandoned: true,
             })
         );
+    }
+
+    #[test]
+    fn a_session_left_to_the_next_start_keeps_its_name_and_time() {
+        // Found like this, the last watcher stopped in an orderly way.
+        let marker = Marker::in_dir(&scratch());
+        marker
+            .open(Some("Starfield.exe"), "2026-09-16 00:16:51")
+            .unwrap();
+        marker.leave().unwrap();
+        assert_eq!(
+            marker.pending(),
+            Some(Pending {
+                game: Some("Starfield.exe".to_owned()),
+                since: Some("2026-09-16 00:16:51".to_owned()),
+                abandoned: false,
+            })
+        );
+        // A watcher that takes it up holds it again: found like this by a
+        // start, it was abandoned.
+        marker.hold().unwrap();
+        assert!(marker.pending().unwrap().abandoned);
+    }
+
+    #[test]
+    fn a_marker_without_a_state_line_says_nothing_either_way() {
+        // 0.3.0 wrote none, and an update hands such a file to this version.
+        let marker = Marker::in_dir(&scratch());
+        fs::write(marker.path(), "game = game.exe\nsince = t0\n").unwrap();
+        let pending = marker.pending().unwrap();
+        assert!(!pending.abandoned);
+        assert_eq!(pending.game.as_deref(), Some("game.exe"));
     }
 
     #[test]

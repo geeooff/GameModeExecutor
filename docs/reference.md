@@ -178,13 +178,14 @@ One log serves two readers, and `log_level` is the dial between them:
 | Level | Written for | What it promises |
 | --- | --- | --- |
 | `error` | anyone | Something needs you. It names the file or command and what to check. |
-| `warn` | technician | A degradation the program absorbed and carried on from — a command that exited non-zero, a marker it could not write. |
+| `warn` | technician | A degradation the program absorbed and carried on from — a command that exited non-zero, a marker it could not write, a watcher that ended without stopping. |
 | `info` | anyone | The story of a session, in plain sentences. **The default.** |
 | `debug` | technician | Why the program did what it did — and every line above, annotated. |
 | `trace` | technician | Raw measurements. |
 
 `info` is reserved for what the program is for: a game detected, named or
-gone, the watcher starting or stopping, a session recovered at start, the
+gone, the watcher starting or stopping — Windows ending the session
+among the reasons — a session recovered at start, the
 configuration reloaded — and what was done to this machine to set it up,
 which is the same story one chapter earlier. A game you marked by hand in
 the Game Bar is detected as `Game detected: TOS.exe, which is marked as a
@@ -246,7 +247,7 @@ syntax — `RUST_LOG=game=debug` for the detection lines alone.
 | --- | --- | --- |
 | Configuration | next to the executable, or `%APPDATA%\GameModeExecutor\config.toml` | yours; roams with the profile |
 | Log | `%LOCALAPPDATA%\GameModeExecutor\logs\` | disposable |
-| Session marker | `%LOCALAPPDATA%\GameModeExecutor\pending-stop-actions` | present while a game session is open; left behind by a logoff, shutdown, crash or handover, and settled at the next start — the session resumed if the game is still on, closed if it is gone. `status` reports it. |
+| Session marker | `%LOCALAPPDATA%\GameModeExecutor\pending-stop-actions` | present while a game session is open; left behind by a logoff, shutdown, crash, handover or failed stop command, and settled at the next start — the session resumed if the game is still on, its stop commands run once if it is gone. Its `state` is `open` while a watcher holds the session and `left` once one stopped and left it; `open` at a start means that watcher ended without stopping, said at `warn`. `status` reports it. |
 | Fault marker | `%LOCALAPPDATA%\GameModeExecutor\configuration-fault` | present while the configuration cannot be used; removed when a usable one is read, which is how a watcher started on a file fixed meanwhile knows to say the fault is over |
 | Logon task | `\GameModeExecutor\Watcher` in Task Scheduler | records the absolute path of the executable; removed with the package, kept through an upgrade |
 | Updates | `%LOCALAPPDATA%\GameModeExecutor\updates\` | a downloaded release and the installer's log while an update runs; emptied when the next watcher starts, the log kept if the update failed — and, after an update through the installer, until the start after, since Windows Installer still holds it when the new watcher starts (corrected 2026-09-23) |

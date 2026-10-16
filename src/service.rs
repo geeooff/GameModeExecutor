@@ -9,10 +9,10 @@
 //! logoff -- `ctrlc`'s handler fires on every control event, so the stop
 //! commands were *started* -- and a real logoff on 2026-09-16 showed that
 //! starting them is not running them: a process created even one millisecond
-//! after `WM_QUERYENDSESSION` dies with `STATUS_DLL_INIT_FAILED`. The handshake
-//! still runs the stop commands, because it is right for a `Quit` and costs
-//! nothing, but restoring the profile after a session end is Lot 9's marker
-//! file, not this.
+//! after `WM_QUERYENDSESSION` dies with `STATUS_DLL_INIT_FAILED`. Since
+//! 2026-10-16 the handshake does not try them at all: it says the session is
+//! ending, the engine leaves the session in Lot 9's marker file, and the next
+//! start runs them.
 //!
 //! `stop` is *Quit* from outside: `WM_CLOSE` on the session window, then a
 //! wait on the single-instance mutex, which the watcher releases only after
@@ -41,10 +41,10 @@ use crate::config::{self, Config, FaultSink, LoadError, Report};
 use crate::win::{SessionWindow, SingleInstance, StopReason, StopSignal};
 use crate::{engine, logging, sensor, tray, update, win};
 
-/// Ceiling on how long `WM_ENDSESSION` holds the shutdown while the stop
-/// actions run. `schtasks` returns in about 100 ms, so this is only here so a
-/// wedged command cannot hold up the user's logoff indefinitely -- Windows has
-/// its own, shorter patience anyway.
+/// Ceiling on how long `WM_ENDSESSION` holds the shutdown while the engine
+/// returns. It runs no command then and only writes the marker, so this is
+/// only here so a wedged thread cannot hold up the user's logoff
+/// indefinitely -- Windows has its own, shorter patience anyway.
 const SESSION_END_GRACE: Duration = Duration::from_secs(20);
 
 /// The single-instance mutex, session-local. The watcher holds it for its
@@ -92,8 +92,9 @@ pub fn serve(config_path: &Path, level: Option<&str>, console: bool) -> Result<(
     win::declare_dpi_awareness();
 
     let stop = Arc::new(StopSignal::new()?);
-    // Signalled by the worker once the engine has returned, which is after the
-    // stop actions have run. WM_ENDSESSION waits on exactly this.
+    // Signalled by the worker once the engine has returned, which is after
+    // the marker says what the next start owes. WM_ENDSESSION waits on
+    // exactly this.
     let finished = Arc::new(StopSignal::new()?);
 
     let window =
@@ -417,7 +418,9 @@ pub fn stop(reason: StopReason) -> Result<Stopped> {
                     "Watcher stopped, as asked; a game session that was open waits for the next one"
                 ),
                 // Refused by `close_session_window` above, before any wait.
-                StopReason::Reload => unreachable!("a reload is never asked of another process"),
+                StopReason::Reload | StopReason::SessionEnd => {
+                    unreachable!("never asked of another process")
+                }
             }
             return Ok(Stopped::Stopped);
         }

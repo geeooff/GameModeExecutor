@@ -199,23 +199,29 @@ theme changes, and the moment Windows starts ending your session.
 ## Logging off mid-game
 
 When you log off or shut down with a game running, Windows asks every window
-whether it may end the session. The watcher says yes and starts your "game
-stopped" commands at once — and they die. That is measured, not guessed: a
-program started even one millisecond after that question fails to initialise,
-because the session it would live in is already being torn down, and nothing
-the watcher does can come earlier than the question.
+whether it may end the session. The watcher says yes, writes `Windows is
+ending the session, so the watcher stops` in the log, and starts nothing: a
+program started even one millisecond after that question fails to
+initialise, because the session it would live in is already being torn down.
+That is measured, not guessed. *Until 2026-10-16 the watcher still started
+the stop commands then, and they died.*
 
 So the stop commands run at the **next logon** instead. While a game is
 running, a small file in `%LOCALAPPDATA%\GameModeExecutor` —
 `pending-stop-actions`, no extension — says so. A game that stops normally
-removes it. A session that ends any other way —
-logoff, shutdown, a crash, a power cut — leaves it behind, and the watcher's
-first act at your next logon is to run the stop commands and remove it. The log
-reads:
+removes it once its stop commands have run. A session that ends any other way
+leaves it behind, and the watcher's first act at your next logon is to run
+the stop commands and remove it. The log reads:
 
 ```
-The last session ended with Starfield.exe still running and its stop commands never ran, so they run now
+The stop commands of the last session, with Starfield.exe, did not run then, so they run now
 ```
+
+A stop command that fails leaves the file too, so the next start runs the
+commands once more — Windows can refuse them that way when a game closes with
+the shutdown. And if the watcher itself ended without stopping — ended from
+Task Manager, crashed, or the machine lost power — the file still says a
+watcher held the session, and the next start says so at `warn`.
 
 The delay is the time between logging off and logging back on, plus a few
 seconds for the watcher to start. Across a shutdown, that is time the machine

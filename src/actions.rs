@@ -51,11 +51,10 @@ impl ActionContext {
 /// What `run_all` can vouch for afterwards.
 ///
 /// Only a command that was waited for has a verdict; a fire-and-forget one is
-/// the user saying they do not want one. So `confirmed` is the strongest thing
-/// that can honestly be said -- "at least one command was checked, and every
-/// checked command succeeded" -- and not "nothing went wrong". A command that
-/// could not be started counts as checked and failed whether or not it would
-/// have been waited for, since that verdict is in.
+/// the user saying they do not want one. A command that could not be started
+/// counts as checked and failed whether or not it would have been waited for,
+/// since that verdict is in. The engine acts on one thing only: a failure,
+/// after which the next start runs the stop commands again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Outcome {
     pub checked: usize,
@@ -63,8 +62,8 @@ pub struct Outcome {
 }
 
 impl Outcome {
-    pub fn confirmed(&self) -> bool {
-        self.checked > 0 && self.failed == 0
+    pub fn any_failed(&self) -> bool {
+        self.failed > 0
     }
 
     fn record(&mut self, verdict: Option<bool>) {
@@ -264,7 +263,7 @@ mod tests {
                 failed: 1
             }
         );
-        assert!(!outcome.confirmed());
+        assert!(outcome.any_failed());
     }
 
     #[test]
@@ -280,7 +279,7 @@ mod tests {
                 failed: 0
             }
         );
-        assert!(outcome.confirmed());
+        assert!(!outcome.any_failed());
     }
 
     #[test]
@@ -290,7 +289,7 @@ mod tests {
             &ActionContext::default(),
         );
         assert_eq!(outcome, Outcome::default());
-        assert!(!outcome.confirmed());
+        assert!(!outcome.any_failed());
     }
 
     #[test]
@@ -321,17 +320,18 @@ mod tests {
     }
 
     #[test]
-    fn nothing_checked_confirms_nothing() {
-        // Every command fire-and-forget: there is no verdict to lean on, so
-        // a session-end stop cannot be called confirmed.
+    fn nothing_checked_is_no_failure() {
+        // Every command fire-and-forget: nothing was seen to fail, so the
+        // session closes. It would be wrong only at a session end, where the
+        // commands die unseen, and there none is tried.
         let mut outcome = Outcome::default();
         outcome.record(None);
         outcome.record(None);
-        assert!(!outcome.confirmed());
+        assert!(!outcome.any_failed());
     }
 
     #[test]
-    fn one_failure_among_checked_commands_denies_confirmation() {
+    fn one_failure_among_checked_commands_is_a_failure() {
         let mut outcome = Outcome::default();
         outcome.record(Some(true));
         outcome.record(Some(false));
@@ -342,17 +342,17 @@ mod tests {
                 failed: 1
             }
         );
-        assert!(!outcome.confirmed());
+        assert!(outcome.any_failed());
     }
 
     #[test]
-    fn checked_successes_confirm_regardless_of_unchecked_ones() {
-        // The shape of the FanControl recipe: the profile switch is waited
-        // for, the beep is not. The beep's fate does not count either way.
+    fn an_unchecked_command_never_counts_as_a_failure() {
+        // The shape of the FanControl recipe: the configuration switch is
+        // waited for, the beep is not. The beep's fate does not count.
         let mut outcome = Outcome::default();
         outcome.record(Some(true));
         outcome.record(None);
-        assert!(outcome.confirmed());
+        assert!(!outcome.any_failed());
     }
 
     #[test]
