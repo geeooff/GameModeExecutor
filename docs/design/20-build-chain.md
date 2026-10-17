@@ -1,7 +1,8 @@
 # Lot 20 — The build chain, official and kept current
 
-**Status: decided 2026-10-17; part 1 built the same day**, its attestation to
-be seen at the next release. Taken while Lot 19's spike waits for an Office
+**Status: decided and built 2026-10-17.** Seen the same day: Dependabot's
+first PR, two crate patches, merged itself once CI had passed. Still to see:
+an update that waits for the maintainer, and the first attested release. Taken while Lot 19's spike waits for an Office
 update. Two parts, in this order: Dependabot keeps current whatever the first
 part settles on.
 
