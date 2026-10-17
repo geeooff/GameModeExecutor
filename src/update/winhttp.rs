@@ -572,9 +572,7 @@ mod tests {
     }
 
     fn scratch_file(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("gme-winhttp-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir.join(name)
+        crate::testing::fresh_dir("gme-winhttp").join(name)
     }
 
     #[test]

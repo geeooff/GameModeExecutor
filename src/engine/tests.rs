@@ -292,14 +292,7 @@ fn stop_event(actions: Vec<Action>) -> Event {
 }
 
 fn scratch() -> PathBuf {
-    static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "gamemode-executor-engine-{}-{n}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+    crate::testing::fresh_dir("gamemode-executor-engine")
 }
 
 /// Records every session change the engine reports.

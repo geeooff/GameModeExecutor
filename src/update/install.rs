@@ -285,11 +285,7 @@ mod tests {
     use super::*;
 
     fn scratch() -> PathBuf {
-        static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("gme-install-{}-{n}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+        crate::testing::fresh_dir("gme-install")
     }
 
     fn context(kind: Kind, dir: &Path) -> Context {

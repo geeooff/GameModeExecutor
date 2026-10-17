@@ -410,9 +410,7 @@ impl feed::Feed for Bytes {
 }
 
 fn scratch_context() -> Context {
-    static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("gme-download-{}-{n}", std::process::id()));
+    let dir = crate::testing::fresh_dir("gme-download");
     Context {
         repository: REPO.to_owned(),
         kind: Some(Kind::Installer),

@@ -24,6 +24,8 @@ pub mod sensor;
 pub mod service;
 pub mod shell;
 pub mod task;
+#[cfg(test)]
+mod testing;
 pub mod tray;
 pub mod update;
 pub mod win;
