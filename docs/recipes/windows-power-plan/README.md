@@ -1,29 +1,15 @@
 # Windows power plan
 
-**The goal.** High performance while you play, balanced the rest of the time.
+High performance while you play, balanced the rest of the time. No elevation
+and no scheduled task: `powercfg.exe` runs as you.
 
-This is what most recipes look like: no elevation, no scheduled tasks, no
-detour. `powercfg.exe` ships with Windows and runs perfectly well as you.
-
-In this folder: [`config.toml`](config.toml), the complete configuration.
-
-## 1. Find out which plans you have
+## 1. Your plans
 
 ```powershell
 powercfg /list
 ```
 
-You get something like:
-
-```
-Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced) *
-Power Scheme GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c  (High performance)
-```
-
-The `*` marks the active one.
-
-Windows accepts these aliases in place of the GUIDs, which is what the
-configuration uses:
+Windows accepts these aliases instead of the GUIDs:
 
 | Alias | Plan |
 | --- | --- |
@@ -31,30 +17,20 @@ configuration uses:
 | `SCHEME_BALANCED` | Balanced |
 | `SCHEME_MIN` | High performance |
 
-If a plan you want has no alias — an Ultimate Performance plan, or one from your
-laptop's manufacturer — use its GUID from the list above instead.
+A plan without an alias, such as Ultimate Performance or a manufacturer's,
+goes by its GUID from the list.
 
-## 2. The configuration
+## 2. The configuration file
 
-Copy [`config.toml`](config.toml) over your own:
+Copy [`config.toml`](config.toml) over your own. Its two actions:
 
 ```toml
-[general]
-stop_actions_on_exit = true
-log_level = "info"
-
-[on_game_start]
-mode = "series"
-
 [[on_game_start.actions]]
 name = "power plan - high performance"
 program = "powercfg.exe"
 args = ["/setactive", "SCHEME_MIN"]
 wait = true
 timeout = "10s"
-
-[on_game_stop]
-mode = "series"
 
 [[on_game_stop.actions]]
 name = "power plan - balanced"
@@ -67,35 +43,15 @@ timeout = "10s"
 ## 3. Check it
 
 ```bash
-gamemode-executor validate
 gamemode-executor trigger start
 ```
 
-Then confirm from Windows rather than from our log:
-
-```powershell
-powercfg /getactivescheme
-```
-
-```bash
-gamemode-executor trigger stop
-```
-
-When both work, save the file: the watcher reads it again by itself and
-the log says `Configuration reloaded`. From the zip, on a first install,
-one more command registers the logon task and starts the watcher:
-
-```bash
-gamemode-executor install-task
-```
+`powercfg /getactivescheme` should show High performance; `trigger stop` brings
+Balanced back. Saved, the watcher applies the file at once.
 
 ## Worth knowing
 
-**On a laptop, Windows may override you.** Some machines switch plans by
-themselves when the power source changes, or when a manufacturer utility decides
-to. If the plan does not stick, that is usually the cause, and it is outside
-this program.
-
-**You can combine recipes.** Nothing stops you adding the fan commands from
-[Fan profiles with FanControl](../fancontrol-fan-profiles/) to the same events —
-list the actions one after another and they run in order.
+- **A laptop may switch plans by itself** on a change of power source, or a
+  manufacturer's utility may. That is outside this program.
+- **Recipes combine:** add the [FanControl](../fancontrol-fan-profiles/)
+  actions to the same events and they run in order.

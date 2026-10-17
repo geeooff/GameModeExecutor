@@ -1,18 +1,10 @@
 # Lot 13 — Updating
 
-**Status: done 2026-09-23**, on the first update from a published 0.2.0
-to the published 0.3.0, through the menu, below. Closed on the
-maintainer's machine alone, by the maintainer's decision the same day —
-*an acceptable shortcut*; the second machine updates from its own 0.2.0
-that evening, and its log is recorded here if it says anything new.
-Shipped in 0.2.0 on 2026-09-18. Decided 2026-09-17
-to be a lot of its own rather than a tail of [Lot 8](08-distribution.md):
-updating touches the "no network" non-goal, the tray menu and the running
-process, and each of those deserves its own measurement. The shape below
-was agreed with the maintainer on 2026-09-18, against `v0.1.0`, before a
-line was written. The lot closes on the first update *from* 0.2.0, which
-is the first version that carries it: 0.1.0 to 0.2.0 is done by hand, and
-meets the Restart Manager's dialog once, as recorded below.
+**Status: done 2026-09-23**, on the first update through the menu, from a
+published 0.2.0 to 0.3.0 on the maintainer's machine. Shipped in 0.2.0. A lot
+of its own rather than part of [Lot 8](08-distribution.md), because it
+touches the "no network" non-goal, the menu and the running process. The
+second machine updated itself the same way on 2026-10-01.
 
 - [x] The session handed from one watcher to the next: `stop --handover`, and a start that resumes an open session instead of closing it — three scenarios in `engine/tests.rs`, 2026-09-18
 - [x] `update`: the state machine, tested whole through a scripted feed; the WinHTTP feed and the CNG hash behind it — 2026-09-18, and no test ever calls GitHub: the network path is measured by hand, below

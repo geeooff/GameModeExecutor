@@ -17,54 +17,44 @@ a section is written.
 
 ### Added
 
-- **GameModeExecutor** in the Start menu, from the installer: it starts the
-  watcher again after *Quit*, and does nothing if one is already running.
-- The recipes as a separate zip on each release,
-  `GameModeExecutor-recipes-<version>.zip`.
-- The FanControl recipe links FanControl's site and its GitHub project, and
-  its scripts have a `.cmd` to double-click, which runs them even where
-  Windows refuses scripts.
-- A warning at start when the last watcher ended during a game without
-  stopping: ended from Task Manager, crashed, or the machine lost power.
+- **GameModeExecutor** in the Start menu, from the installer: starts the
+  watcher again after *Quit*.
+- The recipes as their own zip on each release.
+- The FanControl recipe links FanControl's site and GitHub, and its scripts
+  have a `.cmd` to double-click, which works even where Windows refuses
+  scripts.
+- A warning at start when the last watcher ended mid-game without stopping:
+  Task Manager, a crash, a power cut.
 
 ### Changed
 
-- The log turns over each day: one file a day,
-  `gamemode-executor.YYYY-MM-DD.log`, the last seven kept, or as many as
-  `log_days` in the configuration says. The day changes at midnight UTC;
-  the lines keep local time. *Open log* opens today's file, `purge` removes
-  them all, and the old `gamemode-executor.log` goes with the oldest.
-- Telling a game from its launcher by what the graphics card is drawing no
-  longer adds some 3.5 MB to the watcher's memory for the rest of its run:
-  the counters are read the lighter way Windows offers for them.
-- *Edit configuration*, *Open log* and *Documentation* no longer leave some
-  1.2 MB in the watcher for the rest of its run, and more for each kind of
-  file: a short-lived helper opens them and takes that cost with it when it
-  ends.
-- At a logoff or shutdown mid-game the watcher no longer starts the stop
-  commands, which Windows refuses at that point, nor warns that they failed;
-  they run at the next logon, as they already did.
+- One log file a day, `gamemode-executor.YYYY-MM-DD.log`, seven kept or
+  `log_days`. The day changes at midnight UTC; lines keep local time. *Open
+  log* opens today's.
+- Naming a game from the graphics card no longer leaves 3.5 MB in the
+  watcher.
+- *Edit configuration*, *Open log* and *Documentation* no longer leave 1.2 MB
+  or more in the watcher.
+- At a logoff or shutdown mid-game, no stop command is tried (Windows refuses
+  them then) and no warning is written; they run at the next logon, as
+  before.
+- The documentation is shorter: each page says what you need once.
 
 ### Fixed
 
-- `purge` leaves nothing behind any more: the lines the uninstall itself
-  writes to the log are deleted once it is over, and the folder updates
-  are downloaded to goes too, where it used to stay, empty, and keep
-  `%LOCALAPPDATA%\GameModeExecutor` with it.
-- A game still on its loading screen twenty seconds in no longer keeps its
-  launcher's name for the whole session: the watcher asks again every
-  twenty seconds, for two minutes at most.
-- Windows ending the session is written in the log at the default level. A
-  shutdown could leave no line at all, and look like a watcher that had
-  vanished.
-- A stop command that fails when a game ends runs again at the next start.
-  Windows makes it fail when the game closes with the shutdown, and the
-  gaming configuration then stayed on.
+- `purge` leaves nothing behind: the uninstall's own log lines and the
+  updates folder go too.
+- A game still loading twenty seconds in no longer keeps its launcher's name:
+  the watcher asks again every twenty seconds, two minutes at most.
+- Windows ending the session is written in the log at the default level, so a
+  shutdown no longer looks like a vanished watcher.
+- A stop command that fails when a game ends, as at a shutdown, runs again at
+  the next start instead of leaving the gaming configuration on.
 
 ### Removed
 
-- The *Writing your own* recipe: the starter configuration's comments and the
-  reference already list every key and placeholder.
+- The *Writing your own* recipe: the starter configuration and the reference
+  already list every key and placeholder.
 
 ## [0.3.0] - 2026-09-23
 

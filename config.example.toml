@@ -77,7 +77,7 @@ stop_delay = "2s"
 # This far into a session, the per-process GPU counters are read and the
 # candidate that is actually rendering wins. While there is no answer yet --
 # nothing rendering, no match -- they are read again at the same interval, six
-# times at most. Set to "0s" to skip it and keep whichever process matched
+# attempts in all. Set to "0s" to skip it and keep whichever process matched
 # first.
 #
 # This only ever changes the *name*: detection never depends on it, and being

@@ -1,12 +1,8 @@
 # Lot 8 — Distribution
 
-**Status: done 2026-09-18.** `v0.1.0` was published that night by the
-workflow alone, from the tag's commit, with the installer, the zip and their
-checksums — which is the "done when" below. The lot was taken 2026-09-17/18
-in the order listed; `scripts/build.ps1` was written first on purpose, since
-a release that cannot be made by hand is not one CI can make either. The
-last field check, the first install on a second machine, came in on the
-evening of 2026-09-18 with its log; what it taught is below.
+**Status: done 2026-09-18**, when the workflow alone published `v0.1.0`
+from its tag: installer, zip and checksums. The first install on a second
+machine came in the same evening; what it taught is below.
 
 - [x] Create the public GitHub repository and push — done 2026-09-17, with approval
 - [x] The three measurements below, on a minimal package, before any table is written — done 2026-09-17
