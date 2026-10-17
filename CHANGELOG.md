@@ -15,6 +15,12 @@ a section is written.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-17
+
+One log file a day, a Start menu entry to bring the watcher back, stop
+commands caught up after a shutdown or a failure, a warning when the watcher
+was ended mid-game, less memory kept, and shorter documentation.
+
 ### Added
 
 - **GameModeExecutor** in the Start menu, from the installer: starts the
@@ -177,7 +183,8 @@ and when it stops, on Windows' own signal that a game is running.
   including the scheduled tasks a program that needs administrator rights
   requires, and a Windows power plan.
 
-[Unreleased]: https://github.com/Geeooff/GameModeExecutor/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Geeooff/GameModeExecutor/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Geeooff/GameModeExecutor/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Geeooff/GameModeExecutor/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Geeooff/GameModeExecutor/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Geeooff/GameModeExecutor/releases/tag/v0.1.0
