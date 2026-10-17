@@ -166,6 +166,28 @@ function Invoke-Tests {
     }
 
     Step "Documentation links resolve"
+    # Sections too: a link to a renamed heading lands at the top of the page,
+    # which looks fine and is not. GitHub's anchors: lower case, punctuation
+    # dropped, spaces to hyphens, a repeated heading numbered.
+    $anchorsOf = @{}
+    function Get-Anchors([string]$path) {
+        if (-not $anchorsOf.ContainsKey($path)) {
+            $seen = @{}
+            $anchors = @{}
+            $inCode = $false
+            foreach ($line in Get-Content $path) {
+                if ($line -match '^```') { $inCode = -not $inCode; continue }
+                if ($inCode -or $line -notmatch '^#{1,6}\s+(.*)$') { continue }
+                $text = $Matches[1] -replace '\[([^\]]*)\]\([^)]*\)', '$1' -replace '[`*]', ''
+                $slug = ($text.ToLowerInvariant() -replace '[^\w\- ]', '') -replace ' ', '-'
+                $n = [int]$seen[$slug]
+                $seen[$slug] = $n + 1
+                $anchors[$(if ($n) { "$slug-$n" } else { $slug })] = $true
+            }
+            $anchorsOf[$path] = $anchors
+        }
+        $anchorsOf[$path]
+    }
     $broken = @()
     $pages = @((Join-Path $root 'README.md'), (Join-Path $root 'AGENTS.md'), (Join-Path $root 'CHANGELOG.md')) +
              (Get-ChildItem (Join-Path $root 'docs') -Recurse -Filter '*.md' |
@@ -174,11 +196,17 @@ function Invoke-Tests {
         $dir = Split-Path -Parent $page
         foreach ($match in [regex]::Matches((Get-Content $page -Raw), '\]\(([^)]+)\)')) {
             $link = $match.Groups[1].Value
-            if ($link -match '^(https?:|#)') { continue }
-            $target = ($link -split '#')[0]
-            if (-not $target) { continue }
-            if (-not (Test-Path (Join-Path $dir $target))) {
+            if ($link -match '^https?:') { continue }
+            $target, $anchor = $link -split '#', 2
+            $path = if ($target) { Join-Path $dir $target } else { $page }
+            if (-not (Test-Path $path)) {
                 $broken += "$($page.Substring($root.Length + 1)) -> $link"
+                continue
+            }
+            if (-not $anchor) { continue }
+            if (Test-Path $path -PathType Container) { $path = Join-Path $path 'README.md' }
+            if ($path -like '*.md' -and (Test-Path $path) -and -not (Get-Anchors $path).ContainsKey($anchor)) {
+                $broken += "$($page.Substring($root.Length + 1)) -> $link (no such section)"
             }
         }
     }
