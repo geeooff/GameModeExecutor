@@ -2,28 +2,42 @@ name: Release
 
 # A tag alone produces the release: push vX.Y.Z and this runs the same
 # checklist a developer runs, builds the installer, the zip and the recipes
-# from that exact commit, and publishes them with their checksums. Nothing is built
-# or uploaded by hand. docs/design/08-distribution.md has the rules.
+# from that exact commit, attests them, and publishes them with their
+# checksums. Nothing is built or uploaded by hand.
+# docs/design/08-distribution.md has the rules.
 
 on:
   push:
     tags: ['v*']
 
+# Publishing, and the attestation: the OIDC token signs it, and the two
+# others store it with the files it vouches for.
 permissions:
   contents: write
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
           # The notes list the commits since the previous tag.
           fetch-depth: 0
+          persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      # rustup is on GitHub's runners; rust-toolchain.toml names the
+      # toolchain. No cache: a release builds from nothing.
+      - name: Rust toolchain
+        shell: pwsh
+        run: rustup toolchain install
 
       # The version is bumped in the release commit, so the tag and Cargo.toml
       # must agree; a release named after one and built from the other would
@@ -44,6 +58,15 @@ jobs:
       - name: Checksums and notes
         shell: pwsh
         run: .\scripts\release-notes.ps1 -Tag $env:GITHUB_REF_NAME
+
+      # GitHub signs that this workflow built each file from this tag's
+      # commit; `gh attestation verify <file> --repo Geeooff/GameModeExecutor`
+      # checks it. Taken from the checksums file, so the attestation names
+      # the very files and digests the release publishes.
+      - name: Attest the release files
+        uses: actions/attest@v4
+        with:
+          subject-checksums: dist/SHA256SUMS.txt
 
       - name: Publish
         shell: pwsh

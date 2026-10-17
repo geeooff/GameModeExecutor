@@ -52,8 +52,10 @@ On `release/X.Y.Z`, branched from `main`:
 1. Push the branch, open the PR, wait for CI, merge.
 2. Tag the merge commit and push the tag alone:
    `git tag vX.Y.Z <merge commit>`, `git push origin vX.Y.Z`.
-3. The workflow builds and publishes. Check the release page: installer, zip,
-   recipes zip, `SHA256SUMS.txt`, and the changelog section as the notes.
+3. The workflow builds, attests and publishes. Check the release page:
+   installer, zip, recipes zip, `SHA256SUMS.txt`, the changelog section as the
+   notes; and `gh attestation verify <file> --repo Geeooff/GameModeExecutor`
+   on a downloaded file.
 
 ## 4. After
 

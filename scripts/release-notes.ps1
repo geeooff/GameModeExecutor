@@ -75,7 +75,9 @@ $lines = @(
     '',
     $commits,
     '',
-    '## SHA-256',
+    '## Verifying',
+    '',
+    'GitHub attests that this repository''s release workflow built each file from this tag: `gh attestation verify <file> --repo Geeooff/GameModeExecutor`. Their SHA-256:',
     '',
     '```'
 ) + $sums + @(

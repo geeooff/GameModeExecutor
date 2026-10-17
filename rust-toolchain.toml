@@ -1,0 +1,5 @@
+# The toolchain for this repository, on CI and on a developer's machine alike:
+# rustup reads this file, and CI installs it with `rustup toolchain install`.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

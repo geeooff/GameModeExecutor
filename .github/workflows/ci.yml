@@ -6,20 +6,46 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+# A newer push to the same branch makes the running check moot.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   release-bundle:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-
-      - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          persist-credentials: false
 
-      - uses: Swatinem/rust-cache@v2
+      # rustup is on GitHub's runners; rust-toolchain.toml names the toolchain
+      # and its components, as it does on a developer's machine.
+      - name: Rust toolchain
+        id: rust
+        shell: pwsh
+        run: |
+          rustup toolchain install
+          "version=$((rustc -V) -replace '[^\w.]+', '-')" >> $env:GITHUB_OUTPUT
+
+      # Keyed on the compiler too: a new stable cannot reuse what an older one
+      # compiled.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-${{ runner.os }}-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ steps.rust.outputs.version }}-
 
       # The same checklist a developer runs: fmt, clippy -D warnings, tests,
       # every shipped config.toml validated, every documentation link

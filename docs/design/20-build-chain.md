@@ -1,8 +1,9 @@
 # Lot 20 — The build chain, official and kept current
 
-**Status: proposed and decided 2026-10-17, to take next**, while Lot 19's
-spike waits for an Office update. Two parts, in this order: Dependabot keeps
-current whatever the first part settles on.
+**Status: decided 2026-10-17; part 1 built the same day**, its attestation to
+be seen at the next release. Taken while Lot 19's spike waits for an Office
+update. Two parts, in this order: Dependabot keeps current whatever the first
+part settles on.
 
 ## 1. Official actions, current practice
 
@@ -13,17 +14,23 @@ Read on 2026-10-17: CI uses `actions/checkout@v7`, `actions/upload-artifact@v7`
 - Rust from `rustup`, already on GitHub's Windows runners, with the toolchain
   named in `rust-toolchain.toml`, which pins it on the developer's machine too,
   instead of `dtolnay/rust-toolchain`.
-- The cache: `Swatinem/rust-cache` or `actions/cache` with an explicit key,
-  decided on CI time measured with each.
+- The cache: `actions/cache`, keyed on the compiler and `Cargo.lock`, chosen
+  on CI time measured on 2026-10-17: 1 min 27 s with a warm cache, 4 min 07 s
+  cold, against 1 min 47 s to 2 min 06 s with `Swatinem/rust-cache` on `main`
+  the same day.
 - Actions named by version tag, not by commit — the maintainer's choice on
   2026-10-17: a tag is a release its publisher calls stable, and Dependabot
   moves it.
 - Least privilege: `contents: read` for CI; the release keeps
   `contents: write` and adds what the attestation needs.
-- `timeout-minutes`, and a `concurrency` group that cancels a superseded run.
-- The release's files attested with `actions/attest-build-provenance`: GitHub
-  signs, for each file, that this workflow built it from this commit, and
-  `gh attestation verify <file> --repo geeooff/GameModeExecutor` checks it.
+- `timeout-minutes`, a `concurrency` group that cancels a superseded CI run,
+  and `persist-credentials: false` on checkout, since nothing pushes.
+- The release's files attested with `actions/attest`, fed the release's
+  `SHA256SUMS.txt` so it names exactly the published files and digests. Not
+  `actions/attest-build-provenance`: its publisher now calls it a wrapper
+  and says new implementations should use `actions/attest`. GitHub signs,
+  for each file, that this workflow built it from this commit, and
+  `gh attestation verify <file> --repo Geeooff/GameModeExecutor` checks it.
   Not a code signature — SmartScreen still warns — but proof the installer
   was built from the public source, which `SHA256SUMS.txt`, published on the
   same page as the files, cannot give.
