@@ -227,6 +227,11 @@ Both session ends that morning, the shutdown and a restart at 11:31,
 carried `ENDSESSION_CLOSEAPP` and were logged as an installer's request;
 corrected above.
 
+**Explained 2026-10-17:** the vanishing here on 2026-10-11 matches Office
+Click-to-Run's update, which ended every process started by a logon task at
+19:30:33; recorded in [Lot 19](19-startup-list.md), with the same event the
+next time on 2026-10-17.
+
 **Not done, on purpose.**
 
 - A marker for the watcher's whole life, so a vanishing between games is
