@@ -114,19 +114,10 @@ This file says how to work here. The *why* is in
 
 - Run `test` before every commit and read its result; never commit in the
   same block as a check that may fail.
-- `release` needs a clean tree: the binaries carry their commit, and
-  `--version` links to that commit's `docs/getting-started.md`. Build it from
-  the commit with the final documentation.
-- **Publishing a release** is a tag, approved like any push. Bump `version`
-  in `Cargo.toml`, turn `[Unreleased]` in `CHANGELOG.md` into
-  `## [x.y.z] - YYYY-MM-DD` dated the release commit, merge, tag `vX.Y.Z`,
-  push the tag. The workflow publishes the installer, the zips and their
-  checksums with that section as the notes, and refuses a version the
-  changelog does not carry, dated. Versions follow
-  `docs/design/08-distribution.md`; 1.0.0 waits for its criteria.
-- Before each release, check the documentation's external links by hand —
-  FanControl's site and releases above all. `build.ps1` checks only the
-  repository's own links.
+- **Releasing** follows [`.claude/skills/release/SKILL.md`](.claude/skills/release/SKILL.md),
+  the `release` skill: checks, release commit, build, tag, field checks
+  after. `release` builds from a clean tree, since the binaries carry their
+  commit and `--version` links to that commit's `docs/getting-started.md`.
 - **The changelog is the agent's to write**, read by the maintainer as a
   diff. Each line is something the user sees or does, under *Added*,
   *Changed*, *Fixed* or *Removed* — never code, modules or commits, which
