@@ -21,6 +21,11 @@ a section is written.
   built it from the tagged commit:
   `gh attestation verify <file> --repo Geeooff/GameModeExecutor`.
 
+### Fixed
+
+- `purge` removes its folders even when they are marked read-only, as a
+  folder copied back from a OneDrive backup is.
+
 ## [0.4.0] - 2026-10-17
 
 One log file a day, a Start menu entry to bring the watcher back, stop

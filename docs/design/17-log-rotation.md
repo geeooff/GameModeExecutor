@@ -1,9 +1,10 @@
 # Lot 17 — A log that turns over each day
 
 **Status: done 2026-09-26**, with `tracing-appender`, once a spike showed
-the file turning over without a restart. Left to see: the next real `purge`
-taking the updates folder. The updater's zip path was seen on 2026-10-17,
-below. The old single file was seen pruned on 2026-10-16: eight dated files left, from
+the file turning over without a restart. Its last two checks were seen on
+2026-10-17: the updater's zip path, and a real `purge` taking the updates
+folder, which found a read-only logs folder it could not remove, now handled;
+both below. The old single file was seen pruned on 2026-10-16: eight dated files left, from
 2026-10-06 to 2026-10-15, ten calendar days, since a day with no line has no
 file.
 
@@ -172,6 +173,19 @@ the day's dated file at 21:16:08.619, followed by *Updated to 0.4.0* and the
 new watcher's start: 0.8 s from stop to start, the `.old` executables gone
 once the new one ran, the updates folder empty. The recreated single file is
 the oldest match of the appender's pattern, and goes as the first did.
+
+**The real purge, 2026-10-17**, run by the maintainer in their own terminal
+after saving the configuration and the logs: the task, the configuration,
+seven log files and the updates folder went, then Windows Installer removed
+the program at 21:21:07.9 and the sweep took the uninstall's own log line a
+second later. But `logs` and its parent stayed, empty: the logs folder was
+read-only. It had been made on 2026-09-26 by the maintainer's restore, a
+`Copy-Item` of the folder back from a backup on the OneDrive desktop, where
+folders carry the read-only and *unpinned* attributes; Windows refuses to
+remove a read-only folder, and both the in-process removal and the shell's
+`Remove-Item` failed on it. `purge` now clears the attribute of an empty
+folder of its own before removing it, and the shell passes `-Force`; a test
+with read-only folders failed without the change and passes with it.
 
 The footprint, the watcher just started: 161 handles and 1.99 MB private,
 against 162 and 2.09 MB for 0.3.0 just started in

@@ -279,10 +279,42 @@ pub fn discover(config: Option<&config::Config>, config_path: &Path) -> Layout {
 /// accident, measured on 2026-09-25.
 fn remove_if_empty(dir: &Path) -> String {
     let dir = quoted(dir);
+    // `-Force` for a folder marked read-only, as `remove_empty_dir` says.
     format!(
         "if (-not (Get-ChildItem -LiteralPath {dir} -Force -ErrorAction SilentlyContinue)) \
-         {{ Remove-Item -LiteralPath {dir} -ErrorAction SilentlyContinue }}"
+         {{ Remove-Item -LiteralPath {dir} -Force -ErrorAction SilentlyContinue }}"
     )
+}
+
+/// Remove a folder of ours once it is empty, read-only or not, and change
+/// nothing on one that still holds something.
+///
+/// Windows refuses to remove a read-only folder, and a folder copied back
+/// from a OneDrive backup comes back read-only: the logs folder restored
+/// that way on 2026-09-26 outlived the real purge of 2026-10-17, and its
+/// parent with it.
+fn remove_empty_dir(dir: &Path) -> std::io::Result<()> {
+    use std::os::windows::fs::MetadataExt;
+    use windows::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_READONLY, FILE_FLAGS_AND_ATTRIBUTES, SetFileAttributesW,
+    };
+
+    if std::fs::read_dir(dir)?.next().is_some() {
+        return Err(std::io::ErrorKind::DirectoryNotEmpty.into());
+    }
+    let attributes = std::fs::metadata(dir)?.file_attributes();
+    if attributes & FILE_ATTRIBUTE_READONLY.0 != 0 {
+        let path = windows::core::HSTRING::from(dir);
+        // SAFETY: `path` is a NUL-terminated wide string that outlives the
+        // call, which reads it and keeps nothing.
+        unsafe {
+            SetFileAttributesW(
+                &path,
+                FILE_FLAGS_AND_ATTRIBUTES(attributes & !FILE_ATTRIBUTE_READONLY.0),
+            )
+        }?;
+    }
+    std::fs::remove_dir(dir)
 }
 
 /// The shell's steps for an installed copy: the uninstall, waited for, then
@@ -326,10 +358,13 @@ pub fn execute(plan: &Plan) -> Result<()> {
         println!("Deleted {}.", tree.display());
     }
     for dir in &plan.dirs {
-        match std::fs::remove_dir(dir) {
+        match remove_empty_dir(dir) {
             Ok(()) => println!("Removed {}.", dir.display()),
-            // Not empty, or already gone: either way it is not ours to force.
-            Err(_) => println!("Left {} alone: it holds something else.", dir.display()),
+            // Something else in it is not ours to force.
+            Err(error) if error.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
+                println!("Left {} alone: it holds something else.", dir.display())
+            }
+            Err(error) => println!("Could not remove {}: {error}.", dir.display()),
         }
     }
     match &plan.program {
@@ -579,6 +614,9 @@ mod tests {
         }
         touch(&shared.join("logs").join("notes.txt"));
         touch(&shared.join("updates").join("pending.txt"));
+        // Read-only, as a logs folder copied back from OneDrive comes.
+        read_only(&alone.join("logs"));
+        read_only(&alone);
 
         for local in [&alone, &shared] {
             let steps = uninstall_steps("{CODE}", Some(&local.join("logs")));
@@ -593,6 +631,31 @@ mod tests {
         assert!(logging::log_files(&shared.join("logs")).is_empty());
         assert!(shared.join("logs").join("notes.txt").exists());
         assert!(shared.join("updates").join("pending.txt").exists());
+    }
+
+    fn read_only(dir: &Path) {
+        let mut permissions = std::fs::metadata(dir).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(dir, permissions).unwrap();
+    }
+
+    #[test]
+    fn an_empty_folder_goes_read_only_or_not_and_a_full_one_stays_as_it_was() {
+        let empty = scratch().join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        read_only(&empty);
+        remove_empty_dir(&empty).unwrap();
+        assert!(!empty.exists());
+
+        let full = scratch().join("full");
+        touch(&full.join("notes.txt"));
+        read_only(&full);
+        let error = remove_empty_dir(&full).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::DirectoryNotEmpty);
+        assert!(
+            std::fs::metadata(&full).unwrap().permissions().readonly(),
+            "nothing changed on a folder that holds something"
+        );
     }
 
     /// The hand-installed case hands the executables to a shell that waits
