@@ -1,88 +1,59 @@
 # Design record
 
-Why the program is the way it is: the decisions, the measurements behind
-them, and what is still open. Written for someone evaluating or changing the
-code — the pages for people who *use* the program are
-[Getting started](../getting-started.md) and [How it works](../how-it-works.md).
+Why the program is the way it is: decisions, measurements, what is open. For
+using it, read [Getting started](../getting-started.md) and
+[How it works](../how-it-works.md).
 
-Work is organised in numbered **lots**. A lot is a deliverable with a stated
-"done when", taken in order, closed when it is verified against a real game
-session rather than when the code compiles. Each has its own page.
+Work comes in numbered **lots**, each with a page and a "done when", closed
+once verified in a real game session. The table says where each stands today;
+the pages keep the history.
 
-| Lot | Page | Status |
+| Lot | Page | Today |
 | --- | --- | --- |
-| — | [Detection: why the Game Bar presence writer](00-detection.md) | the foundation |
-| 1 | [A console watcher that is correct and boring](01-console-watcher.md) | done |
-| 2 | [Configuration, and how commands run](02-configuration.md) | done |
-| 3 | [Naming the game](03-game-naming.md) | done |
-| 4 | [Logs that speak to two readers](04-logging.md) | done |
-| 5 | [A Windows program with no window](05-windowless-watcher.md) | done |
-| 6 | [Notification area icon](06-notification-icon.md) | done |
-| 7 | [Icon, tooltip and menu as one state](07-tray-state.md) | done |
-| 8 | [Distribution](08-distribution.md) | done; the second machine's three proposals built and verified 2026-09-25 |
-| 9 | [Robustness](09-robustness.md) | partly done; faults and live reload done; 2026-09-25: the refinement's retry built, `ShutdownBlockReasonCreate` decided against, two games back to back measured and closed |
-| 10 | [Configuration window](10-configuration-window.md) | proposed; set aside until a UX/UI analysis refines it |
-| 11 | [Documentation for the people who use it](11-user-documentation.md) | done |
+| — | [Detection: why the Game Bar presence writer](00-detection.md) | the foundation, with the games marked by hand added by Lot 15 |
+| 1 | [A console watcher that is correct and boring](01-console-watcher.md) | done 2026-09-10 |
+| 2 | [Configuration, and how commands run](02-configuration.md) | done 2026-09-10 |
+| 3 | [Naming the game](03-game-naming.md) | done 2026-09-10; the retry while undecided is Lot 9's |
+| 4 | [Logs that speak to two readers](04-logging.md) | done 2026-09-10; one file a day since Lot 17 |
+| 5 | [A Windows program with no window](05-windowless-watcher.md) | done; the logoff it could not cover is Lot 9's |
+| 6 | [Notification area icon](06-notification-icon.md) | done 2026-09-15 |
+| 7 | [Icon, tooltip and menu as one state](07-tray-state.md) | done 2026-09-15 |
+| 8 | [Distribution](08-distribution.md) | done 2026-09-18; the second machine's proposals built 2026-09-25 |
+| 9 | [Robustness](09-robustness.md) | partly done: session marker, faults, live reload, every way a session ends (2026-10-17); the refinement's retry not yet met in a game |
+| 10 | [Configuration window](10-configuration-window.md) | proposed; set aside until a UX/UI analysis |
+| 11 | [Documentation for the people who use it](11-user-documentation.md) | done 2026-09-14; cut for concision 2026-10-17 |
 | 12 | [Editing the configuration without breaking it](12-editing-on-a-copy.md) | proposed |
-| 13 | [Updating](13-updating.md) | done |
-| 14 | [Release notes people can read](14-release-notes.md) | done |
-| 15 | [Games Windows knows only from you](15-marked-games.md) | done |
-| 16 | [What the watcher keeps](16-footprint.md) | done |
-| 17 | [A log that turns over each day](17-log-rotation.md) | done 2026-09-26; the updater's zip path seen at the next release |
+| 13 | [Updating](13-updating.md) | done 2026-09-23 |
+| 14 | [Release notes people can read](14-release-notes.md) | done 2026-09-18 |
+| 15 | [Games Windows knows only from you](15-marked-games.md) | done 2026-09-23 |
+| 16 | [What the watcher keeps](16-footprint.md) | done 2026-09-23 |
+| 17 | [A log that turns over each day](17-log-rotation.md) | done 2026-09-26; the zip's update path to see at the next release |
 | 18 | [When the game is gone and nobody is there](18-game-gone-nobody-there.md) | proposed, not decided |
 
-**Dependency order:** 1 → 2 → 4 → 5 → 6 → 7, with 3 independent and 7 needing
-both 3 and 6. Logging sits before the icon deliberately — the icon logs too,
-and writing it in the finished vocabulary is cheaper than converting it after.
-The windowless build sits before the icon for the same reason the other way
-round: the icon hangs off a window and a message loop, and those were proved
-with nothing on screen before anything was drawn on them.
-
-The numbering moved twice while the lots were being taken — logging became
-Lot 4 and the tray icon lot was split in two. The pages and the commit
-messages both use the final numbers. One lot is deliberately unnumbered: a
-portable mode proper, everything in one folder — see
-[Lot 8](08-distribution.md) for why the zip is not that — waits for a need.
-
-**Standing rule:** any lot that changes what the user sees updates
-`getting-started.md` and `how-it-works.md` in the same commit. Documentation
-that describes a program that no longer exists is worse than none.
+Logging came before the icon, so the icon was written in the final log
+vocabulary; the windowless build came before it too, so the window and message
+loop it hangs off were proved with nothing drawn. The numbers moved twice
+early on; pages and commits use the final ones.
 
 ## Non-goals
 
-Recorded so they stop coming back.
-
-- **No FanControl-specific integration.** The program runs executables; that
-  is all. FanControl is the example that drove the project and lives in its
-  recipe and nowhere else.
-- **No Windows service.** Session 0 cannot see the desktop or the user's
-  applications.
-- **No allow-list of game executables, and no heuristics that guess at what a
-  game is.** Detection is Windows' verdict, read from Windows.
-- **No telemetry, and no network access the user did not ask for.** The one
-  connection the program opens is *Check for updates*, on a click, and
-  [Lot 13](13-updating.md) says what it sends and to whom. Nothing is ever
-  polled, and an opt-in check at start, if it ever comes, defaults to off.
-- **No elevation.** The watcher runs as the user, on purpose. Programs that
-  need administrator rights are reached through a scheduled task, never by
-  elevating the watcher — see [Lot 1](01-console-watcher.md).
-- **No configuration GUI before Lot 10.** Until then the menu opens the file
-  and the user brings their own editor.
-- **No version key in `config.toml` or the session marker.** The marker's
-  contract is its presence; its contents are informational and parsed
-  leniently, so no future format can lose anything. For the configuration,
-  `deny_unknown_fields` on every table already refuses a file from a newer
-  program and names the key, and serde defaults absorb a file from an older
-  one. The one case a number would catch — a breaking rename — is a major
-  version bump once public, with a migration written then against a real old
-  format. Until there is something to migrate, the program's version is the
-  format's version.
+- **No integration with a particular tool.** The program runs executables.
+  FanControl lives in its recipe.
+- **No Windows service.** Session 0 cannot see the desktop.
+- **No list of games, no heuristics.** Detection is Windows' verdict.
+- **No telemetry, no unasked network.** One connection: *Check for updates*,
+  on a click ([Lot 13](13-updating.md)).
+- **No elevation.** Programs needing administrator rights go through a
+  scheduled task ([Lot 1](01-console-watcher.md)).
+- **No configuration window before Lot 10.**
+- **No version key in `config.toml` or the session marker.** Unknown keys are
+  refused and missing ones defaulted, and the marker is read leniently; a
+  breaking rename would be a major version with its migration.
 
 ## Assumptions still to verify
 
 | Assumption | Status |
 | --- | --- |
-| FanControl switches configurations with `-c <name>.json` | Settled. Unreachable directly because the binary requires elevation; bridged through a scheduled task, and the chain verified by reading the applied configuration back from FanControl's own `CACHE` file. Holds for the installer version running as a service too. |
-| The presence writer is activated for games only | Notepad was a clean negative control; not proof for every application. |
-| Naming covers the titles actually played | Named in the field on every title played so far: Farming Simulator 25 and Skyrim Special Edition by executable path, Starfield by package family, Battlefield 6 by its anti-cheat's parent directory then by the GPU. |
-| The writer never blinks mid-session | Holds over sessions including alt-tabs; `presence-probe watch` polls at 100 ms, so a sub-100 ms dip could hide. |
+| The presence writer starts for games only | Notepad was a clean negative; not proof for every application. |
+| The writer never blinks mid-session | Held over every session so far, alt-tabs included; `presence-probe watch` samples at 100 ms, so a shorter dip could hide. |
+| Naming covers the titles played | Every title played so far was named, by path, package family or the GPU. |

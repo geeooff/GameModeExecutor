@@ -1,12 +1,9 @@
 # Lot 14 — Release notes people can read
 
-**Status: done 2026-09-18, the day it was proposed**, on the maintainer's
-remark after the first update ran through the menu: *What changed in
-0.1.0* opened the release page, and the page said *First public release*
-over a list of commits. That is a changelog for the people who wrote the
-commits, not for the person who clicked. Taken before 0.2.0, so that
-release read well from the moment it was published — it did, and 0.1.0's
-page was rewritten the same evening.
+**Status: done 2026-09-18, the day it was proposed.** The first release
+page listed commits under *First public release*: notes for those who wrote
+them, not for the person who clicked *What changed*. Done before 0.2.0, and
+0.1.0's page rewritten the same evening.
 
 - [x] `CHANGELOG.md`, with the sections for 0.1.0 and what 0.2.0 will carry — 2026-09-18
 - [x] `release-notes.ps1` takes the section for the tag and refuses a version without one; `build.ps1 release` refuses it first, on the machine that can still write it — 2026-09-18
