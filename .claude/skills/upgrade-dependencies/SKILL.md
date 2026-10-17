@@ -30,14 +30,17 @@ what to take.
 ## 2. One dependency at a time
 
 On `deps-YYYY-MM-DD`, from `main`, one commit per dependency, or per family
-that moves together (`windows` and `windows-registry`):
+that moves together. The windows-rs crates (`windows`, `windows-registry`)
+are one family: one does not move without the other ([Lot 21](../../../docs/design/21-windows-rs-0100.md)).
 
 1. **Read the upgrade path first**: the changelog, release notes or migration
    guide of every version between the locked one and the target, from the
    publisher — the crate's repository, docs.rs, the action's releases. Note
    each breaking change this code meets.
 2. Raise the requirement in `Cargo.toml`, or the tag in the workflow, then
-   `cargo update -p <crate>`.
+   `cargo update -p <crate>`. A dependency that needs a newer Rust than
+   `rust-version` raises `rust-version` in the same commit; it is never held
+   back for that.
 3. Fix each break **the way the guide says**: the new API, the replacement it
    names. Never: a lint silenced (`#[allow(deprecated)]` and the like), a
    `[patch]` or a fork, a version held below the target, the old code copied
