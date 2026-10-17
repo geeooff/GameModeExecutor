@@ -27,7 +27,7 @@ the pages keep the history.
 | 14 | [Release notes people can read](14-release-notes.md) | done 2026-09-18 |
 | 15 | [Games Windows knows only from you](15-marked-games.md) | done 2026-09-23 |
 | 16 | [What the watcher keeps](16-footprint.md) | done 2026-09-23; memory at rest to measure again against 0.3.0 |
-| 17 | [A log that turns over each day](17-log-rotation.md) | done 2026-09-26; the zip's update path to see at the next release |
+| 17 | [A log that turns over each day](17-log-rotation.md) | done 2026-09-26; the zip's update path seen 2026-10-17 |
 | 18 | [When the game is gone and nobody is there](18-game-gone-nobody-there.md) | proposed, not decided |
 | 19 | [Starting from Windows' Startup list](19-startup-list.md) | proposed; a spike first |
 | 20 | [The build chain, official and kept current](20-build-chain.md) | built 2026-10-17; the first wait and the first attested release to see |

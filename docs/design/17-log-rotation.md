@@ -1,9 +1,9 @@
 # Lot 17 — A log that turns over each day
 
 **Status: done 2026-09-26**, with `tracing-appender`, once a spike showed
-the file turning over without a restart. Left to see: the updater's zip path
-at the next release, and the next real `purge` taking the updates folder. The
-old single file was seen pruned on 2026-10-16: eight dated files left, from
+the file turning over without a restart. Left to see: the next real `purge`
+taking the updates folder. The updater's zip path was seen on 2026-10-17,
+below. The old single file was seen pruned on 2026-10-16: eight dated files left, from
 2026-10-06 to 2026-10-15, ten calendar days, since a day with no line has no
 file.
 
@@ -13,7 +13,7 @@ file.
 - [x] What the library now does removed from our code, and nothing kept that it already answers — 2026-09-25, below, the local timestamps included
 - [x] *Open log*, `purge` and the documentation following the dated files — built 2026-09-25
 - [x] `purge` of an installed copy leaving no log behind, the uninstall's own lines included — built 2026-09-25, seen on a real purge 2026-09-26, below
-- [ ] The commands that write the same log — `stop`, `init`, `install-task`, `uninstall-task`, `update` — lose no line and prune nothing they should not — the package's install and uninstall, `purge` and `update --check` seen 2026-09-26, below; the updater's zip path waits for the next release
+- [x] The commands that write the same log — `stop`, `init`, `install-task`, `uninstall-task`, `update` — lose no line and prune nothing they should not — the package's install and uninstall, `purge` and `update --check` seen 2026-09-26, the updater's zip path 2026-10-17, below
 - [x] Verified in the field across a real turnover on the maintainer's machine — 2026-09-26, below
 
 **Done when** each day's log is its own file, `gamemode-executor.YYYY-MM-DD.log`,
@@ -161,6 +161,17 @@ has just put in place, so the command that writes is the release's, not
 the one updating. Updating a zip copy now could only install 0.3.0, whose
 `install-task` predates this lot. It is seen at the next release: a zip
 copy of 0.3.0 updated to the release that carries this lot.
+
+**Seen on 2026-10-17**, 0.3.0 unpacked from its zip and updated to 0.4.0
+from its menu by the maintainer. The 0.3.0 watcher wrote its part —
+*This copy updates as* `Zip`, the 0.4.0 zip downloaded and verified,
+*Installing 0.4.0*, *Stopped* at 21:16:07.881 — to the single
+`gamemode-executor.log` it knows, recreated for the occasion. The shell then
+unpacked 0.4.0 and ran its `install-task`, whose *Logon task kept* went to
+the day's dated file at 21:16:08.619, followed by *Updated to 0.4.0* and the
+new watcher's start: 0.8 s from stop to start, the `.old` executables gone
+once the new one ran, the updates folder empty. The recreated single file is
+the oldest match of the appender's pattern, and goes as the first did.
 
 The footprint, the watcher just started: 161 handles and 1.99 MB private,
 against 162 and 2.09 MB for 0.3.0 just started in
