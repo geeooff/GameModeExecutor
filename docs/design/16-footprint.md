@@ -16,6 +16,7 @@ at once, at the maintainer's request.
 - [x] What the watcher costs, written for the people who use it in [How it works](../how-it-works.md), from those figures — 2026-09-23
 - [x] Verified in the field: a session whose refinement reads the counters, on the maintainer's machine — 2026-09-23, Battlefield 6, below: *bf6.exe (75% of the rendering)* through PerfLib, 18 handles and 0.24 MB for the read
 - [x] The menu opened a second and a third time, to tell a cost paid once from a leak — 2026-09-23, 18:00 and 18:01: nothing more, below
+- [ ] Memory at rest, measured again against 0.3.0 at the same uptime. On 2026-10-17 the installed build read 214 handles and 2.6–2.75 MB after twenty idle minutes, flat over four, where *How it works* says about 2 MB, a figure taken at start; the page is corrected with whichever figure holds
 
 **Done when** a session, a reload and each entry of the menu leave the
 watcher holding no more than a figure written here over what it held just
