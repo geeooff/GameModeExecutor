@@ -145,7 +145,10 @@ unpacks the zip over the folder, keeping the old executables as `.old`, and
 runs `install-task`.
 
 The hash proves the file is the one the release published; the program has no
-code signature ([why](design/13-updating.md)).
+code signature ([why](design/13-updating.md)). Each release file also carries
+GitHub's attestation that the release workflow built it from the tagged
+commit, which `gh attestation verify <file> --repo Geeooff/GameModeExecutor`
+checks.
 
 ## Removing it
 

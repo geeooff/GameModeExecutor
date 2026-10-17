@@ -182,9 +182,10 @@ version block (without it the build warns and goes on).
 ```
 
 A release is a tag `vX.Y.Z` on the commit that bumps `Cargo.toml` and dates
-the version's `CHANGELOG.md` section. The workflow then runs the same script
-and publishes the installer, the zips and their checksums, with that section
-as the notes. A version the changelog lacks is refused.
+the version's `CHANGELOG.md` section. The workflow then runs the same script,
+attests the installer and the zips (`actions/attest`), and publishes them with
+their checksums and that section as the notes. A version the changelog lacks
+is refused.
 
 From VS Code, `Ctrl+Shift+B` builds; *Run Task* has the same modes and two for
 an installed watcher.

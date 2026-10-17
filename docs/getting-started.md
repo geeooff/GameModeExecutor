@@ -17,8 +17,8 @@ Run one thing when a game starts, another when it stops. Five minutes.
 **The installer** (`.msi`) needs no administrator rights. It installs for you
 alone in `%LOCALAPPDATA%\Programs\GameModeExecutor`, writes a starter
 configuration, registers the logon task and starts the watcher. Windows warns
-because it is not signed; the release page lists its SHA-256. A newer release
-installs over it and keeps your configuration.
+because it is not signed; the release page says how to check it came from this
+repository. A newer release installs over it and keeps your configuration.
 
 **The zip** holds the same files. Unzip it somewhere it will stay —
 `%LOCALAPPDATA%\Programs\GameModeExecutor` is the convention — not in

@@ -15,6 +15,12 @@ a section is written.
 
 ## [Unreleased]
 
+### Added
+
+- Each release file comes with GitHub's attestation that the release workflow
+  built it from the tagged commit:
+  `gh attestation verify <file> --repo Geeooff/GameModeExecutor`.
+
 ## [0.4.0] - 2026-10-17
 
 One log file a day, a Start menu entry to bring the watcher back, stop
