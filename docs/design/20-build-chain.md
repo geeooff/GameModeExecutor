@@ -53,7 +53,9 @@ Read on 2026-10-17: CI uses `actions/checkout@v7`, `actions/upload-artifact@v7`
   database carries RustSec's, so the CI audit first planned here would only
   repeat them.
 - `AGENTS.md`: an automatic merge is a standing approval for that class of
-  update and nothing else.
+  update and nothing else. What Dependabot leaves goes through the
+  `upgrade-dependencies` skill, which follows each upgrade guide and allows no
+  workaround (added 2026-10-17, at the maintainer's request).
 
 **Done when** CI and the release use official actions or justified ones, by
 tag, with least privilege; a release's files carry a verifiable attestation;
