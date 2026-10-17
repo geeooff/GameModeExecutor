@@ -749,14 +749,7 @@ poll_interval = \"0s\"
     // ------------------------------------------------------- the reload --
 
     fn scratch() -> PathBuf {
-        static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "gamemode-executor-config-{}-{n}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+        crate::testing::fresh_dir("gamemode-executor-config")
     }
 
     /// The watch signals a reload when the file's bytes change, and not

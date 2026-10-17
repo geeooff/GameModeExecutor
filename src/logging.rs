@@ -600,13 +600,7 @@ mod tests {
 
     /// A scratch folder of its own for each test that touches files.
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "gamemode-executor-logging-{}-{name}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+        crate::testing::fresh_dir(&format!("gamemode-executor-logging-{name}"))
     }
 
     #[test]

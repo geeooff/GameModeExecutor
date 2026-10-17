@@ -386,14 +386,7 @@ mod tests {
     use crate::shell::after_process;
 
     fn scratch() -> PathBuf {
-        static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "gamemode-executor-purge-{}-{n}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+        crate::testing::fresh_dir("gamemode-executor-purge")
     }
 
     fn touch(path: &Path) {
