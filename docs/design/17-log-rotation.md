@@ -6,7 +6,10 @@ decided the same day: `tracing-appender`, with its constraints. Taken on
 turning over without a restart — it does, below. Closed with three things
 left to see, none a reason to reopen it: the updater's zip path at the next
 release, the old single file pruned around 2026-10-01, and the next real
-`purge` taking the updater's folder.
+`purge` taking the updater's folder. The second was seen on 2026-10-16, in
+the folder: `gamemode-executor.log` gone, eight dated files left, from
+2026-10-06 to 2026-10-15 — ten calendar days, since a day the watcher wrote
+nothing has no file.
 
 - [x] A spike, reproducible, of the turnover inside a running process and of what the library prunes, and when — 2026-09-25, below
 - [x] The log written through `tracing-appender`'s `RollingFileAppender`, daily, synchronously, with every line as it is today — built 2026-09-25, below

@@ -135,6 +135,26 @@ impl<S: Sensor> Engine<S> {
         }
     }
 
+    /// Say in the marker whether a watcher holds the session: it does from
+    /// a resume, and stops holding it when it leaves the session to the next
+    /// start. Failing to costs only the wording at that start, which may take
+    /// an orderly stop for a watcher that vanished.
+    fn restate(&self, held: bool) {
+        let Some(marker) = &self.marker else {
+            return;
+        };
+        let result = if held { marker.hold() } else { marker.leave() };
+        if let Err(error) = result {
+            tracing::warn!(
+                target: target::WATCHER,
+                path = %marker.path().display(),
+                error = %error,
+                "Cannot update the session marker, so the next start may misread how this \
+                 watcher stopped"
+            );
+        }
+    }
+
     /// Remove the marker: the session is closed, or the user has opted out of
     /// closing it.
     fn forget(&self) {
@@ -152,45 +172,54 @@ impl<S: Sensor> Engine<S> {
         }
     }
 
-    /// Settle the session the last process left open: resume it when the
-    /// game is still on, close it when the game is gone.
+    /// Settle the session the last process left in the marker: resume it
+    /// when a game is still on, close it when the game is gone.
     ///
-    /// Measured on 2026-09-16: a command started at logoff, even one
-    /// millisecond after Windows first asks, dies with STATUS_DLL_INIT_FAILED.
-    /// The session-end handshake is not where the stop commands can run, so
-    /// they run here, at the start that follows. A logoff, a shutdown, a crash
-    /// and a power cut are then one case.
+    /// Closing runs the stop commands once, whatever left them owed: a
+    /// session end, where nothing started lives (measured 2026-09-16); a
+    /// stop command that failed; a game that ended between two watchers; a
+    /// watcher that vanished. A failure now closes the session all the same:
+    /// one retry, not one at every start.
     ///
-    /// The other case, decided 2026-09-18: the writer is still running, so the
+    /// Resuming, decided 2026-09-18: the writer is still running, so the
     /// game never ended -- the last watcher handed the session over for an
     /// update, the last engine of this process stopped for a reload, or a
-    /// watcher crashed under it. Then nothing runs, neither stop nor start,
+    /// watcher vanished under it. Then nothing runs, neither stop nor start,
     /// and the session is taken up where it was. Looking for the writer
     /// *before* recovering is what keeps a game still on from getting the
     /// idle and then the gaming configuration seconds apart. Returns what
     /// to park on and the name to show when resuming.
+    ///
+    /// A marker still `open` says its watcher never stopped, and that is
+    /// said at `warn`: nothing else in the log will.
     fn recover(&self) -> Option<(Sighting, Option<GameSignal>)> {
         let marker = self.marker.as_ref()?;
         let pending = marker.pending()?;
+        let game = pending.game.as_deref().unwrap_or("an unnamed game");
+        let since = pending.since.as_deref();
         if let Some(sighting) = self.sensor.sighting() {
+            if pending.abandoned {
+                tracing::warn!(
+                    target: target::GAME,
+                    since,
+                    "The last watcher ended without stopping during the session with {game}, \
+                     which still runs: it was ended from outside, or crashed. The session \
+                     resumes where it was"
+                );
+            } else {
+                tracing::info!(
+                    target: target::GAME,
+                    since,
+                    "A session was left open with {game} still running, so it resumes where it was"
+                );
+            }
+            self.restate(true);
             let signal = pending.game.clone().map(|name| GameSignal {
                 source: "resumed",
                 process_name: Some(name),
                 process_id: None,
                 process_path: None,
             });
-            match &pending.game {
-                Some(game) => tracing::info!(
-                    target: target::GAME,
-                    since = pending.since.as_deref(),
-                    "A session was left open with {game} still running, so it resumes where it was"
-                ),
-                None => tracing::info!(
-                    target: target::GAME,
-                    since = pending.since.as_deref(),
-                    "A session was left open with a game still running, so it resumes where it was"
-                ),
-            }
             self.report(&Session::Playing(signal.clone()));
             return Some((sighting, signal));
         }
@@ -198,19 +227,21 @@ impl<S: Sensor> Engine<S> {
         // and said at all because the icon may still show the session the
         // engine before this one -- stopped for a reload -- left open.
         self.report(&Session::Idle);
-        match &pending.game {
-            Some(game) => tracing::info!(
+        if pending.abandoned {
+            tracing::warn!(
                 target: target::GAME,
-                since = pending.since.as_deref(),
-                "The last session ended with {game} still running and its stop commands \
-                 never ran, so they run now"
-            ),
-            None => tracing::info!(
+                since,
+                "The last watcher ended without stopping during the session with {game}: it \
+                 was ended from outside or crashed, or the machine stopped. Its stop commands \
+                 run now"
+            );
+        } else {
+            tracing::info!(
                 target: target::GAME,
-                since = pending.since.as_deref(),
-                "The last session ended with a game still running and its stop commands \
-                 never ran, so they run now"
-            ),
+                since,
+                "The stop commands of the last session, with {game}, did not run then, so \
+                 they run now"
+            );
         }
         let signal = pending.game.map(|name| GameSignal {
             source: "recovered",
@@ -338,62 +369,88 @@ impl<S: Sensor> Engine<S> {
             };
 
             if stopped {
-                // A handover: the watcher that follows resumes this session,
-                // so nothing runs and the marker stays open. The commands
-                // would only have swapped the configuration twice in the
-                // middle of a game. A reload is the same handover, to the
-                // engine the supervisor builds next on the changed file.
-                match stop.reason() {
-                    StopReason::Handover => {
-                        tracing::info!(
-                            target: target::WATCHER,
-                            "Stopping for an update; the game session is handed to the next watcher"
-                        );
-                        return Ok(());
-                    }
-                    StopReason::Reload => {
-                        tracing::debug!(
-                            target: target::WATCHER,
-                            "Stopping for a reload; the game session is kept open for the next engine"
-                        );
-                        return Ok(());
-                    }
-                    StopReason::Restore => {}
-                }
-                if self.config.general.stop_actions_on_exit {
-                    // Stays at info: without it the reader sees a session end
-                    // and has no way to tell the game stopped from the watcher
-                    // stopping under it.
-                    tracing::info!(
-                        target: target::WATCHER,
-                        "Stopping while a game is running, so the stop commands run now"
-                    );
-                    // The marker outlives a stop that cannot be vouched for.
-                    // At logoff the commands are started and die unborn; the
-                    // next start is the only moment that is certain to have
-                    // a working process to give them.
-                    if self.fire_stop(signal.as_ref()).confirmed() {
-                        self.forget();
-                    } else {
-                        tracing::warn!(
-                            target: target::WATCHER,
-                            "The stop commands could not be confirmed, so they run again at \
-                             the next start"
-                        );
-                    }
-                } else {
-                    // Opted out of restoring on exit; that covers the next
-                    // start too, or the opt-out would be undone at logon.
-                    self.forget();
-                }
+                self.stop_under(signal.as_ref(), stop.reason());
                 return Ok(());
             }
-            // A game that stopped on its own: the commands are best effort,
-            // as they always were, and the session is closed either way.
-            self.fire_stop(signal.as_ref());
-            self.forget();
+            self.close(signal.as_ref());
         }
         Ok(())
+    }
+
+    /// The watcher stops while a session is open. What happens to the
+    /// session depends only on why:
+    ///
+    /// - a handover or a reload: a watcher or an engine follows and resumes
+    ///   it, so nothing runs -- the commands would only swap the
+    ///   configuration twice in the middle of a game -- and the session is
+    ///   left in the marker;
+    /// - Windows ending the session: nothing started now would live, so
+    ///   nothing is tried and the session is left in the marker for the
+    ///   next start;
+    /// - *Quit* or `stop`: the session closes as when the game ends.
+    ///
+    /// `stop_actions_on_exit = false` closes the session without running
+    /// anything, at a session end too, or the opt-out would be undone at
+    /// the next logon.
+    fn stop_under(&self, signal: Option<&GameSignal>, reason: StopReason) {
+        match reason {
+            StopReason::Handover => {
+                tracing::info!(
+                    target: target::WATCHER,
+                    "Stopping for an update; the game session is handed to the next watcher"
+                );
+                self.restate(false);
+            }
+            StopReason::Reload => {
+                tracing::debug!(
+                    target: target::WATCHER,
+                    "Stopping for a reload; the game session is kept open for the next engine"
+                );
+                self.restate(false);
+            }
+            StopReason::Restore | StopReason::SessionEnd
+                if !self.config.general.stop_actions_on_exit =>
+            {
+                self.forget();
+            }
+            StopReason::SessionEnd => {
+                let game = signal.map_or("an unnamed game", GameSignal::name);
+                tracing::info!(
+                    target: target::WATCHER,
+                    "Windows is ending the session during {game}, so its stop commands run at \
+                     the next start"
+                );
+                self.restate(false);
+            }
+            StopReason::Restore => {
+                // Stays at info: without it the reader sees a session end
+                // and has no way to tell the game stopped from the watcher
+                // stopping under it.
+                tracing::info!(
+                    target: target::WATCHER,
+                    "Stopping while a game is running, so the stop commands run now"
+                );
+                self.close(signal);
+            }
+        }
+    }
+
+    /// Close the session: the stop commands run, and the marker goes unless
+    /// one of them failed. Then the session is left to the next start, which
+    /// runs them again. Seen on a second machine on 2026-09-29: a stop
+    /// command failed as a game ended -- inferred, a game that ended with the
+    /// session, before the watcher was told -- and nothing ran at the next
+    /// start, because the marker had gone with the attempt.
+    fn close(&self, signal: Option<&GameSignal>) {
+        if self.fire_stop(signal).any_failed() {
+            tracing::warn!(
+                target: target::WATCHER,
+                "A stop command failed, so the stop commands run again at the next start"
+            );
+            self.restate(false);
+        } else {
+            self.forget();
+        }
     }
 
     /// Idle: the only polling in the program. Returns `None` when stopped.

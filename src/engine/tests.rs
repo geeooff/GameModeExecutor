@@ -35,10 +35,12 @@ struct Scripted {
     /// `rendering_load` fails, as it does on an account that may not read
     /// the counters.
     counters_unreadable: bool,
-    /// The session ends as the writer does: the stop is signalled in the
-    /// same instant `wait_for_exit` reports the exit, as a logoff
-    /// does when Windows kills the writer before the watcher is told.
+    /// The session ends as the writer does: Windows' session end is
+    /// signalled in the same instant `wait_for_exit` reports the exit, as a
+    /// logoff does when Windows kills the writer before the watcher is told.
     session_ends_with_writer: bool,
+    /// A stop reported by `wait_for_exit` is Windows ending the session.
+    stops_by_session_end: bool,
     /// A stop reported by `wait_for_exit` is a handover, as
     /// `stop --handover` from an update makes it.
     stops_by_handover: bool,
@@ -60,6 +62,7 @@ impl Scripted {
             list_unreadable: false,
             counters_unreadable: false,
             session_ends_with_writer: false,
+            stops_by_session_end: false,
             stops_by_handover: false,
             stops_by_reload: false,
             stop: Arc::clone(stop),
@@ -88,6 +91,11 @@ impl Scripted {
 
     fn session_ends_with_writer(mut self) -> Self {
         self.session_ends_with_writer = true;
+        self
+    }
+
+    fn stops_by_session_end(mut self) -> Self {
+        self.stops_by_session_end = true;
         self
     }
 
@@ -149,13 +157,16 @@ impl Sensor for Scripted {
         timeout: Option<Duration>,
     ) -> Result<WaitOutcome> {
         self.timeouts.borrow_mut().push(timeout);
-        let outcome = self
-            .waits
-            .borrow_mut()
-            .pop_front()
-            .expect("the script ran out of waits");
+        // An error rather than a panic, so that a scenario can end a run
+        // mid-session the way a killed watcher does -- without stopping.
+        let Some(outcome) = self.waits.borrow_mut().pop_front() else {
+            anyhow::bail!("scripted: the script ran out of waits");
+        };
         if self.session_ends_with_writer && outcome == WaitOutcome::Exited {
-            self.stop.signal();
+            self.stop.signal_session_end();
+        }
+        if self.stops_by_session_end && outcome == WaitOutcome::Stopped {
+            self.stop.signal_session_end();
         }
         if self.stops_by_handover && outcome == WaitOutcome::Stopped {
             self.stop.signal_handover();
@@ -464,23 +475,23 @@ fn a_game_relaunched_within_the_grace_keeps_the_session() {
 #[test]
 fn the_marker_is_written_when_the_game_starts_and_names_it() {
     let stop = Arc::new(StopSignal::new().unwrap());
-    // The session is stopped from outside, so the marker is still there to
-    // read: a normal stop would have removed it.
+    // No wait scripted: the run ends mid-session without stopping, so the
+    // marker is still there to read, as the start wrote it.
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
-        .waits(&[WaitOutcome::Stopped])
         .candidates(&[&[game(10, "game.exe")]]);
     let marker = Marker::in_dir(&scratch());
     let path = marker.path().to_path_buf();
-    let mut config = quick_config();
-    // Nothing to confirm, so the marker stays.
-    config.general.stop_actions_on_exit = true;
 
-    let mut engine = Engine::new(config, sensor).remembering(marker);
-    engine.run(&stop).unwrap();
+    let mut engine = Engine::new(quick_config(), sensor).remembering(marker);
+    assert!(engine.run(&stop).is_err(), "ended without stopping");
 
     let pending = Marker::in_dir(path.parent().unwrap()).pending().unwrap();
     assert_eq!(pending.game.as_deref(), Some("game.exe"));
+    assert!(
+        pending.abandoned,
+        "held by the watcher, which never stopped"
+    );
 }
 
 // --------------------------------------------------------------- naming --
@@ -790,7 +801,7 @@ fn a_writer_that_comes_back_within_the_grace_keeps_the_session_open() {
 // -------------------------------------------------- stopping mid-game --
 
 #[test]
-fn a_stop_mid_game_runs_the_stop_commands_and_closes_the_marker_when_confirmed() {
+fn a_stop_mid_game_runs_the_stop_commands_and_closes_the_marker() {
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
@@ -811,15 +822,15 @@ fn a_stop_mid_game_runs_the_stop_commands_and_closes_the_marker_when_confirmed()
     assert!(ran.exists(), "the stop commands ran");
     assert!(
         Marker::in_dir(&dir).pending().is_none(),
-        "confirmed, so closed"
+        "nothing failed, so closed"
     );
     assert_eq!(seen(&log).last(), Some(&Session::Idle));
 }
 
 #[test]
 fn a_stop_mid_game_keeps_the_marker_when_a_command_fails() {
-    // The logoff shape: the command is started and does not succeed. The
-    // marker stays so the next start runs the commands again.
+    // The command is started and does not succeed. The marker stays, left
+    // to the next start, which runs the commands again.
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
@@ -835,12 +846,15 @@ fn a_stop_mid_game_keeps_the_marker_when_a_command_fails() {
 
     let pending = Marker::in_dir(&dir).pending().expect("marker kept");
     assert_eq!(pending.game.as_deref(), Some("game.exe"));
+    assert!(!pending.abandoned, "left by a watcher that stopped");
 }
 
 #[test]
-fn a_stop_mid_game_with_only_fire_and_forget_commands_keeps_the_marker() {
-    // Nothing waited for is nothing confirmed, deliberately: the failure this
-    // exists for is a process created and dying unseen.
+fn a_stop_mid_game_with_only_fire_and_forget_commands_closes_the_marker() {
+    // Until 2026-10-16 nothing waited for counted as nothing confirmed, and
+    // the marker stayed: the failure it guarded against is a command dying
+    // unseen at a session end. A session end now tries nothing, and on a
+    // *Quit* a command started is a command that runs, as when a game ends.
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
@@ -856,7 +870,44 @@ fn a_stop_mid_game_with_only_fire_and_forget_commands_keeps_the_marker() {
     let mut engine = Engine::new(config, sensor).remembering(Marker::in_dir(&dir));
     engine.run(&stop).unwrap();
 
-    assert!(Marker::in_dir(&dir).pending().is_some());
+    assert!(Marker::in_dir(&dir).pending().is_none());
+}
+
+#[test]
+fn a_session_end_mid_game_tries_nothing_and_leaves_the_session() {
+    // A process started once Windows is ending the session dies unborn:
+    // measured at two logoffs here in September and eight session ends in a
+    // second machine's log. So nothing is tried, and the marker says the
+    // session was left in order, for the next start to close.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let sensor = Scripted::new(&stop)
+        .writer(&[Some(7)])
+        .waits(&[WaitOutcome::Stopped])
+        .stops_by_session_end()
+        .candidates(&[&[game(10, "game.exe")]]);
+    let dir = scratch();
+    let ran = dir.join("stop-ran");
+    let mut config = quick_config();
+    config.general.stop_actions_on_exit = true;
+    config.on_game_stop = stop_event(vec![touch(&ran)]);
+    let (sink, log) = recorder();
+
+    let mut engine = Engine::new(config, sensor)
+        .reporting_to(sink)
+        .remembering(Marker::in_dir(&dir));
+    engine.run(&stop).unwrap();
+
+    assert!(!ran.exists(), "nothing was tried");
+    let pending = Marker::in_dir(&dir)
+        .pending()
+        .expect("kept for the next start");
+    assert_eq!(pending.game.as_deref(), Some("game.exe"));
+    assert!(!pending.abandoned, "left by a watcher that stopped");
+    assert_eq!(
+        seen(&log),
+        vec![Session::Playing(Some(game(10, "game.exe")))],
+        "the process is leaving; nothing changed for the icon"
+    );
 }
 
 #[test]
@@ -865,7 +916,8 @@ fn a_writer_killed_by_the_session_ending_is_a_stop_mid_game() {
     // asking the session to end, the wait reported the exit rather than the
     // stop, and the ordinary path removed the marker after a command that
     // had died unborn. A stop that is set by the time the writer is gone is
-    // the mid-game case, whichever of the two arrived first.
+    // the mid-game case, whichever of the two arrived first -- and at a
+    // session end, that case tries nothing.
     let stop = Arc::new(StopSignal::new().unwrap());
     let sensor = Scripted::new(&stop)
         .writer(&[Some(7)])
@@ -877,19 +929,55 @@ fn a_writer_killed_by_the_session_ending_is_a_stop_mid_game() {
     // A grace period, so the stop is also seen through it.
     config.detection.stop_delay = Duration::from_millis(200);
     config.general.stop_actions_on_exit = true;
-    config.on_game_stop = stop_event(vec![exit_with(1)]);
-    let (sink, log) = recorder();
+    let ran = dir.join("stop-ran");
+    config.on_game_stop = stop_event(vec![touch(&ran)]);
 
-    let mut engine = Engine::new(config, sensor)
-        .reporting_to(sink)
-        .remembering(Marker::in_dir(&dir));
+    let mut engine = Engine::new(config, sensor).remembering(Marker::in_dir(&dir));
     engine.run(&stop).unwrap();
 
-    assert_eq!(seen(&log).last(), Some(&Session::Idle));
+    assert!(!ran.exists(), "nothing was tried");
     let pending = Marker::in_dir(&dir)
         .pending()
         .expect("kept for the next start");
     assert_eq!(pending.game.as_deref(), Some("game.exe"));
+}
+
+#[test]
+fn a_game_whose_stop_command_fails_leaves_its_session_to_the_next_start() {
+    // Seen on a second machine on 2026-09-29: the stop command failed as the
+    // game ended -- inferred, a game that ended with the session, before the
+    // watcher was told -- and the marker went with the attempt. A failure
+    // now leaves the session, and the next start runs the commands again,
+    // once.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let sensor = Scripted::new(&stop)
+        .writer(&[Some(7)])
+        .waits(&[WaitOutcome::Exited])
+        .candidates(&[&[game(10, "game.exe")]]);
+    let dir = scratch();
+    let mut config = quick_config();
+    config.on_game_stop = stop_event(vec![exit_with(1)]);
+
+    let mut engine = Engine::new(config, sensor).remembering(Marker::in_dir(&dir));
+    engine.run(&stop).unwrap();
+
+    let pending = Marker::in_dir(&dir).pending().expect("left");
+    assert_eq!(pending.game.as_deref(), Some("game.exe"));
+    assert!(!pending.abandoned, "left by a watcher that stopped");
+
+    // The next start.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let ran = dir.join("stop-ran");
+    let mut config = quick_config();
+    config.on_game_stop = stop_event(vec![touch(&ran)]);
+    let mut engine = Engine::new(config, Scripted::new(&stop)).remembering(Marker::in_dir(&dir));
+    engine.run(&stop).unwrap();
+
+    assert!(ran.exists(), "the stop commands ran again");
+    assert!(
+        Marker::in_dir(&dir).pending().is_none(),
+        "and that closed it"
+    );
 }
 
 #[test]
@@ -899,6 +987,22 @@ fn opting_out_of_stop_on_exit_runs_nothing_and_closes_the_marker() {
         .writer(&[Some(7)])
         .waits(&[WaitOutcome::Stopped])
         .candidates(&[&[game(10, "game.exe")]]);
+    opt_out_of_stop_on_exit(&stop, sensor);
+}
+
+#[test]
+fn opting_out_of_stop_on_exit_covers_a_session_end() {
+    // Or the opt-out would be undone at the next logon.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    let sensor = Scripted::new(&stop)
+        .writer(&[Some(7)])
+        .waits(&[WaitOutcome::Stopped])
+        .stops_by_session_end()
+        .candidates(&[&[game(10, "game.exe")]]);
+    opt_out_of_stop_on_exit(&stop, sensor);
+}
+
+fn opt_out_of_stop_on_exit(stop: &Arc<StopSignal>, sensor: Scripted) {
     let dir = scratch();
     let ran = dir.join("stop-ran");
     let mut config = quick_config();
@@ -909,7 +1013,7 @@ fn opting_out_of_stop_on_exit_runs_nothing_and_closes_the_marker() {
     let mut engine = Engine::new(config, sensor)
         .reporting_to(sink)
         .remembering(Marker::in_dir(&dir));
-    engine.run(&stop).unwrap();
+    engine.run(stop).unwrap();
 
     assert!(!ran.exists(), "opted out: the stop commands did not run");
     assert!(
@@ -1059,6 +1163,7 @@ fn a_handover_mid_game_runs_nothing_and_leaves_the_session_open() {
         .pending()
         .expect("the session stays open");
     assert_eq!(pending.game.as_deref(), Some("game.exe"));
+    assert!(!pending.abandoned, "left by a watcher that stopped");
     assert_eq!(
         seen(&log),
         vec![Session::Playing(Some(game(10, "game.exe")))],
@@ -1090,10 +1195,10 @@ fn a_reload_mid_game_is_a_handover_to_the_next_engine() {
     engine.run(&stop).unwrap();
 
     assert!(!ran.exists(), "the stop commands did not run");
-    assert!(
-        Marker::in_dir(&dir).pending().is_some(),
-        "the session stays open"
-    );
+    let pending = Marker::in_dir(&dir)
+        .pending()
+        .expect("the session stays open");
+    assert!(!pending.abandoned, "left by an engine that stopped");
     assert_eq!(
         seen(&log),
         vec![Session::Playing(Some(game(10, "game.exe")))],
@@ -1117,6 +1222,7 @@ fn a_session_handed_over_is_resumed_without_running_anything() {
     let dir = scratch();
     let marker = Marker::in_dir(&dir);
     marker.open(Some("game.exe"), "earlier").unwrap();
+    marker.leave().unwrap();
     let started = dir.join("start-ran");
     let stopped = dir.join("stop-ran");
     let mut config = quick_config();
@@ -1160,6 +1266,7 @@ fn a_session_handed_over_whose_game_ended_meanwhile_is_closed_at_start() {
     let dir = scratch();
     let marker = Marker::in_dir(&dir);
     marker.open(Some("game.exe"), "earlier").unwrap();
+    marker.leave().unwrap();
     let stopped = dir.join("stop-ran");
     let mut config = quick_config();
     config.on_game_stop = stop_event(vec![touch(&stopped)]);
@@ -1179,10 +1286,32 @@ fn a_session_handed_over_whose_game_ended_meanwhile_is_closed_at_start() {
     );
 }
 
+#[test]
+fn a_resumed_session_is_held_again_by_the_watcher_that_resumed_it() {
+    // Or a watcher that vanishes after a resume -- after any reload, which
+    // is a resume -- would read at the next start as one that stopped.
+    let stop = Arc::new(StopSignal::new().unwrap());
+    // No wait scripted: the run ends mid-session, without stopping.
+    let sensor = Scripted::new(&stop).writer(&[Some(7)]);
+    let dir = scratch();
+    let marker = Marker::in_dir(&dir);
+    marker.open(Some("game.exe"), "earlier").unwrap();
+    marker.leave().unwrap();
+
+    let mut engine = Engine::new(quick_config(), sensor).remembering(marker);
+    assert!(engine.run(&stop).is_err(), "ended without stopping");
+
+    let pending = Marker::in_dir(&dir).pending().expect("still open");
+    assert!(pending.abandoned, "held, so abandoned when found");
+    assert_eq!(pending.since.as_deref(), Some("earlier"));
+}
+
 // ------------------------------------------------------------- recovery --
 
 #[test]
 fn a_marker_left_behind_runs_the_stop_commands_before_watching() {
+    // Still `open`: the watcher that wrote it vanished. The same commands
+    // run; only the log line differs, and says so at `warn`.
     let stop = Arc::new(StopSignal::new().unwrap());
     // No writer at all: the engine should recover, then find nothing and stop.
     let sensor = Scripted::new(&stop);

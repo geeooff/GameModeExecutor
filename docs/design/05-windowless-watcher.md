@@ -125,7 +125,9 @@ least. Winlogon's own timeline agrees: event 7002 at 00:18:07, logon at
 00:18:22, watcher back at 00:18:38.
 
 What does work is remembering that a session is open and finishing it at the
-next start — [Lot 9](09-robustness.md).
+next start — [Lot 9](09-robustness.md). *Since 2026-10-16* nothing is started
+at session end at all: the handshake writes the end at `info` and holds the
+session while the engine leaves it in the marker.
 
 ## Kept out of this lot
 

@@ -5,6 +5,8 @@ configuration faults and the live reload are built and verified in the
 field. Of the three smaller items, on 2026-09-25: the refinement's retry is
 built and waits for a game to meet its case, `ShutdownBlockReasonCreate`
 was decided against, and two games back to back are measured and closed.
+On 2026-10-16 the ways a session can end were gathered into one set of
+rules, from two logs, and seen in the field the next morning.
 
 - [x] Restore at the next start what a logoff could not — done 2026-09-16, a race fixed and re-verified 2026-09-17
 - [x] Configuration faults shown in the tray, and live reload — built 2026-09-19, measured without a game and then verified across two Starfield sessions on 2026-09-20, below
@@ -12,45 +14,56 @@ was decided against, and two games back to back are measured and closed.
 - [x] `ShutdownBlockReasonCreate`, so Windows' shutdown screen says what is being restored rather than naming the process — decided against on 2026-09-25, from Microsoft's documentation and the log: the screen never lists the watcher, a reason is what would put it there, and nothing is restored at session end to announce. Below
 - [x] Behaviour across two games launched back to back — measured 2026-09-25 with four titles from Steam and the Store and pinned by two scenarios, below: two sessions in a row, one when the two run together, named after the first. Closed the same day, the name left to Lot 18
 - [x] Give the engine a seam, so its loop can be tested without a game — done 2026-09-17, below
+- [x] A session end said at `info`, a stop command that failed run again at the next start, a watcher that vanished said at the next start — built 2026-10-16 from a second machine's log and one here, seen 2026-10-17 across a shutdown mid-game and two watchers ended by hand, below
 
 ## The session marker
 
 A process started even one millisecond after `WM_QUERYENDSESSION` dies with
 `STATUS_DLL_INIT_FAILED` — measured in [Lot 5](05-windowless-watcher.md) — so
 the stop commands cannot run at session end. The mechanism that does not
-depend on Windows' timing:
+depend on Windows' timing is a file, `pending-stop-actions` — no extension —
+at the root of `%LOCALAPPDATA%\GameModeExecutor`. It is written with the
+session, naming the game and the time; the refinement rewrites it with the
+better name; it goes once the session's stop commands have run. Its `state`
+line says whether a watcher holds the session, `open`, or one stopped and
+left it to the next start, `left`.
 
-- `fire_start` writes `pending-stop-actions` — no extension — at the root of
-  `%LOCALAPPDATA%\GameModeExecutor`, naming the game and the time; the
-  refinement rewrites it with the better name; a game that stops on its own
-  removes it after the commands ran, best effort as before.
-- When the watcher is stopped mid-game the commands are still attempted, and
-  the marker is removed only when they can be **confirmed**: at least one
-  command was waited for, and every waited-for command exited 0. Otherwise it
-  stays, with a warning saying the next start will retry. A fire-and-forget
-  command never confirms anything — deliberately conservative, because the
-  failure this exists for is a process created and dying unseen, which is
-  exactly what a fire-and-forget command cannot report.
+The rules, gathered on 2026-10-16:
+
+| How the session ends | Stop commands | Marker |
+| --- | --- | --- |
+| The game ends | run | removed, or `left` if one failed |
+| *Quit*, `stop` | run | removed, or `left` if one failed |
+| Windows ends the session | not tried: they would die unborn | `left` |
+| An update (`stop --handover`), a reload | not run: a watcher or an engine follows | `left` |
+| `stop_actions_on_exit = false`, at *Quit*, `stop` or a session end | not run | removed, so the opt-out is not undone at the next logon |
+| The watcher vanishes: ended from outside, a crash, the machine stopping | — | stays `open` |
+
+At start, before watching, a marker present is settled one of two ways.
+The presence writer still running means the game never ended: the session
+resumes from the marker — name, icon, the wait on the writer's handle —
+nothing runs, and the marker says `open` again. No writer means the session
+is over: its stop commands run once and the marker goes, whatever they do,
+so a command that always fails costs one retry and not one at every start.
+A marker found `open` gets its line at `warn`, because its watcher ended
+without stopping and nothing else in the log says so; the others get theirs
+at `info`. A marker with no `state` — written before 2026-10-16, or by hand
+— reads as `left`, so an update from 0.3.0 mid-game is not taken for a
+vanishing.
+
 - The writer's exit and the watcher's stop can arrive **together**, and
-  then the same rule applies, whichever came first. A game that stopped on
-  its own and a stop signalled during the grace period look alike from the
-  loop; a stop that is set once the grace is over makes it the mid-game case.
-- `stop_actions_on_exit = false` removes the marker on exit instead, so the
-  opt-out is not undone at logon. A crash never reaches that branch, so crash
-  recovery does not depend on the setting.
-- At start, before watching, a marker present means the last session never
-  closed: one `info` line naming the game, the stop commands, the marker
-  removed. Logoff, shutdown, crash and power cut are one case.
-- **Since 2026-09-18, the writer is looked for first.** A marker present
-  with the presence writer still running means the game never ended: the
-  last watcher handed the session over — `stop --handover`, which an update
-  or an upgrade uses because a watcher follows within the second — or died
-  under it. Then nothing runs, neither stop nor start, and the session is
-  resumed from the marker: name, icon, the wait on the writer's handle. The
-  stop commands run at the end of the game as they always did. Without this
-  an update mid-game switched the configuration off and on again two
-  seconds apart. Three scenarios in `engine/tests.rs`; the design is in
-  [Lot 13](13-updating.md).
+  then the same rule applies, whichever came first: a stop that is set once
+  the grace is over makes it the mid-game case. The race this covers is
+  below.
+- **Since 2026-09-18, the writer is looked for first.** Without it an
+  update mid-game switched the configuration off and on again two seconds
+  apart. The design is in [Lot 13](13-updating.md).
+
+*Until 2026-10-16* the rules were scattered and two of them differed: at a
+session end the stop commands were still started, and the marker kept
+unless they were **confirmed** — at least one waited for, every waited-for
+one exiting 0 — while a game that ended on its own removed the marker
+whatever its commands did. The section below says why that changed.
 
 **Where it lives, and why not in `logs\`.** A logs folder is disposable by
 nature and gets emptied without a second thought, which would take a pending
@@ -101,6 +114,133 @@ recovery line 44 s later at logon, the command exiting 0. That run happened
 to deliver the stop first, as on the 16th; the writer-first ordering has been
 seen once in the field and is what the scenario pins down. Which order a
 logoff produces is Windows' choice, and both now lead to the same branch.
+
+## Session ends, failed stops and vanished watchers
+
+Built 2026-10-16, from two logs, after the maintainer reported that the
+watcher had stopped on the second machine too and asked whether the logon
+task was set up wrong. It is not: that machine's log opens with *Logon task
+registered: it starts the watcher at every logon, with no execution time
+limit*, the update to 0.3.0 kept the task, and the task read here has
+`ExecutionTimeLimit` `PT0S`, no battery condition, and has carried the same
+XML since 0.1.0. Here the watcher had also run 4.7 days before the stop.
+
+**The second machine's log**, sent on 2026-10-10: 0.2.0 from 2026-09-18,
+0.3.0 from 2026-10-01 through the updater, at `info`. Of its 34 starts, 2
+follow the setup or the update, 10 a `Stopped`, 8 a session end mid-game
+(*Stopping while a game is running*, then *could not be confirmed*), and 14
+nothing at all.
+
+1. **`Stopped` is lost at session end.** The watcher answered
+   `WM_ENDSESSION` once the engine had returned, and wrote `Stopped` after.
+   Microsoft's [page for the
+   message](https://learn.microsoft.com/en-us/windows/win32/shutdown/wm-endsession):
+   with `wParam` true, "the session can end any time after all applications
+   have returned from processing this message". Here the line lands 36 ms
+   after the request; there it was lost after all eight session ends
+   mid-game and about half of those at rest. The request itself was logged
+   at `debug`, so at `info` a session end and a watcher that vanished read
+   alike. *Fix:* the request is written at `info`, in `WM_QUERYENDSESSION`,
+   before answering — *Windows is ending the session, so the watcher
+   stops*.
+2. **A stop command refused, and nothing run at the next start.** On
+   2026-09-29 at 23:33:30.439 GTA V's session ended, and 0.36 s later
+   `FanControl - Idle` failed; the next start, the following afternoon, ran
+   nothing. Inferred, not measured: the game ended with a shutdown, before
+   the watcher's window was told, so the ordinary path ran the command, a
+   session already ending refused it, and the marker went with the attempt.
+   *Fix:* at any end, a stop command seen to fail leaves the session to the
+   next start, which runs the commands again.
+3. **Two starts after a game that never ended in the log.** On 2026-10-01
+   GTA V at 18:04, and the next start at 08:47 the following day; on
+   2026-10-10 Overwatch at 21:39, and a start at 22:46. Every session end
+   mid-game in that log writes its line before answering Windows, eight
+   times, and these two have none: the watcher was ended from outside or
+   crashed, or the machine stopped without ending the session. The marker
+   recovered both, and said nothing of how the last watcher went.
+
+**Here, 2026-10-11.** The watcher logged until 18:02:15, in a Starfield
+session, and nothing more — no session end, no `Stopped`, at `debug` — until
+a start at 21:29:02 that found Starfield still running and resumed the
+session. *Open log* was clicked 9 s later. The game outlived the watcher, so
+the process alone ended. It did not crash in a way Windows records: no
+report under `WER\ReportArchive` beyond one of 2026-09-15, no *Application
+Error*, nothing from Defender; the Task Scheduler's history is off on this
+machine. What ended it is unknown.
+
+**What changed**, in the table above:
+
+- `StopReason::SessionEnd`, signalled by `WM_QUERYENDSESSION`, apart from
+  *Quit*. Nothing is tried then — two logoffs here and eight session ends
+  there, every command started then refused — and the session is left to
+  the next start. `WM_ENDSESSION` still holds the session until the engine
+  returns, now so that the marker is written. Built first with one
+  exception, from Microsoft's documentation alone: a request carrying
+  `ENDSESSION_CLOSEAPP`, the Restart Manager closing an application for an
+  installer, was taken for a *Quit*. *Corrected 2026-10-17:* both real
+  shutdowns here that morning carried the flag, and were logged as an
+  installer's request. This account has *restart my apps* on (`RestartApps`
+  = 1 under `Winlogon`), which may be why; not verified. The flag cannot
+  tell the two apart, so every request is a session end, and the flags go
+  in the line's fields.
+- One rule for the stop commands at any other end: they run, and a failure
+  leaves the session. A fire-and-forget command closes it, as at a game's
+  end: started outside a session end, it runs.
+- The marker's `state`, so a start can tell a watcher that vanished from one
+  that stopped, and say it at `warn`. A resume holds the session again, so
+  a watcher that vanishes after a reload is caught too.
+- `StopSignal` records one reason instead of a flag per reason.
+
+Four scenarios were added to `engine/tests.rs` — a session end mid-game
+that tries nothing, a stop command that fails and runs again at the next
+start, the opt-out at a session end, a resumed session held again by a run
+that then ends without stopping — and those the old rules had shaped were
+rewritten.
+
+**Seen in the field, 2026-10-17**, by the maintainer on the branch's build,
+read back from the log:
+
+1. *A shutdown during Clair Obscur: Expedition 33.* Explorer started the
+   power-off at 11:19:36 (System event 1074); Windows released the
+   presence writer in the same second, the grace ran out at 11:19:38.706,
+   and `FanControl - Idle` failed 112 ms later with `0xc0000142` — the
+   2026-09-29 shape, measured this time: process creation was refused from
+   the start of the shutdown, six seconds before the watcher's window was
+   asked, at 11:19:42.707. *A stop command failed, so the stop commands run
+   again at the next start*; at the next start, 11:20:34, *The stop
+   commands of the last session, with SandFall-Win64-Shipping.exe, did not
+   run then, so they run now*, and the command exited 0.
+2. *Fallout, marked by hand, unmarked mid-session in the Game Bar, then the
+   watcher ended from Task Manager and started from the Start menu.* The
+   session went on after the unmarking — it waits on the game's own handle
+   — and at the restart the game was no longer one by Windows' verdict:
+   *The last watcher ended without stopping during the session with
+   falloutwHR.exe …* at `warn`, and the stop commands ran with the game
+   still open. Right by the rules.
+3. *Counter-Strike 2, the watcher ended from Task Manager and started from
+   the Start menu.* *The last watcher ended without stopping during the
+   session with cs2.exe, which still runs …* at `warn`, the session
+   resumed with nothing run, and its end two minutes later ran the stop
+   commands as usual.
+
+Both session ends that morning, the shutdown and a restart at 11:31,
+carried `ENDSESSION_CLOSEAPP` and were logged as an installer's request;
+corrected above.
+
+**Not done, on purpose.**
+
+- A marker for the watcher's whole life, so a vanishing between games is
+  caught too. With the session end at `info`, a start that follows neither
+  it nor `Stopped` already says so to a reader, and the price — a file
+  written at every start and stop, with a second meaning — buys only that.
+- `GetSystemMetrics(SM_SHUTTINGDOWN)` to see a session end before the
+  window hears of it, which a fire-and-forget command in the 2026-09-29
+  shape would need. Documented, unmeasured here; the recipe waits for its
+  command, and a failure is now enough. That shape proved the ordinary one
+  at the shutdown of 2026-10-17, so a configuration whose stop commands
+  are all fire-and-forget does lose them at a shutdown mid-game.
+- The Task Scheduler's history, which would date the next vanishing here:
+  a setting of the machine, the maintainer's to switch on.
 
 ## Configuration faults, shown where the program already lives
 

@@ -332,6 +332,13 @@ They calm down at your next logon. Windows does not let the stop commands run
 once the session is ending, so the watcher runs them the moment it starts
 again — see [How it works](how-it-works.md#logging-off-mid-game).
 
+**The log says the last watcher ended without stopping.**
+Something ended it during a game without asking it to stop: Task Manager, a
+crash, a power cut. The start that wrote the line has run the stop commands,
+or taken the session up if the game was still on. If nothing you know of
+did it, that day's log is worth
+[an issue](https://github.com/geeooff/GameModeExecutor/issues).
+
 **The update failed, the menu says so.**
 Read the log: the `update` lines carry the reason. A download that did not
 verify is deleted, and a check that could not reach GitHub is just that —

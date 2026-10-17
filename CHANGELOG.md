@@ -24,6 +24,8 @@ a section is written.
 - The FanControl recipe links FanControl's site and its GitHub project, and
   its scripts have a `.cmd` to double-click, which runs them even where
   Windows refuses scripts.
+- A warning at start when the last watcher ended during a game without
+  stopping: ended from Task Manager, crashed, or the machine lost power.
 
 ### Changed
 
@@ -39,6 +41,9 @@ a section is written.
   1.2 MB in the watcher for the rest of its run, and more for each kind of
   file: a short-lived helper opens them and takes that cost with it when it
   ends.
+- At a logoff or shutdown mid-game the watcher no longer starts the stop
+  commands, which Windows refuses at that point, nor warns that they failed;
+  they run at the next logon, as they already did.
 
 ### Fixed
 
@@ -49,6 +54,12 @@ a section is written.
 - A game still on its loading screen twenty seconds in no longer keeps its
   launcher's name for the whole session: the watcher asks again every
   twenty seconds, for two minutes at most.
+- Windows ending the session is written in the log at the default level. A
+  shutdown could leave no line at all, and look like a watcher that had
+  vanished.
+- A stop command that fails when a game ends runs again at the next start.
+  Windows makes it fail when the game closes with the shutdown, and the
+  gaming configuration then stayed on.
 
 ### Removed
 
