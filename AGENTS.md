@@ -54,7 +54,9 @@ This file says how to work here. The *why* is in
   release, changing the scheduled tasks or the configuration on the
   maintainer's machine, rewriting `main`'s history. The one standing
   approval: Dependabot's crate updates that Cargo calls compatible merge
-  themselves once CI passes ([Lot 20](docs/design/20-build-chain.md)).
+  themselves once CI passes ([Lot 20](docs/design/20-build-chain.md)). The
+  rest goes through the `upgrade-dependencies` skill,
+  [`.claude/skills/upgrade-dependencies/SKILL.md`](.claude/skills/upgrade-dependencies/SKILL.md).
 - **A branch's history is yours to rewrite until it reaches `main`**, pushed
   pull request branches included (force-push allowed), and you should:
   before a push, reduce a lot to its logical commits. A fix, a second
