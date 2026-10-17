@@ -1,0 +1,17 @@
+# Lot 20: crates and actions kept current, weekly. Crate patches come grouped
+# in one PR; dependabot-automerge.yml merges the crate updates Cargo calls
+# compatible once CI passes, and everything else waits for the maintainer.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      patches:
+        update-types: [patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

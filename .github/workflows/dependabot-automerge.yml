@@ -1,0 +1,34 @@
+name: Dependabot auto-merge
+
+# Lot 20: a crate update Cargo calls compatible -- a patch, or a minor once
+# the crate is at 1.0 -- merges itself after the required CI check passes.
+# A 0.x minor, a major, and every action update wait for the maintainer.
+# The pattern is GitHub's own, from "Automating Dependabot with GitHub
+# Actions"; the rule on main is what makes the merge wait for CI.
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'geeooff/GameModeExecutor'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v3
+
+      - name: Merge once CI passes
+        if: >-
+          steps.metadata.outputs.package-ecosystem == 'cargo' &&
+          (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+           (steps.metadata.outputs.update-type == 'version-update:semver-minor' &&
+            !startsWith(steps.metadata.outputs.previous-version, '0.')))
+        run: gh pr merge --auto --merge "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

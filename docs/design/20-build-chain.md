@@ -48,12 +48,14 @@ Read on 2026-10-17: CI uses `actions/checkout@v7`, `actions/upload-artifact@v7`
   automatic merge does not wait for it: `allow_auto_merge` is on and `main`
   unprotected, read on 2026-10-17. A change to the repository's settings, so
   with approval.
-- An audit of `Cargo.lock` against RustSec's advisories in CI, so a vulnerable
-  crate fails the build without waiting for an update.
+- Security advisories: GitHub's own Dependabot alerts and security updates,
+  found already on on 2026-10-17 with no alert open. GitHub's advisory
+  database carries RustSec's, so the CI audit first planned here would only
+  repeat them.
 - `AGENTS.md`: an automatic merge is a standing approval for that class of
   update and nothing else.
 
 **Done when** CI and the release use official actions or justified ones, by
 tag, with least privilege; a release's files carry a verifiable attestation;
-Dependabot opens grouped PRs for crates and actions, the compatible ones
-merging themselves after a green CI; the audit runs in CI.
+Dependabot opens PRs for crates and actions, the compatible crate updates
+merging themselves after a green CI.
