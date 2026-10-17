@@ -25,8 +25,9 @@ comes first.
 
 1. **Survival.** At the next Office update, a long-lived dummy started by a
    logon task beside one started from `Run`; the Office service log and
-   Task Scheduler's result say which ended. Needs a task on the maintainer's
-   machine, with approval.
+   Task Scheduler's result say which ended. Set up on the maintainer's
+   machine on 2026-10-17, with approval: two copies of one script writing a
+   line a minute, so each log dates its death.
 2. **What a `Run` entry gives.** The delay after logon (Explorer staggers
    startup entries), the switch's effect on a running watcher and at the next
    logon, the name and icon the page shows.

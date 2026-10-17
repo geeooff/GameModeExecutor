@@ -30,6 +30,7 @@ the pages keep the history.
 | 17 | [A log that turns over each day](17-log-rotation.md) | done 2026-09-26; the zip's update path to see at the next release |
 | 18 | [When the game is gone and nobody is there](18-game-gone-nobody-there.md) | proposed, not decided |
 | 19 | [Starting from Windows' Startup list](19-startup-list.md) | proposed; a spike first |
+| 20 | [The build chain, official and kept current](20-build-chain.md) | decided, to take next |
 
 Logging came before the icon, so the icon was written in the final log
 vocabulary; the windowless build came before it too, so the window and message
