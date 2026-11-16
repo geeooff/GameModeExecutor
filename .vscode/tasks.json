@@ -67,8 +67,8 @@
       "problemMatcher": ["$rustc"]
     },
     {
-      "label": "Watcher: restart the logon task",
-      "detail": "stop it, wait for the process to actually go, start it again",
+      "label": "Watcher: restart the installed one",
+      "detail": "hand a game session over, then have Explorer start it again from its startup entry",
       "type": "shell",
       "command": "pwsh",
       "args": [
@@ -76,7 +76,7 @@
         "-ExecutionPolicy",
         "Bypass",
         "-Command",
-        "Stop-ScheduledTask -TaskPath '\\GameModeExecutor\\' -TaskName Watcher; $d=(Get-Date).AddSeconds(20); while((Get-Date) -lt $d -and @(Get-Process gamemode-executorw -ErrorAction Ignore).Count){Start-Sleep -Milliseconds 250}; Start-ScheduledTask -TaskPath '\\GameModeExecutor\\' -TaskName Watcher; Start-Sleep 2; Get-Process gamemode-executorw -ErrorAction Ignore | Select-Object Id, StartTime"
+        "$gme = \"$env:LOCALAPPDATA\\Programs\\GameModeExecutor\\gamemode-executor.exe\"; & $gme stop --handover; & $gme add-to-startup; Start-Sleep 2; Get-Process gamemode-executorw -ErrorAction Ignore | Select-Object Id, StartTime"
       ],
       "problemMatcher": []
     },
@@ -90,7 +90,7 @@
         "-ExecutionPolicy",
         "Bypass",
         "-Command",
-        "Get-Content -Wait -Tail 30 \"$env:LOCALAPPDATA\\GameModeExecutor\\logs\\gamemode-executor.log\""
+        "Get-ChildItem \"$env:LOCALAPPDATA\\GameModeExecutor\\logs\\gamemode-executor.*.log\" | Sort-Object LastWriteTime | Select-Object -Last 1 | Get-Content -Wait -Tail 30"
       ],
       "isBackground": true,
       "problemMatcher": []

@@ -89,7 +89,7 @@ This file says how to work here. The *why* is in
   the rules — the engine's session, `update`'s phase, the supervisor's
   verdict — what to draw and what a click means.
 - **The setup commands are a contract with three callers.** `stop`, `init`,
-  `install-task` and `uninstall-task` are sequenced by the package
+  `add-to-startup` and `remove-from-startup` are sequenced by the package
   (`scripts/msi.ps1`), by the zip's after-exit shell in `update`, and by
   `purge`. A change to any of them is verified on all three paths.
 - Module doc comments carry the rules a module is shaped by: read them
@@ -138,7 +138,7 @@ This file says how to work here. The *why* is in
   user's commands: `cargo test -- --ignored a_real_activation_drives_a_session`.
 - **Verify as the user runs it:** `gamemode-executor stop`, copy the two
   release executables over the installed ones, `gamemode-executor
-  install-task`, and read the log at `debug` through a real game. A package
+  add-to-startup`, and read the log at `debug` through a real game. A package
   change: uninstall from *Programs and Features*, install the new `dist\`
   package — the product code is fixed per version. Never restart the
   watcher while a game runs: that fires the stop commands.

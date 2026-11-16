@@ -4,10 +4,12 @@
 //! An installed copy hands the package to `msiexec /qn` through a hidden
 //! shell that waits for it: the package itself stops this watcher with a
 //! handover and starts the new one, so on success nothing here is left to
-//! do; on failure the shell writes why and runs the logon task, so the
+//! do; on failure the shell writes why and runs `add-to-startup`, so the
 //! previous watcher comes back and reports it. An unpacked copy's shell
 //! waits for this process to exit, expands the archive over the folder
-//! with the old executables kept as `.old`, and runs `install-task`.
+//! with the old executables kept as `.old`, and runs `add-to-startup`.
+//! A 0.4 copy's shell runs `install-task` instead, the same command's old
+//! name, and on an installer's failure the task it still has.
 //!
 //! `pending.txt` is written before anything is launched and read by
 //! whichever watcher starts next: the same version, the update took;
@@ -147,8 +149,10 @@ fn tidy(context: &Context, all: bool) {
 }
 
 /// The shell line for an installed copy: `msiexec /qn` waited for, and on
-/// failure a note and the logon task, so the previous watcher comes back.
-fn installer_script(file: &Path, log: &Path, result: &Path) -> String {
+/// failure a note and `add-to-startup` from the installed folder, where
+/// Windows Installer's rollback put the previous executables back, so the
+/// previous watcher comes back.
+fn installer_script(file: &Path, log: &Path, result: &Path, install_dir: &Path) -> String {
     [
         format!(
             "$p = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', {}, '/qn', '/l*v', {}) -Wait -PassThru",
@@ -156,9 +160,9 @@ fn installer_script(file: &Path, log: &Path, result: &Path) -> String {
             shell::quoted(log)
         ),
         format!(
-            "if ($p.ExitCode -ne 0) {{ Set-Content -LiteralPath {} -Value ('Windows Installer ' + $p.ExitCode); schtasks /Run /TN '{}' | Out-Null }}",
+            "if ($p.ExitCode -ne 0) {{ Set-Content -LiteralPath {} -Value ('Windows Installer ' + $p.ExitCode); & {} add-to-startup }}",
             shell::quoted(result),
-            crate::task::TASK_NAME
+            shell::quoted(&install_dir.join("gamemode-executorw.exe"))
         ),
     ]
     .join("; ")
@@ -166,8 +170,8 @@ fn installer_script(file: &Path, log: &Path, result: &Path) -> String {
 
 /// The shell line for an unpacked copy: wait for the process `pid`, expand
 /// the archive, keep the old executables as `.old`, copy the new files
-/// over, `install-task`. On any failure: a note, the old executables back,
-/// `install-task` all the same, so a watcher runs either way.
+/// over, `add-to-startup`. On any failure: a note, the old executables back,
+/// `add-to-startup` all the same, so a watcher runs either way.
 fn zip_script(
     pid: u32,
     file: &Path,
@@ -194,7 +198,7 @@ fn zip_script(
             "Copy-Item -Path (Join-Path {} '*') -Destination {dir} -Recurse -Force -ErrorAction Stop",
             shell::quoted(source)
         ),
-        format!("& {twin} install-task"),
+        format!("& {twin} add-to-startup"),
         "} catch {".to_owned(),
         format!(
             "Set-Content -LiteralPath {} -Value ('zip: ' + $_.Exception.Message)",
@@ -203,7 +207,7 @@ fn zip_script(
         format!(
             "foreach ($n in {names}) {{ $old = Join-Path {dir} ($n + '.old'); if (Test-Path -LiteralPath $old) {{ Move-Item -LiteralPath $old -Destination (Join-Path {dir} $n) -Force }} }}"
         ),
-        format!("& {twin} install-task"),
+        format!("& {twin} add-to-startup"),
         "}".to_owned(),
     ]
     .join("; ")
@@ -218,7 +222,8 @@ pub fn launch(context: &Context, release: &Release, file: &Path) -> Result<Launc
     let result = dir.join(RESULT);
     match context.kind() {
         Kind::Installer => {
-            let script = installer_script(file, &dir.join(INSTALL_LOG), &result);
+            let script =
+                installer_script(file, &dir.join(INSTALL_LOG), &result, &context.install_dir);
             tracing::info!(
                 target: target::UPDATE,
                 package = %file.display(),
@@ -434,6 +439,7 @@ mod tests {
             Path::new(r"C:\u\it's\GameModeExecutor-0.2.0.msi"),
             Path::new(r"C:\u\install.log"),
             Path::new(r"C:\u\result.txt"),
+            Path::new(r"C:\Programs\GME"),
         );
         assert!(script.contains("'msiexec.exe'"));
         assert!(script.contains("'/qn'"), "no window");
@@ -443,7 +449,11 @@ mod tests {
         );
         assert!(script.contains("-Wait -PassThru"));
         assert!(script.contains("'Windows Installer ' + $p.ExitCode"));
-        assert!(script.contains(r"schtasks /Run /TN 'GameModeExecutor\Watcher'"));
+        assert!(
+            script.contains(r"& 'C:\Programs\GME\gamemode-executorw.exe' add-to-startup"),
+            "{script}"
+        );
+        assert!(!script.contains("schtasks"), "{script}");
     }
 
     #[test]
@@ -468,9 +478,11 @@ mod tests {
             )
         );
         assert_eq!(
-            script.matches("install-task").count(),
+            script
+                .matches(r"& 'C:\Tools\GME\gamemode-executorw.exe' add-to-startup")
+                .count(),
             2,
-            "restarted on success and on failure"
+            "restarted on success and on failure: {script}"
         );
         assert!(script.contains("} catch {"));
         assert!(script.contains("'zip: ' + $_.Exception.Message"));

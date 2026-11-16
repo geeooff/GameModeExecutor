@@ -448,14 +448,16 @@ pub struct Context {
     /// The kind of copy this is, when pinned -- the tests pin it. `None`
     /// means it is decided when asked, from what Windows Installer says at
     /// that moment, never at start: the package starts the watcher from
-    /// `RegisterTask`, which runs *before* `RegisterProduct`, so a watcher
+    /// `AddToStartup` (`RegisterTask` up to 0.4), which runs *before*
+    /// `RegisterProduct`, so a watcher
     /// that decided at start saw no product and took itself for an
     /// unpacked copy. Seen on 2026-09-18 17:44 -- it expanded the zip over
     /// the package's folder.
     pub kind: Option<Kind>,
     /// Where downloads go: `%LOCALAPPDATA%\GameModeExecutor\updates`.
     pub updates_dir: PathBuf,
-    /// Where the executables live, for the zip path.
+    /// Where the executables live: the zip path updates them there, and both
+    /// paths start the watcher from there again after a failure.
     pub install_dir: PathBuf,
     /// The running watcher's stop, when there is one: the zip path stops
     /// this process itself, with a handover, once its shell is started.

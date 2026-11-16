@@ -16,7 +16,8 @@ Run one thing when a game starts, another when it stops. Five minutes.
 
 **The installer** (`.msi`) needs no administrator rights. It installs for you
 alone in `%LOCALAPPDATA%\Programs\GameModeExecutor`, writes a starter
-configuration, registers the logon task and starts the watcher. Windows warns
+configuration, adds the watcher to the programs Windows starts at logon and
+starts it. Windows warns
 because it is not signed; the release page says how to check it came from this
 repository. A newer release installs over it and keeps your configuration.
 
@@ -27,10 +28,10 @@ OneDrive. Then, once:
 
 ```bash
 gamemode-executor init
-gamemode-executor install-task
+gamemode-executor add-to-startup
 ```
 
-Moving the folder later means `install-task --force` again.
+Moving the folder later means `add-to-startup --force` again.
 
 There are two executables. `gamemode-executorw.exe` is the watcher: no window,
 started at logon, never by you. `gamemode-executor.exe` is the one you type
@@ -92,7 +93,8 @@ Not visible? Click the `^` next to the clock and drag it onto the taskbar.
 | **Quit** | stops the watcher, running the stop commands first |
 
 After *Quit*, it starts again at the next logon, or from **GameModeExecutor**
-in the Start menu.
+in the Start menu. Settings lists it under *Apps → Startup* as
+*GameModeExecutor watcher*; its switch there stops it starting at logon.
 
 ## Updating
 
@@ -164,9 +166,12 @@ running; a second one is refused.
 
 ## Turning it off
 
+*Quit*, then turn *GameModeExecutor watcher* off in Settings, *Apps →
+Startup*. Or, from a terminal:
+
 ```bash
 gamemode-executor stop
-gamemode-executor uninstall-task
+gamemode-executor remove-from-startup
 ```
 
 To remove it entirely: *Programs and Features*, or `purge` — see

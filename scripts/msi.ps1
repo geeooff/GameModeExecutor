@@ -4,18 +4,18 @@
 # readme -- the same four files the zip carries -- go to
 # %LOCALAPPDATA%\Programs\GameModeExecutor, and an entry in the user's Start
 # menu starts the watcher. The user's configuration, log,
-# marker and scheduled tasks are not components, so no repair, upgrade or
+# marker and startup entry are not components, so no repair, upgrade or
 # uninstall reaches them. Five custom actions, all the program's own
 # commands and all idempotent, run through the windowless executable:
 # `stop --handover` before an upgrade touches the files and plain `stop`
 # before an uninstall does, so the Restart Manager never has to ask and a
 # game session in progress is resumed by the new watcher rather than
 # closed and reopened; `init`, which writes a starter configuration only
-# where there is none, and `install-task`, which registers the logon task
-# only where there is none and then starts the watcher -- the icon
-# appearing is the confirmation -- to finish an install or upgrade; and
-# `uninstall-task` on an uninstall, since the task is the package's to take
-# down.
+# where there is none, and `add-to-startup`, which adds the startup entry
+# only where there is none and then has Explorer start the watcher -- the
+# icon appearing is the confirmation -- to finish an install or upgrade;
+# and `remove-from-startup` on an uninstall, since the entry is the
+# package's to take down.
 #
 # Written with nothing but Windows Installer's own COM automation and
 # makecab, so a stock runner can build it -- docs/design/08-distribution.md
@@ -278,7 +278,7 @@ try {
     }
     # The Start menu entry: the windowless executable, which starts the
     # watcher, or says in the log that one is already running and stops --
-    # Quit's undo, for someone who does not know the logon task is there
+    # Quit's undo, for someone who does not know the startup entry is there
     # (the second machine, 2026-09-18). ProgramMenuFolder is the user's own
     # Start menu in a per-user install, so its component takes an HKCU value
     # as key path, as ICE38 and ICE43 require of anything in the profile.
@@ -310,21 +310,24 @@ try {
     # because Windows Installer does not hide an action's console and the
     # console binary would flash one twice (seen 2026-09-18).
     Insert 'CustomAction' @('InitConfig', 1042, 'gamemode_executorw.exe', 'init', $null)
-    Insert 'CustomAction' @('RegisterTask', 1042, 'gamemode_executorw.exe', 'install-task', $null)
-    # The task is the package's infrastructure, not the user's data: left
+    # The startup entry, written by the program rather than a Registry row:
+    # the zip writes the same value through the same command, and one writer
+    # keeps a configuration path the user chose (Lot 19). The command also
+    # removes the logon task a 0.4 copy leaves, so nothing here is for 0.4.
+    Insert 'CustomAction' @('AddToStartup', 1042, 'gamemode_executorw.exe', 'add-to-startup', $null)
+    # The entry is the package's infrastructure, not the user's data: left
     # behind, it would start a missing executable at every logon and fail
-    # (the maintainer's remark on 2026-09-18). Removed on an uninstall, from
-    # the executable it runs before RemoveFiles takes it; kept through an
-    # upgrade, which re-registers nothing and so keeps a delay or a path the
-    # user chose.
-    Insert 'CustomAction' @('UnregisterTask', 1042, 'gamemode_executorw.exe', 'uninstall-task', $null)
+    # (the maintainer's remark on 2026-09-18, of the task then). Removed on
+    # an uninstall, by the executable it names, before RemoveFiles takes it;
+    # kept through an upgrade, which rewrites nothing.
+    Insert 'CustomAction' @('RemoveFromStartup', 1042, 'gamemode_executorw.exe', 'remove-from-startup', $null)
     # 98 = 34 (run a command line in a directory from the Directory table)
     # + 64 (carry on if it fails). Immediate, before InstallValidate, where
     # the Restart Manager would otherwise find the watcher holding the files
     # and put up its "close these applications" dialog (seen 2026-09-18 on
     # the first uninstall). Both run the *installed* executable, which an
     # upgrade has not replaced yet. An upgrade hands a game session over --
-    # RegisterTask starts the new watcher seconds later and it resumes the
+    # AddToStartup starts the new watcher seconds later and it resumes the
     # session, nothing runs twice; a removal restores, since nobody follows.
     # An installed version too old to know the verb or the flag fails the
     # action, which continues, and the dialog comes back for that one
@@ -341,8 +344,8 @@ try {
             @('RemoveExistingProducts', 1510),
             @('ProcessComponents', 1600), @('UnpublishFeatures', 1800),
             @('RemoveRegistryValues', 2600), @('RemoveShortcuts', 3200),
-            @('UnregisterTask', 3400), @('RemoveFiles', 3500), @('InstallFiles', 4000),
-            @('InitConfig', 4100), @('RegisterTask', 4200),
+            @('RemoveFromStartup', 3400), @('RemoveFiles', 3500), @('InstallFiles', 4000),
+            @('InitConfig', 4100), @('AddToStartup', 4200),
             @('CreateShortcuts', 4500), @('WriteRegistryValues', 5000),
             @('RegisterUser', 6000), @('RegisterProduct', 6100),
             @('PublishFeatures', 6300), @('PublishProduct', 6400),
@@ -374,11 +377,11 @@ try {
     # stopped the watcher before it got here, and the first upgrade
     # (2026-09-18) logged a second, empty stop for nothing.
     $conditions = @{
-        InitConfig     = 'NOT Installed'
-        RegisterTask   = 'NOT Installed'
-        StopForUpgrade = 'PREVIOUSVERSIONS'
-        StopForRemoval = 'REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE'
-        UnregisterTask = 'REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE'
+        InitConfig        = 'NOT Installed'
+        AddToStartup      = 'NOT Installed'
+        StopForUpgrade    = 'PREVIOUSVERSIONS'
+        StopForRemoval    = 'REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE'
+        RemoveFromStartup = 'REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE'
     }
     foreach ($t in $sequences.Keys) {
         foreach ($row in $sequences[$t]) {

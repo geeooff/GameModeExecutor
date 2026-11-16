@@ -3,7 +3,8 @@
 //!
 //! The rule, from `docs/design/08-distribution.md`: it removes what it
 //! recognises as its own and leaves the rest, saying what it left. Its own
-//! is the logon task, the configuration wherever it was found, the log
+//! is the startup entry with its switch, the logon task an earlier version
+//! registered, the configuration wherever it was found, the log
 //! wherever it was written, the session marker, the updater's folder and
 //! what it holds, the two profile folders once they are empty, and last
 //! the executables -- through Windows
@@ -13,7 +14,7 @@
 //! know: left alone.
 //!
 //! The uninstall writes to the log once more: Windows Installer runs `stop`
-//! and `uninstall-task`, and each says what it did, in the default log
+//! and `remove-from-startup`, and each says what it did, in the default log
 //! folder since the configuration is gone by then. So the shell that runs
 //! the uninstall waits for it and sweeps that folder afterwards -- decided
 //! 2026-09-25 over a flag telling those commands not to log, which would
@@ -38,6 +39,7 @@ use crate::marker;
 use crate::package;
 use crate::service;
 use crate::shell::{after_exit, quoted};
+use crate::startup;
 use crate::task;
 use crate::win;
 
@@ -64,6 +66,8 @@ pub enum Program {
 #[derive(Debug, Clone, Default)]
 pub struct Layout {
     pub watcher_running: bool,
+    pub startup_entry: bool,
+    /// The logon task of a version up to 0.4, left by an upgrade.
     pub task_registered: bool,
     pub config_candidates: Vec<PathBuf>,
     /// The log's folder: every log file in it goes, today's and the days
@@ -87,6 +91,7 @@ pub struct Layout {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Plan {
     pub stop_watcher: bool,
+    pub remove_startup: bool,
     pub remove_task: bool,
     pub files: Vec<PathBuf>,
     /// Folders that are the program's own through and through, removed
@@ -185,6 +190,7 @@ impl Plan {
 
         Self {
             stop_watcher: layout.watcher_running,
+            remove_startup: layout.startup_entry,
             remove_task: layout.task_registered,
             files,
             trees,
@@ -195,6 +201,7 @@ impl Plan {
 
     pub fn is_empty(&self) -> bool {
         !self.stop_watcher
+            && !self.remove_startup
             && !self.remove_task
             && self.files.is_empty()
             && self.trees.is_empty()
@@ -208,8 +215,17 @@ impl Plan {
         if self.stop_watcher {
             lines.push("stop the running watcher".to_owned());
         }
+        if self.remove_startup {
+            lines.push(format!(
+                "remove the startup entry `{}` and its switch",
+                startup::VALUE_NAME
+            ));
+        }
         if self.remove_task {
-            lines.push(format!("remove the logon task `{}`", task::TASK_NAME));
+            lines.push(format!(
+                "remove the logon task `{}` an earlier version registered",
+                task::TASK_NAME
+            ));
         }
         for file in &self.files {
             lines.push(format!("delete {}", file.display()));
@@ -254,6 +270,7 @@ pub fn discover(config: Option<&config::Config>, config_path: &Path) -> Layout {
     let log_dir = config.map_or_else(config::default_log_dir, |config| config.general.log_dir());
     Layout {
         watcher_running: win::SingleInstance::is_held(service::INSTANCE),
+        startup_entry: startup::entry().is_some(),
         task_registered: task::exists(),
         config_candidates: candidates,
         log_dir,
@@ -318,7 +335,7 @@ fn remove_empty_dir(dir: &Path) -> std::io::Result<()> {
 }
 
 /// The shell's steps for an installed copy: the uninstall, waited for, then
-/// the log its `stop` and `uninstall-task` wrote and the folders that leaves
+/// the log its `stop` and `remove-from-startup` wrote and the folders that leaves
 /// empty.
 fn uninstall_steps(product_code: &str, default_log_dir: Option<&Path>) -> Vec<String> {
     let mut steps = vec![format!(
@@ -345,8 +362,11 @@ pub fn execute(plan: &Plan) -> Result<()> {
         service::stop(win::StopReason::Restore)?;
         println!("Watcher stopped.");
     }
+    if plan.remove_startup {
+        startup::remove()?;
+    }
     if plan.remove_task {
-        task::uninstall()?;
+        task::remove_leftover()?;
     }
     for file in &plan.files {
         std::fs::remove_file(file).with_context(|| format!("cannot delete {}", file.display()))?;
@@ -444,6 +464,7 @@ mod tests {
         touch(&exe_dir.join("LICENSE"));
         let layout = Layout {
             watcher_running: false,
+            startup_entry: true,
             task_registered: true,
             config_candidates: vec![exe_dir.join("config.toml"), roaming.join("config.toml")],
             log_dir: Some(local.join("logs")),
@@ -460,6 +481,7 @@ mod tests {
         let plan = Plan::compute(&layout);
 
         assert!(!plan.stop_watcher);
+        assert!(plan.remove_startup);
         assert!(plan.remove_task);
         // The config next to the executable and the marker do not exist;
         // every log file goes, dated or from before the rotation, and a
@@ -513,7 +535,7 @@ mod tests {
         assert!(plan.files.is_empty() && plan.dirs.is_empty());
     }
 
-    /// The uninstall's `stop` and `uninstall-task` log what they did, after
+    /// The uninstall's `stop` and `remove-from-startup` log what they did, after
     /// the purge has deleted the log: the shell waits for the installer,
     /// then deletes the log files alone, then the two folders only if that
     /// left them empty.
@@ -579,6 +601,7 @@ mod tests {
         touch(&kept.join("something-else.txt"));
         let plan = Plan {
             stop_watcher: false,
+            remove_startup: false,
             remove_task: false,
             files: vec![
                 local.join("logs").join("gamemode-executor.log"),

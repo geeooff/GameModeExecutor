@@ -8,7 +8,7 @@ for the reasons, the [design record](design/).
 | Executable | For |
 | --- | --- |
 | `gamemode-executor.exe` | Every command you type. A console program: a shell waits for it and gets its exit code. |
-| `gamemode-executorw.exe` | The same commands, no console, prints nothing. Run by the logon task (`run`) and the installer (`stop`, `init`, `install-task`, `uninstall-task`). |
+| `gamemode-executorw.exe` | The same commands, no console, prints nothing. Run by Windows at logon (`run`) and the installer (`stop`, `init`, `add-to-startup`, `remove-from-startup`). |
 | `presence-probe.exe` | Diagnostics, not shipped. See [Detection](design/00-detection.md#the-instrument). |
 
 ## Commands
@@ -21,19 +21,21 @@ for the reasons, the [design record](design/).
 | `trigger start\|stop` | Run one event's commands now, to test them. |
 | `validate` | Check the configuration; exits 3 or 4 on a problem. |
 | `init [--force]` | Write the starter configuration to `%APPDATA%\GameModeExecutor`; an existing one is kept unless `--force`. |
-| `install-task [--delay 15s] [--force]` | Register the per-user logon task running `gamemode-executorw.exe`, and start it. An existing task is kept unless `--force`. |
-| `uninstall-task` | Remove that task. |
+| `add-to-startup [--force]` | Add `gamemode-executorw.exe` to the programs Windows starts at logon, remove the logon task of a version up to 0.4, and have Explorer start the watcher. An existing entry is kept unless `--force`. |
+| `remove-from-startup` | Remove that entry, its switch in Settings, and the logon task of a version up to 0.4. |
 | `update [--check]` | Look for a newer release on GitHub; without `--check`, download, verify against `SHA256SUMS.txt` and install it. The only command that connects to anything. |
 | `stop [--handover]` | Stop the running watcher as *Quit* does, and wait for it to go. With `--handover`, an open game session is left to the next watcher, nothing run. |
-| `purge [--yes]` | Remove every trace: task, configuration, logs, session marker, updates folder, executables. Asks first; refuses during a game. |
+| `purge [--yes]` | Remove every trace: startup entry, configuration, logs, session marker, updates folder, executables. Asks first; refuses during a game. |
 | `open <what>` | Hidden: the menu's helper, which opens a file or page the way Explorer would and exits. |
 
 Global options: `--config <PATH>`, `--log-level <LEVEL>`, `--version`.
 Without `--config`, `config.toml` next to the executable is used if present,
 else `%APPDATA%\GameModeExecutor\config.toml`.
 
-The setup commands (`init`, `install-task`, `uninstall-task`, `stop`) log what
-they did under `setup`, `update` under `update`.
+The setup commands (`init`, `add-to-startup`, `remove-from-startup`, `stop`)
+log what they did under `setup`, `update` under `update`. `install-task` and
+`uninstall-task`, the old names of the startup commands, still work until
+1.0.0; `--delay` went with the task.
 
 ## Configuration
 
@@ -167,7 +169,7 @@ the file at once; lines never interleave, since each is one append.
 | Log | `%LOCALAPPDATA%\GameModeExecutor\logs\` | disposable |
 | Session marker | `%LOCALAPPDATA%\GameModeExecutor\pending-stop-actions` | a game session not yet closed. `state = open` while a watcher holds it, `left` once one stopped and left it to the next start; `open` found at a start means that watcher ended without stopping. |
 | Fault marker | `%LOCALAPPDATA%\GameModeExecutor\configuration-fault` | the configuration was unusable when last read, so the next usable read says the fault is over |
-| Logon task | `\GameModeExecutor\Watcher` | holds the executable's absolute path; removed on uninstall, kept on upgrade |
+| Startup entry | `GameModeExecutor` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | the watcher's and the configuration's absolute paths; removed on uninstall, kept on upgrade. Its switch in Settings is Windows': turned off, it stays off. |
 | Updates | `%LOCALAPPDATA%\GameModeExecutor\updates\` | a release being installed; emptied at the next start, the installer's log kept if the update failed |
 
 ## Building and releasing
