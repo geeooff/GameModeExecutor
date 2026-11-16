@@ -163,10 +163,31 @@ fn start(action: &Action, context: &ActionContext) -> Result<Child> {
         command.env(key, context.render(value));
     }
 
-    tracing::debug!(target: target::COMMANDS, program, args = ?args, "Starting a command");
+    tracing::debug!(
+        target: target::COMMANDS,
+        program,
+        args = %shown_arguments(&args),
+        "Starting a command"
+    );
     command
         .spawn()
         .with_context(|| format!("cannot start `{program}`"))
+}
+
+/// The arguments as a person would type them after the program, for the
+/// log: one holding a space between quotes, nothing escaped, so a path
+/// reads as Windows writes it. Not the command line `Command` builds.
+fn shown_arguments(args: &[String]) -> String {
+    args.iter()
+        .map(|arg| {
+            if arg.is_empty() || arg.contains(char::is_whitespace) {
+                format!("\"{arg}\"")
+            } else {
+                arg.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// `None` when the command was not waited for; otherwise whether it succeeded.
@@ -245,6 +266,16 @@ mod tests {
 
     fn event(mode: Mode, actions: Vec<Action>) -> Event {
         Event { mode, actions }
+    }
+
+    /// The recipe's own command, as the log shows it.
+    #[test]
+    fn the_arguments_read_in_the_log_as_typed() {
+        let args = [r"/Run", r"/TN", r"GameModeExecutor\FanControl Game", ""].map(str::to_owned);
+        assert_eq!(
+            shown_arguments(&args),
+            r#"/Run /TN "GameModeExecutor\FanControl Game" """#
+        );
     }
 
     #[test]

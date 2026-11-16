@@ -558,7 +558,7 @@ pub struct SingleInstance {
 impl SingleInstance {
     /// Acquire the session-local mutex `name`, or fail if another process holds it.
     pub fn acquire(name: &str) -> Result<Self> {
-        let name = HSTRING::from(format!("Local\\{name}"));
+        let name = HSTRING::from(format!(r"Local\{name}"));
         // SAFETY: `name` is NUL-terminated and outlives the call; the handle is
         // owned by `SingleInstance` and closed on drop.
         let handle = unsafe { CreateMutexW(None, true, PCWSTR(name.as_ptr())) }
@@ -580,7 +580,7 @@ impl SingleInstance {
     /// mutex creates nothing, and the handle is closed before returning so
     /// the object does not outlive the process that owns it.
     pub fn is_held(name: &str) -> bool {
-        let name = HSTRING::from(format!("Local\\{name}"));
+        let name = HSTRING::from(format!(r"Local\{name}"));
         // SAFETY: `name` is NUL-terminated and outlives the call; a handle
         // that comes back is closed here and kept nowhere.
         match unsafe { OpenMutexW(SYNCHRONIZATION_SYNCHRONIZE, false, PCWSTR(name.as_ptr())) } {

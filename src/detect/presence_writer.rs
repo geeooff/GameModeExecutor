@@ -32,7 +32,7 @@ pub fn registered_exe() -> Result<PathBuf> {
         .context("the presence writer server is not registered on this machine")?;
     let path = key
         .string_value(EXE_PATH_VALUE)
-        .with_context(|| format!("{SERVER_KEY}\\{EXE_PATH_VALUE} is empty"))?;
+        .with_context(|| format!(r"{SERVER_KEY}\{EXE_PATH_VALUE} is empty"))?;
     Ok(PathBuf::from(path))
 }
 

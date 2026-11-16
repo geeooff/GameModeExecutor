@@ -455,7 +455,7 @@ fn cmd_watch_games(seconds: u64, key: &str) -> windows::core::Result<()> {
     let root = match Key::open_current_user(key) {
         Ok(root) => root,
         Err(error) => {
-            log(&format!("watch-games: cannot open HKCU\\{key} ({error:#})"));
+            log(&format!(r"watch-games: cannot open HKCU\{key} ({error:#})"));
             return Ok(());
         }
     };

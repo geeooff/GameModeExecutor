@@ -18,7 +18,7 @@ impl Key {
         CURRENT_USER
             .open(path)
             .map(Self)
-            .with_context(|| format!("cannot open HKCU\\{path}"))
+            .with_context(|| format!(r"cannot open HKCU\{path}"))
     }
 
     /// Open a key under `HKEY_LOCAL_MACHINE` for reading.
@@ -26,7 +26,7 @@ impl Key {
         LOCAL_MACHINE
             .open(path)
             .map(Self)
-            .with_context(|| format!("cannot open HKLM\\{path}"))
+            .with_context(|| format!(r"cannot open HKLM\{path}"))
     }
 
     pub fn open_subkey(&self, name: &str) -> Result<Self> {

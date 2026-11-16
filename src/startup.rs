@@ -142,7 +142,7 @@ pub fn add(config_path: &Path, force: bool) -> Result<Registration> {
             CURRENT_USER
                 .create(RUN_KEY)
                 .and_then(|key| key.set_string(VALUE_NAME, &line))
-                .with_context(|| format!("cannot write `{VALUE_NAME}` under HKCU\\{RUN_KEY}"))?;
+                .with_context(|| format!(r"cannot write `{VALUE_NAME}` under HKCU\{RUN_KEY}"))?;
             if outcome == Registration::Added {
                 tracing::info!(
                     target: target::SETUP,
@@ -219,7 +219,7 @@ fn remove_from(path: &str) -> Result<bool> {
         return Ok(false);
     }
     key.remove_value(VALUE_NAME)
-        .with_context(|| format!("cannot remove `{VALUE_NAME}` from HKCU\\{path}"))?;
+        .with_context(|| format!(r"cannot remove `{VALUE_NAME}` from HKCU\{path}"))?;
     Ok(true)
 }
 
@@ -244,7 +244,7 @@ fn same_file(a: &Path, b: &Path) -> bool {
 
 /// The value's data: the twin and the configuration it reads, both quoted.
 fn command_line(exe: &Path, config: &Path) -> Result<String> {
-    let line = format!("\"{}\" --config \"{}\"", exe.display(), config.display());
+    let line = format!(r#""{}" --config "{}""#, exe.display(), config.display());
     let length = line.encode_utf16().count();
     if length > MAX_COMMAND_LINE {
         bail!(
