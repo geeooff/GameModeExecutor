@@ -109,7 +109,10 @@ fn embed_resources(commit_short: &str, dirty: bool) {
         .unwrap_or_default();
     let flags = if dirty { "0x8" } else { "0x0" }; // VS_FF_PRIVATEBUILD
     let private = if dirty {
-        "      VALUE \"PrivateBuild\", \"Built from a tree with uncommitted changes\\0\"\n"
+        concat!(
+            r#"      VALUE "PrivateBuild", "Built from a tree with uncommitted changes\0""#,
+            "\n"
+        )
     } else {
         ""
     };
@@ -130,53 +133,54 @@ fn embed_resources(commit_short: &str, dirty: bool) {
         // application icon, and 1 is the convention for it. The numeric
         // constants are rc.exe's own, spelled out so no header is needed:
         // FILEOS 0x40004 is VOS_NT_WINDOWS32, FILETYPE 1 is VFT_APP, and the
-        // string block is en-US in Unicode.
+        // string block is en-US in Unicode. The script is rc.exe's language,
+        // where `\` begins an escape inside a quoted string: every value put
+        // in one goes through `rc_string`, and each `\0` written here is the
+        // terminator rc.exe expects.
         let contents = format!(
-            concat!(
-                "1 ICON \"{icon}\"\n",
-                "1 VERSIONINFO\n",
-                "FILEVERSION {major},{minor},{patch},0\n",
-                "PRODUCTVERSION {major},{minor},{patch},0\n",
-                "FILEFLAGSMASK 0x3f\n",
-                "FILEFLAGS {flags}\n",
-                "FILEOS 0x40004\n",
-                "FILETYPE 0x1\n",
-                "FILESUBTYPE 0x0\n",
-                "BEGIN\n",
-                "  BLOCK \"StringFileInfo\"\n",
-                "  BEGIN\n",
-                "    BLOCK \"040904b0\"\n",
-                "    BEGIN\n",
-                "      VALUE \"CompanyName\", \"{author}\\0\"\n",
-                "      VALUE \"FileDescription\", \"{description}\\0\"\n",
-                "      VALUE \"FileVersion\", \"{version} ({commit})\\0\"\n",
-                "      VALUE \"InternalName\", \"{name}\\0\"\n",
-                "      VALUE \"LegalCopyright\", \"{copyright}. MIT License.\\0\"\n",
-                "      VALUE \"OriginalFilename\", \"{name}.exe\\0\"\n",
-                "      VALUE \"ProductName\", \"GameModeExecutor\\0\"\n",
-                "      VALUE \"ProductVersion\", \"{version}\\0\"\n",
-                "      VALUE \"Comments\", \"{repository}\\0\"\n",
-                "{private}",
-                "    END\n",
-                "  END\n",
-                "  BLOCK \"VarFileInfo\"\n",
-                "  BEGIN\n",
-                "    VALUE \"Translation\", 0x409, 1200\n",
-                "  END\n",
-                "END\n",
-            ),
-            icon = icon.display().to_string().replace('\\', "\\\\"),
+            r#"1 ICON "{icon}"
+1 VERSIONINFO
+FILEVERSION {major},{minor},{patch},0
+PRODUCTVERSION {major},{minor},{patch},0
+FILEFLAGSMASK 0x3f
+FILEFLAGS {flags}
+FILEOS 0x40004
+FILETYPE 0x1
+FILESUBTYPE 0x0
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "CompanyName", "{author}\0"
+      VALUE "FileDescription", "{description}\0"
+      VALUE "FileVersion", "{version} ({commit})\0"
+      VALUE "InternalName", "{name}\0"
+      VALUE "LegalCopyright", "{copyright}. MIT License.\0"
+      VALUE "OriginalFilename", "{name}.exe\0"
+      VALUE "ProductName", "GameModeExecutor\0"
+      VALUE "ProductVersion", "{version}\0"
+      VALUE "Comments", "{repository}\0"
+{private}    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END
+"#,
+            icon = rc_string(&icon.display().to_string()),
             major = major,
             minor = minor,
             patch = patch,
             flags = flags,
-            author = author,
-            description = description,
-            version = version,
-            commit = commit_short,
-            name = name,
-            copyright = copyright,
-            repository = repository,
+            author = rc_string(&author),
+            description = rc_string(description),
+            version = rc_string(&version),
+            commit = rc_string(commit_short),
+            name = rc_string(name),
+            copyright = rc_string(&copyright),
+            repository = rc_string(&repository),
             private = private,
         );
         if std::fs::write(&script, contents).is_err() {
@@ -199,6 +203,15 @@ fn embed_resources(commit_short: &str, dirty: bool) {
             _ => println!("cargo:warning=rc.exe failed for {name}, building it without resources"),
         }
     }
+}
+
+/// A value for a quoted string in rc.exe's script, where `\` begins an
+/// escape as in C and a quote is written twice. The icon's path is the one
+/// value with backslashes today; the others go through it too, so a quote
+/// in a description or a backslash in a copyright line cannot break the
+/// script.
+fn rc_string(value: &str) -> String {
+    value.replace('\\', r"\\").replace('"', r#""""#)
 }
 
 /// Finds the SDK's resource compiler: the developer prompt's own variable

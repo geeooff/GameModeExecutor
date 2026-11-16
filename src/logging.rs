@@ -197,11 +197,14 @@ impl Collected {
 }
 
 impl Visit for Collected {
+    /// A text field between quotes, as written: `Debug` would escape every
+    /// backslash of a Windows path, and the log is read by people, not
+    /// parsed.
     fn record_str(&mut self, field: &Field, value: &str) {
         if field.name() == "message" {
             self.message.push_str(value);
         } else {
-            self.push_field(field.name(), format_args!("{value:?}"));
+            self.push_field(field.name(), format_args!("\"{value}\""));
         }
     }
 
@@ -523,6 +526,19 @@ mod tests {
         assert!(line.contains("Game detected: bf6.exe"), "{line}");
         assert!(line.contains("pid=14552"), "{line}");
         assert!(line.contains(r#"matched_by="exe path""#), "{line}");
+    }
+
+    /// A Windows path reads as Windows writes it: `Debug` once doubled every
+    /// backslash of a text field (until 2026-11-16).
+    #[test]
+    fn a_text_field_is_quoted_and_not_escaped() {
+        let line = render(true, || {
+            tracing::info!(target: target::GAME, path = r"D:\Games\Euro Truck Simulator 2\eurotrucks2.exe", "Game detected: eurotrucks2.exe");
+        });
+        assert!(
+            line.contains(r#"path="D:\Games\Euro Truck Simulator 2\eurotrucks2.exe""#),
+            "{line}"
+        );
     }
 
     /// Optional data is the common case here -- a game Windows tracks but does

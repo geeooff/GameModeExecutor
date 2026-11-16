@@ -149,6 +149,13 @@ This file says how to work here. The *why* is in
   `GameModeExecutor\FanControl` became `GameModeExecutorFanControl`,
   `target\release` a carriage return. Edit with a tool that takes literal
   strings, and grep the result.
+- **A Windows path is written with single backslashes** wherever nothing
+  reads `\` as an escape: Rust raw strings (`r"C:\…"`, `format!(r"HKCU\{key}")`),
+  PowerShell, Markdown, TOML single quotes, the log. Escape only where the
+  format demands it, through one function: rc.exe's scripts (`rc_string` in
+  `build.rs`), PowerShell's single quotes (`shell::quoted`), JSON. A log
+  field is never `Debug`-formatted text: the formatter quotes text as
+  written, and a path given to `%` prints as Windows writes it.
 - A shell started by a packaged host — the Claude desktop app — may read
   `%APPDATA%` through the package's private copy. What the watcher runs is
   in its log; ask the maintainer for the real file.

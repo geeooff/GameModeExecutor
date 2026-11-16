@@ -28,7 +28,7 @@ use windows::core::{BSTR, Interface};
 /// The task an earlier version registered, folder included. The folder is
 /// left in place when the task goes: the elevated tasks a recipe asks for
 /// may live in it, and they are the user's.
-pub const TASK_NAME: &str = "GameModeExecutor\\Watcher";
+pub const TASK_NAME: &str = r"GameModeExecutor\Watcher";
 
 /// Whether that task is registered. `schtasks /Query` exits non-zero for a
 /// task that does not exist, which is the whole answer.
@@ -57,7 +57,7 @@ pub fn configuration() -> Option<PathBuf> {
             service.Connect(&none, &none, &none, &none)?;
             let (folder, name) = TASK_NAME.rsplit_once('\\').unwrap_or(("", TASK_NAME));
             let task = service
-                .GetFolder(&BSTR::from(format!("\\{folder}")))?
+                .GetFolder(&BSTR::from(format!(r"\{folder}")))?
                 .GetTask(&BSTR::from(name))?;
             // Task Scheduler counts actions from one.
             let action: IExecAction = task.Definition()?.Actions()?.get_Item(1)?.cast()?;

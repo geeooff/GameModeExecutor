@@ -15,6 +15,11 @@ a section is written.
 
 ## [Unreleased]
 
+### Fixed
+
+- The log writes Windows paths as Windows does, with single backslashes,
+  where its details doubled them; a command's arguments read as typed.
+
 ## [0.5.0] - 2026-11-16
 
 Windows' Startup list starts the watcher now, with a switch in Settings,
