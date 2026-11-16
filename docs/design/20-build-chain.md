@@ -1,8 +1,9 @@
 # Lot 20 — The build chain, official and kept current
 
 **Status: decided and built 2026-10-17.** Seen the same day: Dependabot's
-first PR, two crate patches, merged itself once CI had passed. Still to see:
-an update that waits for the maintainer, and the first attested release. Taken while Lot 19's spike waits for an Office
+first PR, two crate patches, merged itself once CI had passed. The first
+attested release seen 2026-11-16, below. Still to see: an update that waits
+for the maintainer. Taken while Lot 19's spike waits for an Office
 update. Two parts, in this order: Dependabot keeps current whatever the first
 part settles on.
 
@@ -35,6 +36,11 @@ Read on 2026-10-17: CI uses `actions/checkout@v7`, `actions/upload-artifact@v7`
   Not a code signature — SmartScreen still warns — but proof the installer
   was built from the public source, which `SHA256SUMS.txt`, published on the
   same page as the files, cannot give.
+  **Seen on 0.5.0, 2026-11-16:** the MSI downloaded from the release
+  matched `SHA256SUMS.txt`, and `gh attestation verify` passed with one SLSA
+  provenance v1 statement naming the MSI, the zip and the recipes zip,
+  signed by `release.yml@refs/tags/v0.5.0` at `ad7e92dc`. A minor of a crate
+  at 1.0 merged itself on the way, toml 1.1.8 to 1.2.1 (#29).
 
 ## 2. Dependabot and automatic merges
 
