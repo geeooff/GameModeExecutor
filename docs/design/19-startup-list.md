@@ -1,6 +1,7 @@
 # Lot 19 — Starting from Windows' Startup list
 
-**Status: decided 2026-11-16, being built; ships in 0.5.0.** The maintainer
+**Status: shipped in 0.5.0, 2026-11-16; every path seen, an Office update
+still to see.** The maintainer
 wants GameModeExecutor in *Settings → Apps → Startup*, with its switch,
 instead of a logon task that page does not show. The spike adds a second
 reason: Office's updates end what a logon task started, and spare what the
@@ -11,13 +12,13 @@ reason: Office's updates end what a logon task started, and spare what the
 - [x] `add-to-startup` and `remove-from-startup`, the old names as hidden aliases; the package, the zip's updater and `purge` on them — 2026-11-16
 - [x] The user pages, the reference, the changelog — 2026-11-16
 - [x] Explorer starts the watcher from a person's terminal and from the package's action — 2026-11-16, below
-- [ ] Explorer starts it from the zip's shell, at the 0.5.0 update
+- [x] Explorer starts it from the zip's shell, at the 0.5.0 update — 2026-11-16, below
 - [x] The 0.4 task removed by `add-to-startup`; `uninstall-task` works as an alias — 2026-11-16, below
 - [x] An upgrade from the published 0.4.0 by the package, a configuration path of the task's kept — 2026-11-16, below
-- [ ] An upgrade from the published 0.4.0 by the zip, at the 0.5.0 update
+- [x] An update from the published 0.4.0 through the menu, by the package and by the zip — 2026-11-16, below
 - [x] The switch: off, then a logon; on again — 2026-11-16, below
 - [x] `remove-from-startup` takes the switch's entry too; `purge` lists the entry and no task — 2026-11-16, below
-- [ ] `purge` carried out, at the next full purge
+- [x] `purge` carried out — 2026-11-16, below
 - [ ] The watcher outlives an Office update
 
 ## Why
@@ -252,6 +253,31 @@ page:
   removed the value and the switch's entry, which was then gone;
   `add-to-startup` put the value back. `purge`, answered no, listed *remove
   the startup entry `GameModeExecutor` and its switch* and no task.
+
+After the release, with the files CI built and attested (`ad7e92dc`):
+
+- **The package, through the menu.** The published 0.4.0 installed at
+  16:52, its task registered. *Check for updates* found 0.5.0 at 16:53:08,
+  downloaded and verified it, and ran the package: the handover, the task's
+  configuration read, the value added, the task removed, *Watcher started
+  through Explorer*, *Updated to 0.5.0* at 16:53:29, the watcher Explorer's
+  child.
+- **The zip, through the menu**, with no package installed. The published
+  0.4.0 zip unpacked in a scratch folder and its `install-task` run: the
+  task registered at 16:57:56. *Check for updates* fetched the 0.5.0 zip;
+  0.4.0's shell replaced the files and called the new binary's
+  `install-task`, which the alias took: the value written for the zip's
+  copy, the task removed, the watcher started through Explorer, *Updated
+  to 0.5.0* at 16:58:15. The `.old` files were gone at that start.
+- **A real `purge`**, from that zip copy, after the configuration and the
+  log were copied aside: the watcher stopped; the value and its switch
+  gone, the recipe's two tasks kept; the configuration, every log file,
+  the updates folder and both profile folders removed; the executables
+  deleted once the command had exited. Its console printed no line for the
+  startup entry, whose removal went to the log it was deleting; worth a
+  line in a later version. The files were copied back and the published
+  0.5.0 package installed at 17:02: *Configuration kept*, the value added,
+  the watcher Explorer's child.
 
 ## Done when
 

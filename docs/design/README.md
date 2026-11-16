@@ -29,8 +29,8 @@ the pages keep the history.
 | 16 | [What the watcher keeps](16-footprint.md) | done 2026-09-23; memory at rest to measure again against 0.3.0 |
 | 17 | [A log that turns over each day](17-log-rotation.md) | done 2026-09-26; its last checks seen 2026-10-17 |
 | 18 | [When the game is gone and nobody is there](18-game-gone-nobody-there.md) | proposed, not decided |
-| 19 | [Starting from Windows' Startup list](19-startup-list.md) | being built, for 0.5.0; field checks open |
-| 20 | [The build chain, official and kept current](20-build-chain.md) | built 2026-10-17; the first wait and the first attested release to see |
+| 19 | [Starting from Windows' Startup list](19-startup-list.md) | shipped in 0.5.0; every path seen; an Office update to see |
+| 20 | [The build chain, official and kept current](20-build-chain.md) | built 2026-10-17; attestation seen on 0.5.0; an update that waits still to see |
 | 21 | [Moving to windows-rs 0.100](21-windows-rs-0100.md) | proposed; waiting for `windows` 0.100 |
 
 Logging came before the icon, so the icon was written in the final log
