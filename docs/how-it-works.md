@@ -75,8 +75,8 @@ processor in all.
 A Windows program is built either as a console program, which can print, or
 as a windowless one, which cannot. One file cannot be both.
 `gamemode-executor.exe` answers your commands in a terminal, and the shell
-waits for its result. `gamemode-executorw.exe` runs the watcher from the logon
-task and the installer's steps, with no window to flash; it writes to the log
+waits for its result. `gamemode-executorw.exe` runs the watcher at logon and
+the installer's steps, with no window to flash; it writes to the log
 instead. Python does the same with `python.exe` and `pythonw.exe`.
 
 A named lock allows one watcher at a time: a second one is refused, so the
@@ -84,11 +84,14 @@ Start menu's **GameModeExecutor** is safe to click.
 
 ## What starts it
 
-A per-user scheduled task, at logon, fifteen seconds in. Not a service:
-services run in a separate session and cannot see the desktop the game is on.
-The task is registered from XML, because the usual shortcut would leave a
-72-hour execution limit and two battery conditions on it. The installer stops
-the watcher before it replaces or removes the files.
+Windows, at logon, from your `Run` key: Settings lists it under *Apps →
+Startup* as *GameModeExecutor watcher*, with a switch to turn it off. Not a
+service: services run in a separate session and cannot see the desktop the
+game is on. The installer adds the entry, has Explorer start the watcher
+right away, and stops it before it replaces or removes the files.
+
+*Up to 0.4 a scheduled task started it, and Office's updates ended what that
+task started: measured in [Lot 19](design/19-startup-list.md).*
 
 The watcher owns one hidden window: the icon hangs off it, and it is how
 Windows tells the watcher the session is ending.
@@ -142,7 +145,7 @@ for a hand-installed copy), checks its SHA-256 against the release's
 watcher with a handover, replaces the files and starts the new version. A
 zip copy is updated by a hidden shell that waits for the watcher to exit,
 unpacks the zip over the folder, keeping the old executables as `.old`, and
-runs `install-task`.
+runs `add-to-startup`.
 
 The hash proves the file is the one the release published; the program has no
 code signature ([why](design/13-updating.md)). Each release file also carries
@@ -152,16 +155,17 @@ checks.
 
 ## Removing it
 
-*Programs and Features* removes the executables and the logon task, and keeps
-your configuration and log, as Windows applications do.
+*Programs and Features* removes the executables and the startup entry, and
+keeps your configuration and log, as Windows applications do.
 
 ```
 gamemode-executor purge
 ```
 
-removes every trace after a `yes`: the task, the configuration, every log
-file, the session marker, the updates folder, then the executables. It refuses
-during a game, and leaves what it did not create, such as a recipe's tasks.
+removes every trace after a `yes`: the startup entry, the configuration,
+every log file, the session marker, the updates folder, then the executables.
+It refuses during a game, and leaves what it did not create, such as a
+recipe's tasks.
 
 ## What it does not do
 
@@ -180,7 +184,8 @@ during a game, and leaves what it did not create, such as a recipe's tasks.
 | The program | `%LOCALAPPDATA%\Programs\GameModeExecutor`, or wherever you unzipped it |
 | Configuration | `config.toml` next to the executable if there is one, else `%APPDATA%\GameModeExecutor\config.toml` (roams with your profile) |
 | Log | `%LOCALAPPDATA%\GameModeExecutor\logs`, one file a day, seven kept; the day changes at midnight UTC |
-| Scheduled tasks | the `GameModeExecutor` folder in Task Scheduler |
+| Startup entry | `GameModeExecutor` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; its switch in Settings, *Apps → Startup* |
+| A recipe's scheduled tasks | the `GameModeExecutor` folder in Task Scheduler |
 
 The [design record](design/) has the measurements behind all this, starting
 with [Detection](design/00-detection.md); the [reference](reference.md) has

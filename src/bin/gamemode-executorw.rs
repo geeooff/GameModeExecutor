@@ -1,5 +1,5 @@
 #![windows_subsystem = "windows"]
-//! The same program with no console, for the logon task and the installer.
+//! The same program with no console, for logon and the installer.
 //!
 //! The twin of `gamemode-executor.exe`: the same commands from the same
 //! library, differing only in subsystem. The two subsystems cannot live in one
@@ -11,9 +11,10 @@
 //! through this binary would get its exit code before the verdict, and
 //! nothing this binary prints goes anywhere. That is why people type the
 //! console one and why the documentation only ever names it. This one is for
-//! the two callers that have no console to give: the logon task, which runs
-//! the watcher, and the installer, which runs `stop`, `init`, `install-task`
-//! and `uninstall-task` -- Windows Installer starts an executable action
+//! the two callers that have no console to give: Windows at logon, which
+//! starts the watcher from the startup entry, and the installer, which runs
+//! `stop`, `init`, `add-to-startup` and `remove-from-startup` -- Windows
+//! Installer starts an executable action
 //! without hiding its console, and the console binary flashed a window twice
 //! at the end of every install, seen on 2026-09-18. The commands log what
 //! they did, so nothing is lost by not printing it; the exit code is what the
@@ -30,7 +31,7 @@ fn main() -> std::process::ExitCode {
             let code = exit::code_for(&error);
             // There is no console to print to. The log file has the detail
             // when the command got as far as opening one, and the exit code
-            // is what Task Scheduler and Windows Installer record.
+            // is what Windows Installer records.
             if code == exit::ALREADY_RUNNING {
                 // The Start menu entry starts this binary whether or not a
                 // watcher runs; finding one is the answer, not a fault.

@@ -349,16 +349,16 @@ by the time you follow it. Start there.
 
 INSTALLED FROM THE .MSI
     Nothing to do. The installer wrote a starter configuration if you had
-    none, registered the logon task and started the watcher: the icon beside
+    none, added the watcher to Startup and started it: the icon beside
     the clock is the confirmation. Right-click it, Edit configuration.
     GameModeExecutor in the Start menu starts the watcher again after Quit.
 
 UNPACKED FROM THE .ZIP
-    Keep this folder where you put it -- the logon task remembers the path.
+    Keep this folder where you put it -- the startup entry remembers the path.
     Then, from a terminal in this folder:
 
         gamemode-executor init            writes a starter configuration
-        gamemode-executor install-task    starts the watcher now and at every logon
+        gamemode-executor add-to-startup  starts the watcher now and at every logon
 
 WHAT TO RUN
     The starter configuration runs nothing; the icon that appears shows the
@@ -369,8 +369,8 @@ WHAT TO RUN
 THE TWO EXECUTABLES
     gamemode-executor.exe    the one you talk to. Every command. It answers,
                              then it is done.
-    gamemode-executorw.exe   the one that works. No window, ever. It starts
-                             itself at logon. You never launch it yourself.
+    gamemode-executorw.exe   the one that works. No window, ever. Windows
+                             starts it at logon. You never launch it yourself.
 
 UPDATING
     Right-click the icon, Check for updates. Nothing is checked unless you

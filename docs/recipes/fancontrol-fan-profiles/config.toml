@@ -13,8 +13,8 @@
 # chosen when the tasks are registered and lives in the task, so this file is
 # the same for everyone and never has to know what you called yours.
 #
-# The backslash is a Task Scheduler folder, not a path on disk: everything this
-# program installs lives under \GameModeExecutor rather than loose at the root.
+# The backslash is a Task Scheduler folder, not a path on disk: the recipe's
+# tasks live under \GameModeExecutor rather than loose at the root.
 # Note the single quotes -- TOML takes those literally, so the backslash needs
 # no doubling.
 #

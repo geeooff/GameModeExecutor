@@ -10,8 +10,8 @@
 #   \GameModeExecutor\FanControl Game
 #
 # What stays: FanControl and its configurations, the \GameModeExecutor folder
-# in Task Scheduler and every other task in it -- the watcher's own logon task
-# lives there -- and GameModeExecutor's config.toml, which still names the two
+# in Task Scheduler and every other task in it, and GameModeExecutor's
+# config.toml, which still names the two
 # tasks until you edit it. This script is the recipe's counterpart to
 # install-tasks.ps1; GameModeExecutor itself does not know which recipe you
 # followed and never removes a task it did not register.

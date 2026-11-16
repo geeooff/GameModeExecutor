@@ -20,9 +20,20 @@ a section is written.
 - Each release file comes with GitHub's attestation that the release workflow
   built it from the tagged commit:
   `gh attestation verify <file> --repo Geeooff/GameModeExecutor`.
+- The watcher appears in Settings, *Apps → Startup*, as *GameModeExecutor
+  watcher*, with a switch to stop it starting at logon.
+
+### Changed
+
+- Windows starts the watcher at logon from your `Run` key instead of a
+  scheduled task; an upgrade removes the old task.
+- `install-task` and `uninstall-task` are now `add-to-startup` and
+  `remove-from-startup`. The old names work until 1.0.0; `--delay` is gone.
 
 ### Fixed
 
+- Office's updates no longer stop the watcher. They ended whatever a
+  scheduled task had started, the watcher included.
 - `purge` removes its folders even when they are marked read-only, as a
   folder copied back from a OneDrive backup is.
 

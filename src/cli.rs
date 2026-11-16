@@ -4,27 +4,27 @@
 //! arguments and run the same commands; they differ in subsystem alone. The
 //! console one is the one people type, because a shell waits for it and its
 //! output and exit code arrive where a person or a script can see them. The
-//! windowless one is what the logon task and the installer run: it prints
-//! nothing, there is nowhere to print, and its exit code is the verdict.
-//! Windows Installer starts an executable action without hiding its
+//! windowless one is what Windows starts at logon and the installer runs: it
+//! prints nothing, there is nowhere to print, and its exit code is the
+//! verdict. Windows Installer starts an executable action without hiding its
 //! console, so the console binary would flash a window twice at the end of
 //! every install -- seen on 2026-09-18 -- which is why the installer runs
-//! `init` and `install-task` through the twin.
+//! `init` and `add-to-startup` through the twin.
 //!
-//! `init`, `install-task`, `uninstall-task` and `stop` write what they did to
+//! `init`, `add-to-startup`, `remove-from-startup` and `stop` write what they did to
 //! the log, under `setup`, at `info`: the log then says who did what to this
 //! machine and when, whether a person typed it or the installer ran it.
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::config::{self, Config};
 use crate::detect::known_games::KnownGames;
 use crate::detect::presence_writer;
 use crate::detect::process::Snapshot;
-use crate::{actions, build_info, detect, logging, marker, purge, service, task};
+use crate::{actions, build_info, detect, logging, marker, purge, service, startup, task};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -53,7 +53,7 @@ pub enum Command {
     /// Watch for games and run the configured actions (default).
     ///
     /// For an unattended instance use `gamemode-executorw.exe`, which is the
-    /// same watcher with no console at all. `install-task` registers that one.
+    /// same watcher with no console at all. `add-to-startup` adds that one.
     Run {
         /// Accepted and ignored. A task registered before this binary had a
         /// windowless twin still passes it, and refusing it would stop that
@@ -86,21 +86,23 @@ pub enum Command {
         #[arg(long)]
         force: bool,
     },
-    /// Register a per-user logon task that starts the watcher hidden, and
-    /// start it now. A task already registered is kept.
-    InstallTask {
-        /// Delay after logon, e.g. `15s` or `1m`.
-        #[arg(long, default_value = "15s")]
-        delay: String,
-        /// Replace a task that is already registered.
+    /// Add the watcher to the programs Windows starts at logon -- Settings
+    /// lists it under Startup, with a switch -- and start it now. An entry
+    /// already there is kept.
+    // `install-task` is its name up to 0.4, still called by a 0.4 zip copy's
+    // updater: accepted until 1.0.0, decided 2026-11-16.
+    #[command(alias = "install-task")]
+    AddToStartup {
+        /// Replace an entry that is already there.
         #[arg(long)]
         force: bool,
     },
-    /// Remove the logon task.
-    UninstallTask,
+    /// Remove the watcher from the programs Windows starts at logon.
+    #[command(alias = "uninstall-task")]
+    RemoveFromStartup,
     /// Stop the running watcher, the way Quit in its menu does: mid-game,
     /// the stop commands run on the way out. None running is not an error.
-    /// The logon task is left as it is; `install-task` starts it again.
+    /// The startup entry is left as it is; `add-to-startup` starts it again.
     Stop {
         /// Leave an open game session to the next watcher instead of
         /// closing it: the stop commands do not run, and the watcher that
@@ -118,7 +120,7 @@ pub enum Command {
         #[arg(long)]
         check: bool,
     },
-    /// Remove every trace of the program: the logon task, the configuration,
+    /// Remove every trace of the program: the startup entry, the configuration,
     /// the log, the session marker, and the executables themselves. Refuses
     /// while a game is running. Shows what it will remove and asks first.
     Purge {
@@ -155,17 +157,16 @@ pub fn run(cli: Cli, console: bool) -> Result<()> {
             config::write_starter(&path, force)?;
             return Ok(());
         }
-        Some(Command::InstallTask { delay, force }) => {
+        Some(Command::AddToStartup { force }) => {
             setup_logging(cli.config.as_deref(), cli.log_level.as_deref(), console)?;
-            let delay = humantime::parse_duration(&delay)
-                .with_context(|| format!("cannot read `{delay}` as a delay"))?;
             let path = resolve_config_path(cli.config)?;
-            task::install(&path, delay, force)?;
+            startup::add(&path, force)?;
             return Ok(());
         }
-        Some(Command::UninstallTask) => {
+        Some(Command::RemoveFromStartup) => {
             setup_logging(cli.config.as_deref(), cli.log_level.as_deref(), console)?;
-            return task::uninstall();
+            startup::remove()?;
+            return task::remove_leftover();
         }
         Some(Command::Stop { handover }) => {
             setup_logging(cli.config.as_deref(), cli.log_level.as_deref(), console)?;
@@ -634,16 +635,13 @@ mod tests {
             parse(&["init", "--force"]).command,
             Some(Command::Init { force: true })
         ));
-        match parse(&["install-task", "--delay", "1m", "--force"]).command {
-            Some(Command::InstallTask { delay, force }) => {
-                assert_eq!(delay, "1m");
-                assert!(force);
-            }
-            other => panic!("{other:?}"),
-        }
         assert!(matches!(
-            parse(&["uninstall-task"]).command,
-            Some(Command::UninstallTask)
+            parse(&["add-to-startup", "--force"]).command,
+            Some(Command::AddToStartup { force: true })
+        ));
+        assert!(matches!(
+            parse(&["remove-from-startup"]).command,
+            Some(Command::RemoveFromStartup)
         ));
         assert!(matches!(
             parse(&["update", "--check"]).command,
@@ -653,6 +651,25 @@ mod tests {
             parse(&["purge", "--yes"]).command,
             Some(Command::Purge { yes: true })
         ));
+    }
+
+    /// A 0.4 zip copy's updater runs the new binary's `install-task`, so the
+    /// old names work until 1.0.0, without being offered. Remove this test
+    /// with them.
+    #[test]
+    fn the_old_names_of_the_startup_commands_still_work_unoffered() {
+        assert!(matches!(
+            parse(&["install-task"]).command,
+            Some(Command::AddToStartup { force: false })
+        ));
+        assert!(matches!(
+            parse(&["uninstall-task"]).command,
+            Some(Command::RemoveFromStartup)
+        ));
+        use clap::CommandFactory;
+        let help = Cli::command().render_help().to_string();
+        assert!(!help.contains("install-task"), "{help}");
+        assert!(help.contains("add-to-startup"), "{help}");
     }
 
     #[test]

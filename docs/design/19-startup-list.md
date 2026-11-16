@@ -1,10 +1,22 @@
 # Lot 19 — Starting from Windows' Startup list
 
-**Status: spike done 2026-11-16; proposed for a decision.** The maintainer
+**Status: decided 2026-11-16, being built; ships in 0.5.0.** The maintainer
 wants GameModeExecutor in *Settings → Apps → Startup*, with its switch,
 instead of a logon task that page does not show. The spike adds a second
 reason: Office's updates end what a logon task started, and spare what the
 `Run` key started.
+
+- [x] Spike: survival, what a `Run` entry gives, the cost per caller — 2026-11-16, below
+- [x] `startup`: the `Run` value written and removed, the watcher started through Explorer, `task` reduced to removing a 0.4 task — 2026-11-16
+- [x] `add-to-startup` and `remove-from-startup`, the old names as hidden aliases; the package, the zip's updater and `purge` on them — 2026-11-16
+- [x] The user pages, the reference, the changelog — 2026-11-16
+- [x] Explorer starts the watcher from a person's terminal and from the package's action — 2026-11-16, below; from the zip's shell at the 0.5.0 update
+- [x] The 0.4 task removed by `add-to-startup`; `uninstall-task` works as an alias — 2026-11-16, below
+- [ ] An upgrade from the published 0.4.0, by the package and by the zip
+- [x] The switch: off, then a logon; on again — 2026-11-16, below
+- [x] `remove-from-startup` takes the switch's entry too; `purge` lists the entry and no task — 2026-11-16, below
+- [ ] `purge` carried out, at the next full purge
+- [ ] The watcher outlives an Office update
 
 ## Why
 
@@ -79,7 +91,9 @@ The setup commands' three callers each meet the change
 | The zip's after-exit shell | calls the new binary's `install-task` | unchanged, so the verb must keep working: a 0.4 copy's shell calls it |
 | `update`, a failed install | `schtasks /Run` restarts the old watcher | a 0.4 copy's shell still does that; the new version's shell starts the watcher the new way |
 | `purge` | removes the task | removes the value, its `StartupApproved` entry, and a task left over |
-| `status` | says whether the task is there | says whether the value is there and points at this copy |
+
+*A `status` row said `status` reported the task; it never did, and needs
+nothing here. Corrected 2026-11-16.*
 
 Two edge cases, neither leaving the program unstartable:
 
@@ -125,7 +139,59 @@ command must start it itself:
 **Recommended: 2**, measured on all three paths. It gives the parent that
 was measured rather than one that might hold.
 
-## Done when, proposed
+## Decided 2026-11-16
+
+The maintainer took the lot and the recommendation, and named the verbs.
+
+- **`add-to-startup` and `remove-from-startup`**: *startup* as the page
+  says it, with a verb in plain English. `enable`/`disable` were turned
+  down: they are what the switch does, and the switch keeps the entry.
+- **The old names live in the command line, not in the package.** Only a
+  0.4 zip copy's updater calls `install-task` on the new binary; nothing
+  automatic calls `uninstall-task`, since the 0.4 package runs its own
+  executable and skips that action on an upgrade. So both are hidden
+  aliases, accepted until 1.0.0, and the package names only the new
+  actions, `AddToStartup` and `RemoveFromStartup`, in the old ones' places
+  and conditions.
+- **The migration lives in the commands.** `add-to-startup` removes the
+  0.4 task after writing the value; `remove-from-startup` and `purge`
+  remove one left over. That removal stays past 1.0.0: it protects a copy
+  that skips versions.
+- **No `Registry` row**: the program stays the one writer of the value.
+- **A failure to start the watcher now is a `warn`**, not an error: the
+  install goes on, and the next logon starts it.
+
+## Measured in the field, 2026-11-16
+
+On the maintainer's machine, with the branch's release build (`54802623`),
+from the log and the process list, the maintainer's eyes on the Settings
+page:
+
+- **From a terminal**, a game session open. The installed copy stopped with
+  `--handover` and the executables replaced, then `add-to-startup` at
+  15:40:22: the value written, *Logon task of an earlier version removed*,
+  *Watcher started through Explorer*. The new watcher's parent was
+  `explorer.exe`; it started 16 ms after the request and resumed the session.
+- **From the package.** 0.4.0 uninstalled from Settings: its action ran
+  `uninstall-task` on the new executables, and the alias removed the value
+  at 15:43:08. The branch's package installed: *Configuration kept*, the
+  value added, *Watcher started through Explorer* at 15:43:27, from the
+  deferred action. The watcher's parent: `explorer.exe`. So Explorer takes
+  the request from Windows Installer's custom action, the case that was
+  least certain.
+- **On the page**: *GameModeExecutor watcher — Geoffrey Vancoetsem*, the
+  green controller, *On*, *Not measured*.
+- **The switch.** Turned off at 15:46: the running watcher went on, and
+  Explorer wrote `01` and a timestamp in `StartupApproved\Run`. At the next
+  logon, no watcher. Turned on at 15:48: `00` and zeros, and at the next
+  logon the watcher started 7 s after Explorer, its child. The value itself
+  never changed: the switch is Windows' alone, as the module keeps it.
+- **Removal**, from the maintainer's terminal at 15:51: `remove-from-startup`
+  removed the value and the switch's entry, which was then gone;
+  `add-to-startup` put the value back. `purge`, answered no, listed *remove
+  the startup entry `GameModeExecutor` and its switch* and no task.
+
+## Done when
 
 The watcher starts at logon from the `HKCU` `Run` key and shows on the
 Startup page with its switch; an install, an upgrade and a zip update each

@@ -59,7 +59,7 @@ pub mod target {
     /// Running the executables from the configuration.
     pub const COMMANDS: &str = "commands";
     /// Setting the program up and taking it down: the starter configuration,
-    /// the logon task. Written by the commands and by the installer alike,
+    /// the startup entry. Written by the commands and by the installer alike,
     /// so the log says who did what to this machine and when.
     pub const SETUP: &str = "setup";
     /// Looking for, fetching and installing a newer release: the one thing

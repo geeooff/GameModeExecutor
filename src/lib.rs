@@ -23,6 +23,7 @@ pub mod registry;
 pub mod sensor;
 pub mod service;
 pub mod shell;
+pub mod startup;
 pub mod task;
 #[cfg(test)]
 mod testing;
