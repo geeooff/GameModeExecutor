@@ -270,7 +270,7 @@ pub fn discover(config: Option<&config::Config>, config_path: &Path) -> Layout {
     let log_dir = config.map_or_else(config::default_log_dir, |config| config.general.log_dir());
     Layout {
         watcher_running: win::SingleInstance::is_held(service::INSTANCE),
-        startup_entry: startup::entry().is_some(),
+        startup_entry: startup::exists(),
         task_registered: task::exists(),
         config_candidates: candidates,
         log_dir,

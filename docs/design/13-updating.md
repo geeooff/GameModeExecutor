@@ -68,6 +68,11 @@ dictates anyway and it would exist for symmetry alone. The cost of that
 freedom is a rule, in `AGENTS.md`: a change to any of those commands is
 verified on all three paths.
 
+*Since [Lot 19](19-startup-list.md), in 0.5.0: `add-to-startup` and
+`remove-from-startup` in place of `install-task` and `uninstall-task`, the
+watcher started through Explorer rather than its task, and the failure path
+runs `add-to-startup` rather than `schtasks /Run`. Noted 2026-11-16.*
+
 ## What the release answers, measured 2026-09-18 against `v0.1.0`
 
 | Request | Answer |

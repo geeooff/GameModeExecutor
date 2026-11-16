@@ -55,9 +55,10 @@ pub enum Command {
     /// For an unattended instance use `gamemode-executorw.exe`, which is the
     /// same watcher with no console at all. `add-to-startup` adds that one.
     Run {
-        /// Accepted and ignored. A task registered before this binary had a
-        /// windowless twin still passes it, and refusing it would stop that
-        /// task dead at the next logon.
+        /// Accepted and ignored. A logon task registered before this binary
+        /// had a windowless twin still passes it, until `add-to-startup`
+        /// removes that task, and refusing it would stop the task dead at the
+        /// next logon.
         #[arg(long, hide = true)]
         hidden: bool,
     },
@@ -96,6 +97,10 @@ pub enum Command {
         /// Replace an entry that is already there.
         #[arg(long)]
         force: bool,
+        /// Accepted and ignored until 1.0.0, with the old name: the logon
+        /// task's delay, which went with the task.
+        #[arg(long, hide = true)]
+        delay: Option<String>,
     },
     /// Remove the watcher from the programs Windows starts at logon.
     #[command(alias = "uninstall-task")]
@@ -157,16 +162,23 @@ pub fn run(cli: Cli, console: bool) -> Result<()> {
             config::write_starter(&path, force)?;
             return Ok(());
         }
-        Some(Command::AddToStartup { force }) => {
+        Some(Command::AddToStartup { force, .. }) => {
             setup_logging(cli.config.as_deref(), cli.log_level.as_deref(), console)?;
-            let path = resolve_config_path(cli.config)?;
+            // A path given now wins; then the one an earlier version's logon
+            // task passed, so an upgrade keeps it; then the default.
+            let path = match cli.config {
+                Some(path) => path,
+                None => match task::configuration() {
+                    Some(path) => path,
+                    None => resolve_config_path(None)?,
+                },
+            };
             startup::add(&path, force)?;
             return Ok(());
         }
         Some(Command::RemoveFromStartup) => {
             setup_logging(cli.config.as_deref(), cli.log_level.as_deref(), console)?;
-            startup::remove()?;
-            return task::remove_leftover();
+            return startup::remove();
         }
         Some(Command::Stop { handover }) => {
             setup_logging(cli.config.as_deref(), cli.log_level.as_deref(), console)?;
@@ -637,7 +649,7 @@ mod tests {
         ));
         assert!(matches!(
             parse(&["add-to-startup", "--force"]).command,
-            Some(Command::AddToStartup { force: true })
+            Some(Command::AddToStartup { force: true, .. })
         ));
         assert!(matches!(
             parse(&["remove-from-startup"]).command,
@@ -660,7 +672,11 @@ mod tests {
     fn the_old_names_of_the_startup_commands_still_work_unoffered() {
         assert!(matches!(
             parse(&["install-task"]).command,
-            Some(Command::AddToStartup { force: false })
+            Some(Command::AddToStartup { force: false, .. })
+        ));
+        assert!(matches!(
+            parse(&["install-task", "--delay", "1m", "--force"]).command,
+            Some(Command::AddToStartup { force: true, .. })
         ));
         assert!(matches!(
             parse(&["uninstall-task"]).command,

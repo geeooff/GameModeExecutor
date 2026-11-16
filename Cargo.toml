@@ -1,6 +1,6 @@
 [package]
 name = "game-mode-executor"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Geoffrey Vancoetsem"]
 edition = "2024"
 # Let chains, stable since 1.88.
@@ -78,6 +78,9 @@ windows = { version = "0.62", features = [
     # reads, without what PDH keeps for the process's life (Lot 16).
     "Win32_System_Performance",
     "Win32_System_SystemInformation",
+    # ITaskService: the configuration an earlier version's logon task
+    # passed, read before `add-to-startup` removes that task (Lot 19).
+    "Win32_System_TaskScheduler",
     "Win32_System_Threading",
     "Win32_System_WinRT",
 ] }
