@@ -61,7 +61,7 @@ Measured on a gaming PC in September 2026, private memory (Task Manager's
 
 | When | Processor | Memory |
 | --- | --- | --- |
-| Waiting for a game | 0.03 % of one core | about 2 MB |
+| Waiting for a game | 0.03 % of one core | about 2 MB at start, 2.7 MB after twenty minutes *(the second figure added 2026-11-16)* |
 | During a game | nothing measurable | unchanged |
 | Naming a game from the graphics card | | 0.25 MB, once |
 | The menu, first opened | | about 1 MB, once |

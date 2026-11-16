@@ -10,9 +10,11 @@ reason: Office's updates end what a logon task started, and spare what the
 - [x] `startup`: the `Run` value written and removed, the watcher started through Explorer, `task` reduced to removing a 0.4 task — 2026-11-16
 - [x] `add-to-startup` and `remove-from-startup`, the old names as hidden aliases; the package, the zip's updater and `purge` on them — 2026-11-16
 - [x] The user pages, the reference, the changelog — 2026-11-16
-- [x] Explorer starts the watcher from a person's terminal and from the package's action — 2026-11-16, below; from the zip's shell at the 0.5.0 update
+- [x] Explorer starts the watcher from a person's terminal and from the package's action — 2026-11-16, below
+- [ ] Explorer starts it from the zip's shell, at the 0.5.0 update
 - [x] The 0.4 task removed by `add-to-startup`; `uninstall-task` works as an alias — 2026-11-16, below
-- [ ] An upgrade from the published 0.4.0, by the package and by the zip
+- [x] An upgrade from the published 0.4.0 by the package, a configuration path of the task's kept — 2026-11-16, below
+- [ ] An upgrade from the published 0.4.0 by the zip, at the 0.5.0 update
 - [x] The switch: off, then a logon; on again — 2026-11-16, below
 - [x] `remove-from-startup` takes the switch's entry too; `purge` lists the entry and no task — 2026-11-16, below
 - [ ] `purge` carried out, at the next full purge
@@ -103,8 +105,10 @@ Two edge cases, neither leaving the program unstartable:
   shell's `schtasks /Run` finds no task. The old version's uninstall would
   not know the value; the next upgrade cleans it.
 - **A 0.4 zip copy whose update fails** puts its old executables back and
-  registers the task again beside the value: two starts at logon, and the
-  single-instance mutex ends the second.
+  runs its own `install-task`, its task intact. *A second case stood here,
+  the task registered again beside the value; it cannot happen: 0.4's shell
+  falls back only when unpacking or copying threw, before the new binary
+  ran. Corrected 2026-11-16, from the review below.*
 
 The verbs: `install-task` names something it would no longer do. A new
 name, with `install-task` and `uninstall-task` kept as aliases for the
@@ -156,10 +160,58 @@ The maintainer took the lot and the recommendation, and named the verbs.
 - **The migration lives in the commands.** `add-to-startup` removes the
   0.4 task after writing the value; `remove-from-startup` and `purge`
   remove one left over. That removal stays past 1.0.0: it protects a copy
-  that skips versions.
+  that skips versions. Before it goes, the task's `--config` is read,
+  through Task Scheduler's interface, and becomes the value's, so a path
+  chosen with 0.4's `install-task` survives the upgrade, as
+  [Lot 8](08-distribution.md) promised (added after the review below).
 - **No `Registry` row**: the program stays the one writer of the value.
+- **Failing over the 0.4 task is a `warn`**, in `add-to-startup` and in
+  `remove-from-startup` alike: neither an install nor an uninstall rolls
+  back for it.
 - **A failure to start the watcher now is a `warn`**, not an error: the
   install goes on, and the next logon starts it.
+
+## Reviewed before 0.5.0, 2026-11-16
+
+A second agent, asked to argue against the release, read the branch
+against `AGENTS.md`. Taken:
+
+- **The configuration a 0.4 task named was lost on upgrade**: the value
+  took the default path. Now read from the task, as above.
+- **The `SAFETY` comment of the Explorer call was untrue**: a failure keeps
+  the failing object's error information, which was read and released
+  after `CoUninitialize`. The error is now text before COM is let go.
+- **A kept entry was started unchecked.** One naming a missing file would
+  have had Explorer show a dialog; it is now said at `warn` and not
+  started. One naming another copy is said, and started, since Windows
+  starts that one at logon.
+- **The switch was described as stronger than it is**: an install or an
+  update starts the watcher once even when it is off. Said so in the
+  module and the reference.
+- **`remove()`** missed an empty value and a switch left without its
+  value, and the switch's removal was at `debug`; one `info` line now says
+  what went. `install-task --delay` exits 2 no more: accepted and ignored
+  until 1.0.0, as `run --hidden` is.
+- The changelog claimed a fix not yet seen on the watcher itself; it now
+  says what was measured. The test scratch folder asserts it stays under
+  the temporary directory before emptying it. *How it works* had the
+  watcher at about 2 MB, a figure taken at start; the 2.7 MB of
+  [Lot 16](16-footprint.md) after twenty minutes is beside it now.
+
+Not taken: running 0.4's zip shell by hand before the tag. The shell is
+0.4's, unchanged, and passes `install-task` alone, which a test pins; the
+0.5.0 update will exercise it for real, as 0.4.0's did in
+[Lot 17](17-log-rotation.md).
+
+Risks named, not measured:
+
+- A hung Explorer would hold the package's deferred action, since a
+  cross-process call has no timeout.
+- A rollback after `AddToStartup` finds the new watcher holding its
+  executable, so the old file comes back at the next restart. 0.4's start
+  through the task had the same exposure.
+- Without Explorer, asking for the shell's window list starts its
+  registered server before it fails.
 
 ## Measured in the field, 2026-11-16
 
@@ -186,6 +238,16 @@ page:
   logon, no watcher. Turned on at 15:48: `00` and zeros, and at the next
   logon the watcher started 7 s after Explorer, its child. The value itself
   never changed: the switch is Windows' alone, as the module keeps it.
+- **An upgrade from the published 0.4.0**, after the review, with the
+  0.5.0 package built from the release commit (`5ddf2313`). The published
+  0.4.0 installed at 16:29:03 registered its task and started its watcher;
+  `install-task --force --config` pointed the task at a copy of the
+  configuration, `config-test.toml`. The 0.5.0 package at 16:29:24: 0.4.0's
+  `stop --handover`, no `UnregisterTask`, *Configuration kept*, the task's
+  configuration read (*… names this configuration, so the startup entry
+  takes it*), the value written with `config-test.toml`, the task removed,
+  *Watcher started through Explorer*, 0.5.0 starting, its parent
+  `explorer.exe`. `add-to-startup --force` then put the default path back.
 - **Removal**, from the maintainer's terminal at 15:51: `remove-from-startup`
   removed the value and the switch's entry, which was then gone;
   `add-to-startup` put the value back. `purge`, answered no, listed *remove

@@ -11,10 +11,14 @@
 //!
 //! - The program is the one writer of its value, for the package and the zip
 //!   alike, and a value already there is kept unless asked: it may name a
-//!   configuration the user chose.
+//!   configuration the user chose. A kept value is checked before it is
+//!   started: one naming a missing file is not handed to Explorer, which
+//!   would answer with a dialog, and one naming another copy is said.
 //! - The switch is Explorer's. Its entry under `StartupApproved\Run` is never
-//!   written here, so a watcher switched off stays off across upgrades, and it
-//!   is removed with the value, by name, so nothing of ours is left behind.
+//!   written here, so a watcher switched off is still not started at logon
+//!   after an upgrade -- an install or an update starts it once all the same,
+//!   since reading the switch is undocumented. The entry is removed with the
+//!   value, by name, so nothing of ours is left behind.
 //! - The watcher started right after an install is started by Explorer,
 //!   through the shell's automation object on the desktop, so it gets the
 //!   parent a logon gives it: the one the measurement saw survive. A process
@@ -82,7 +86,7 @@ pub fn registration(exists: bool, force: bool) -> Registration {
     }
 }
 
-/// The entry as it stands, if there is one.
+/// The entry's command line, if there is one worth the name.
 pub fn entry() -> Option<String> {
     CURRENT_USER
         .open(RUN_KEY)
@@ -90,6 +94,17 @@ pub fn entry() -> Option<String> {
         .get_string(VALUE_NAME)
         .ok()
         .filter(|line| !line.is_empty())
+}
+
+/// Whether anything of ours is under either key: the value, of whatever
+/// type or length, or the switch Explorer wrote for it.
+pub fn exists() -> bool {
+    let under = |path: &str| {
+        CURRENT_USER
+            .open(path)
+            .is_ok_and(|key| key.get_type(VALUE_NAME).is_ok())
+    };
+    under(RUN_KEY) || under(APPROVED_KEY)
 }
 
 /// Add the watcher to the programs Windows starts at logon, unless it is
@@ -101,6 +116,8 @@ pub fn entry() -> Option<String> {
 /// updater after every update. Every outcome is logged at `info`, under
 /// `setup`.
 pub fn add(config_path: &Path, force: bool) -> Result<Registration> {
+    let here = std::env::current_exe().context("cannot locate the running executable")?;
+    let twin = here.with_file_name(WATCHER_EXE);
     let existing = entry();
     let outcome = registration(existing.is_some(), force);
     let line = match (existing, outcome) {
@@ -114,16 +131,14 @@ pub fn add(config_path: &Path, force: bool) -> Result<Registration> {
             line
         }
         _ => {
-            let here = std::env::current_exe().context("cannot locate the running executable")?;
-            let exe = here.with_file_name(WATCHER_EXE);
-            if !exe.exists() {
+            if !twin.exists() {
                 bail!(
                     "`{}` is missing. It is built alongside this program and is the one Windows \
                      starts at logon, because it has no console to leave on screen.",
-                    exe.display()
+                    twin.display()
                 );
             }
-            let line = command_line(&exe, &absolute(config_path)?)?;
+            let line = command_line(&twin, &absolute(config_path)?)?;
             CURRENT_USER
                 .create(RUN_KEY)
                 .and_then(|key| key.set_string(VALUE_NAME, &line))
@@ -146,8 +161,71 @@ pub fn add(config_path: &Path, force: bool) -> Result<Registration> {
             line
         }
     };
-    // A task left by 0.4 would start a second watcher at logon, and that one
-    // first: worth a word, not worth failing an install over.
+    remove_leftover_task();
+    let (program, _) = split(&line);
+    if !Path::new(program).is_file() {
+        tracing::warn!(
+            target: target::SETUP,
+            program,
+            "The startup entry names a program that is not there, so nothing is started; --force replaces the entry"
+        );
+    } else {
+        if !same_file(Path::new(program), &twin) {
+            tracing::warn!(
+                target: target::SETUP,
+                program,
+                this_copy = %twin.display(),
+                "The startup entry names another copy of the program, which is the one started; --force replaces the entry"
+            );
+        }
+        start(&line);
+    }
+    Ok(outcome)
+}
+
+/// Remove the watcher from the programs Windows starts at logon, and the
+/// Startup page's switch for it. An entry that is not there is not an error.
+pub fn remove() -> Result<()> {
+    let had_value = remove_from(RUN_KEY)?;
+    let had_switch = remove_from(APPROVED_KEY)?;
+    match (had_value, had_switch) {
+        (true, _) => tracing::info!(
+            target: target::SETUP,
+            value = VALUE_NAME,
+            switch = had_switch,
+            "Removed from the programs Windows starts at logon"
+        ),
+        (false, true) => tracing::info!(
+            target: target::SETUP,
+            value = VALUE_NAME,
+            "No startup entry to remove; the switch Settings kept for it is removed"
+        ),
+        (false, false) => tracing::info!(
+            target: target::SETUP,
+            value = VALUE_NAME,
+            "No startup entry to remove"
+        ),
+    }
+    remove_leftover_task();
+    Ok(())
+}
+
+/// Delete our value under `path`, saying whether it was there.
+fn remove_from(path: &str) -> Result<bool> {
+    let Ok(key) = CURRENT_USER.options().read().write().open(path) else {
+        return Ok(false);
+    };
+    if key.get_type(VALUE_NAME).is_err() {
+        return Ok(false);
+    }
+    key.remove_value(VALUE_NAME)
+        .with_context(|| format!("cannot remove `{VALUE_NAME}` from HKCU\\{path}"))?;
+    Ok(true)
+}
+
+/// A task left by 0.4 would start a second watcher at logon, and that one
+/// first: worth a word, never worth failing an install or an uninstall over.
+fn remove_leftover_task() {
     if let Err(error) = crate::task::remove_leftover() {
         tracing::warn!(
             target: target::SETUP,
@@ -156,43 +234,12 @@ pub fn add(config_path: &Path, force: bool) -> Result<Registration> {
             "The logon task of an earlier version could not be removed, so it may start a second watcher at logon"
         );
     }
-    start(&line);
-    Ok(outcome)
 }
 
-/// Remove the watcher from the programs Windows starts at logon, and the
-/// Startup page's switch for it. An entry that is not there is not an error.
-pub fn remove() -> Result<()> {
-    if entry().is_some() {
-        CURRENT_USER
-            .create(RUN_KEY)
-            .and_then(|key| key.remove_value(VALUE_NAME))
-            .with_context(|| format!("cannot remove `{VALUE_NAME}` from HKCU\\{RUN_KEY}"))?;
-        tracing::info!(
-            target: target::SETUP,
-            value = VALUE_NAME,
-            "Removed from the programs Windows starts at logon"
-        );
-    } else {
-        tracing::info!(
-            target: target::SETUP,
-            value = VALUE_NAME,
-            "No startup entry to remove"
-        );
-    }
-    // Explorer writes the switch's entry when it first lists ours.
-    if let Ok(key) = CURRENT_USER.options().read().write().open(APPROVED_KEY)
-        && key.get_type(VALUE_NAME).is_ok()
-    {
-        key.remove_value(VALUE_NAME)
-            .with_context(|| format!("cannot remove `{VALUE_NAME}` from HKCU\\{APPROVED_KEY}"))?;
-        tracing::debug!(
-            target: target::SETUP,
-            value = VALUE_NAME,
-            "The Startup page's switch for it removed"
-        );
-    }
-    Ok(())
+/// Whether two paths name the same file, compared as Windows compares
+/// them: without regard to case.
+fn same_file(a: &Path, b: &Path) -> bool {
+    a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
 }
 
 /// The value's data: the twin and the configuration it reads, both quoted.
@@ -250,7 +297,11 @@ fn start(line: &str) {
 /// starts is Explorer's child. Microsoft's documented interfaces, in the
 /// order Raymond Chen gives them: the desktop's view found as in his post of
 /// 2013-03-18, its automation object asked as in the one linked above.
-fn start_from_explorer(program: &str, parameters: &str) -> windows::core::Result<()> {
+///
+/// A failure comes back as text, read while COM is still initialised: the
+/// error holds the failing object's error information, which must not be
+/// read or released after `CoUninitialize`.
+fn start_from_explorer(program: &str, parameters: &str) -> std::result::Result<(), String> {
     // SAFETY: no pointers; paired with the uninitialise below, on this thread.
     let com = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) };
     let directory = Path::new(program)
@@ -258,9 +309,10 @@ fn start_from_explorer(program: &str, parameters: &str) -> windows::core::Result
         .map(|dir| dir.display().to_string())
         .unwrap_or_default();
     // SAFETY: every interface is a COM pointer the call before handed out and
-    // windows-rs releases on drop, all of them inside this block, before COM
-    // is uninitialised; the VARIANTs and the BSTR outlive the calls they are
-    // passed to, which copy what they keep.
+    // windows-rs releases on drop, all of them inside the closure; an error
+    // is turned into text before the closure's result leaves this statement,
+    // so nothing of COM outlives it. The VARIANTs and the BSTR outlive the
+    // calls they are passed to, which copy what they keep.
     let started = unsafe {
         (|| -> windows::core::Result<()> {
             let windows: IShellWindows =
@@ -292,10 +344,19 @@ fn start_from_explorer(program: &str, parameters: &str) -> windows::core::Result
                 &VARIANT::from(SW_SHOWNORMAL.0),
             )
         })()
-    };
+    }
+    .map_err(|error| {
+        // The desktop's window not found comes back as a success code
+        // with no object, whose message would read as a success.
+        if error.code().is_ok() {
+            "Explorer's desktop is not there to ask".to_owned()
+        } else {
+            error.to_string()
+        }
+    });
     if com.is_ok() {
         // SAFETY: COM was initialised above on this thread, and every
-        // interface obtained under it has been released.
+        // interface and error information obtained under it is released.
         unsafe { CoUninitialize() };
     }
     started
@@ -368,6 +429,24 @@ mod tests {
         );
         assert_eq!(split(r#""C:\A B\w.exe""#), (r"C:\A B\w.exe", ""));
         assert_eq!(split(r"C:\w.exe"), (r"C:\w.exe", ""));
+    }
+
+    /// The entry and this copy's path come from different writers, which
+    /// may not agree on case.
+    #[test]
+    fn the_same_file_is_recognised_whatever_the_case() {
+        assert!(same_file(
+            Path::new(
+                r"C:\Users\Me\AppData\Local\Programs\GameModeExecutor\gamemode-executorw.exe"
+            ),
+            Path::new(
+                r"c:\users\me\appdata\local\programs\GameModeExecutor\GAMEMODE-EXECUTORW.EXE"
+            )
+        ));
+        assert!(!same_file(
+            Path::new(r"C:\Tools\GME\gamemode-executorw.exe"),
+            Path::new(r"C:\Programs\GME\gamemode-executorw.exe")
+        ));
     }
 
     /// A relative path would resolve at logon against Explorer's working

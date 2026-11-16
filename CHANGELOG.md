@@ -26,14 +26,20 @@ a section is written.
 ### Changed
 
 - Windows starts the watcher at logon from your `Run` key instead of a
-  scheduled task; an upgrade removes the old task.
+  scheduled task, a few seconds later than the task did. Office's updates
+  ended what the task started, the watcher among them, and spared what the
+  `Run` key started over a month of them. An upgrade removes the old task and
+  keeps the configuration it named.
 - `install-task` and `uninstall-task` are now `add-to-startup` and
-  `remove-from-startup`. The old names work until 1.0.0; `--delay` is gone.
+  `remove-from-startup`. The old names work until 1.0.0.
+
+### Removed
+
+- The 15-second delay after logon, and `--delay` with it: accepted and
+  ignored until 1.0.0.
 
 ### Fixed
 
-- Office's updates no longer stop the watcher. They ended whatever a
-  scheduled task had started, the watcher included.
 - `purge` removes its folders even when they are marked read-only, as a
   folder copied back from a OneDrive backup is.
 

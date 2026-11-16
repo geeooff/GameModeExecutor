@@ -21,7 +21,7 @@ for the reasons, the [design record](design/).
 | `trigger start\|stop` | Run one event's commands now, to test them. |
 | `validate` | Check the configuration; exits 3 or 4 on a problem. |
 | `init [--force]` | Write the starter configuration to `%APPDATA%\GameModeExecutor`; an existing one is kept unless `--force`. |
-| `add-to-startup [--force]` | Add `gamemode-executorw.exe` to the programs Windows starts at logon, remove the logon task of a version up to 0.4, and have Explorer start the watcher. An existing entry is kept unless `--force`. |
+| `add-to-startup [--force]` | Add `gamemode-executorw.exe` to the programs Windows starts at logon, with the configuration the logon task of a version up to 0.4 named if there was one, remove that task, and have Explorer start the watcher. An existing entry is kept unless `--force`. |
 | `remove-from-startup` | Remove that entry, its switch in Settings, and the logon task of a version up to 0.4. |
 | `update [--check]` | Look for a newer release on GitHub; without `--check`, download, verify against `SHA256SUMS.txt` and install it. The only command that connects to anything. |
 | `stop [--handover]` | Stop the running watcher as *Quit* does, and wait for it to go. With `--handover`, an open game session is left to the next watcher, nothing run. |
@@ -35,7 +35,7 @@ else `%APPDATA%\GameModeExecutor\config.toml`.
 The setup commands (`init`, `add-to-startup`, `remove-from-startup`, `stop`)
 log what they did under `setup`, `update` under `update`. `install-task` and
 `uninstall-task`, the old names of the startup commands, still work until
-1.0.0; `--delay` went with the task.
+1.0.0, and `--delay` is accepted and ignored until then.
 
 ## Configuration
 
@@ -169,7 +169,7 @@ the file at once; lines never interleave, since each is one append.
 | Log | `%LOCALAPPDATA%\GameModeExecutor\logs\` | disposable |
 | Session marker | `%LOCALAPPDATA%\GameModeExecutor\pending-stop-actions` | a game session not yet closed. `state = open` while a watcher holds it, `left` once one stopped and left it to the next start; `open` found at a start means that watcher ended without stopping. |
 | Fault marker | `%LOCALAPPDATA%\GameModeExecutor\configuration-fault` | the configuration was unusable when last read, so the next usable read says the fault is over |
-| Startup entry | `GameModeExecutor` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | the watcher's and the configuration's absolute paths; removed on uninstall, kept on upgrade. Its switch in Settings is Windows': turned off, it stays off. |
+| Startup entry | `GameModeExecutor` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | the watcher's and the configuration's absolute paths; removed on uninstall, kept on upgrade. Its switch in Settings is Windows': turned off, the watcher no longer starts at logon, though an install or an update still starts it once. |
 | Updates | `%LOCALAPPDATA%\GameModeExecutor\updates\` | a release being installed; emptied at the next start, the installer's log kept if the update failed |
 
 ## Building and releasing
