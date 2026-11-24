@@ -22,6 +22,10 @@ a section is written.
 - Windows PowerShell and `schtasks.exe` are started from Windows' system
   folder, never found by name: a copy unpacked in Downloads could run a
   program of that name lying beside it.
+- A command's `program` given as a name alone is looked for in Windows'
+  folders, then `PATH`, never beside this program: with the FanControl
+  recipe, a copy unpacked in Downloads could run a `schtasks.exe` lying
+  beside it at every game start and stop.
 - The DLLs the program needs are loaded from Windows' system folder only:
   a copy unpacked in Downloads loaded an `msi.dll` lying beside it.
 - The program no longer needs the Visual C++ Redistributable: the C

@@ -179,7 +179,7 @@ This file says how to work here. The *why* is in
   `EnumWindows`.
 - `Command::new` given a bare name searches the executable's own folder
   before System32 and `PATH`: start a Windows program by full path, from
-  `win::system_dir`.
+  `win::system_dir`; a configured one goes through `actions::locate`.
 - A process started after `WM_QUERYENDSESSION` dies with
   `STATUS_DLL_INIT_FAILED`: nothing runs at logoff, so the session marker
   runs the stop commands at the next start.

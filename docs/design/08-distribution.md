@@ -145,6 +145,17 @@ copied beside a stand-in `schtasks.exe`, ran it while `purge` drew its
 plan, and announced a logon task that does not exist; this build ran
 Windows' own.*
 
+*The configured commands, the same day: a `program` named without a folder
+went through the same search, so a copy unpacked in Downloads with the
+FanControl recipe would have run a `schtasks.exe` lying beside it at every
+game start and stop. `actions::locate` now looks a bare name up in std's
+order without the executable's folder — the command's own `PATH`, the
+system folder, the Windows folder, the process's `PATH`, absolute entries
+only, `.exe` added to a name with no dot — and the log names the file it
+started. Measured with `trigger start` and a stand-in `schtasks.exe` beside
+each copy: build `909f77b7` ran the stand-in, this one
+`C:\WINDOWS\system32\schtasks.exe`. The recipes keep their bare names.*
+
 *The same day, the DLLs: those the executables import that are not known
 DLLs — `msi.dll`, `winhttp.dll`, `bcrypt.dll`, `VCRUNTIME140.dll` — were
 looked for in the executable's folder first. `build.rs` now links with

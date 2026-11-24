@@ -80,7 +80,7 @@ starts them all, then waits. A command that fails never stops the others.
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `name` | the program | label in the log |
-| `program` | required | path or name of the executable |
+| `program` | required | path or name of the executable; a name alone is looked for in the command's own `PATH`, the system folder, the Windows folder, then `PATH`, never beside this program, with `.exe` added when it has no extension |
 | `args` | `[]` | one string per argument |
 | `working_dir` | inherited | |
 | `env` | `{}` | extra environment variables |
