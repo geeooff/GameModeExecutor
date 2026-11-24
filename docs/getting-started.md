@@ -55,7 +55,9 @@ program = "powercfg.exe"
 args = ["/setactive", "SCHEME_BALANCED"]
 ```
 
-Write paths between single quotes, so backslashes need no doubling:
+A name alone, like `powercfg.exe`, is looked for in Windows' own folders,
+then `PATH`, never beside this program. Write paths between single quotes,
+so backslashes need no doubling:
 `program = 'C:\Program Files\Something\tool.exe'`. The starter file has two
 beeps, commented out, to hear a detection before writing anything real.
 

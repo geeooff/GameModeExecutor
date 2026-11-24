@@ -102,7 +102,9 @@ gpu_sample = "1s"
 # Every command accepts:
 #
 #   name         label used in the log; defaults to the program path
-#   program      the executable to run
+#   program      the executable to run; a name alone is looked for in the
+#                system folder, the Windows folder, then PATH, never beside
+#                this program
 #   args         its arguments, one string per argument
 #   working_dir  directory to run it from
 #   env          extra environment variables, as key = "value"

@@ -136,6 +136,11 @@ usable file is saved. It never falls back to the last good file, which would
 run something other than what the file says. `log_dir` and `log_days` wait for
 the next start.
 
+A command's `program` given as a name alone is looked for in Windows' system
+folder, the Windows folder, then `PATH`, never in the program's own folder:
+a copy unpacked in Downloads runs Windows' `schtasks.exe`, not one lying
+beside it. The log names the file each command started from.
+
 ## Updating itself
 
 *Check for updates* asks GitHub where `releases/latest` points — one request,

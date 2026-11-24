@@ -17,7 +17,7 @@ use windows::Win32::Storage::FileSystem::{
     FindCloseChangeNotification, FindFirstChangeNotificationW, FindNextChangeNotification,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::System::SystemInformation::GetSystemDirectoryW;
+use windows::Win32::System::SystemInformation::{GetSystemDirectoryW, GetWindowsDirectoryW};
 use windows::Win32::System::Threading::{
     CreateEventW, CreateMutexW, INFINITE, OpenMutexW, ResetEvent, SYNCHRONIZATION_SYNCHRONIZE,
     SetEvent, WaitForMultipleObjects, WaitForSingleObject,
@@ -520,16 +520,31 @@ pub fn declare_dpi_awareness() {
 /// which is whatever the parent process passed down; and no fallback to the
 /// name, which would bring the search back.
 pub fn system_dir() -> Result<PathBuf> {
-    // MAX_PATH is the size Microsoft documents for this buffer.
-    let mut buffer = [0u16; MAX_PATH as usize];
     // SAFETY: the slice is the buffer and passes its own length; the call
     // writes at most that many characters, the terminating zero included.
-    let len = unsafe { GetSystemDirectoryW(Some(&mut buffer)) } as usize;
+    asked_folder("the system folder", |buffer| unsafe {
+        GetSystemDirectoryW(Some(buffer))
+    })
+}
+
+/// The Windows folder, `C:\Windows` on a stock install: the folder searched
+/// after the system folder for a configured program named without a folder
+/// (`actions`), as `CreateProcessW` and std search it. Asked of
+/// `GetWindowsDirectoryW` for the reason `system_dir` gives.
+pub fn windows_dir() -> Result<PathBuf> {
+    // SAFETY: as in `system_dir`.
+    asked_folder("the Windows folder", |buffer| unsafe {
+        GetWindowsDirectoryW(Some(buffer))
+    })
+}
+
+/// A folder Windows writes into a buffer of `MAX_PATH` characters, the size
+/// Microsoft documents for both calls, which return the length written or 0.
+fn asked_folder(what: &str, call: impl FnOnce(&mut [u16]) -> u32) -> Result<PathBuf> {
+    let mut buffer = [0u16; MAX_PATH as usize];
+    let len = call(&mut buffer) as usize;
     if len == 0 || len >= buffer.len() {
-        anyhow::bail!(
-            "cannot find the system folder: {}",
-            std::io::Error::last_os_error()
-        );
+        anyhow::bail!("cannot find {what}: {}", std::io::Error::last_os_error());
     }
     Ok(PathBuf::from(OsString::from_wide(&buffer[..len])))
 }
