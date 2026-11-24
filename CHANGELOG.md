@@ -19,6 +19,13 @@ a section is written.
 
 - The log writes Windows paths as Windows does, with single backslashes,
   where its details doubled them; a command's arguments read as typed.
+- Windows PowerShell and `schtasks.exe` are started from Windows' system
+  folder, never found by name: a copy unpacked in Downloads could run a
+  program of that name lying beside it.
+- The DLLs the program needs are loaded from Windows' system folder only:
+  a copy unpacked in Downloads loaded an `msi.dll` lying beside it.
+- The program no longer needs the Visual C++ Redistributable: the C
+  runtime is built in.
 
 ## [0.5.0] - 2026-11-16
 
