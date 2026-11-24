@@ -12,6 +12,10 @@
 //! upgrade, as Lot 8 promised. Read through Task Scheduler's own interface,
 //! which answers in UTF-16: `schtasks /Query /XML` writes through the
 //! console's code page, and a user name with an accent would not survive it.
+//!
+//! `schtasks.exe` is started by full path in the system folder: given the
+//! bare name, std would search this executable's own folder first, as
+//! `Command::new` documents (`win::system_dir`).
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -34,9 +38,8 @@ pub const TASK_NAME: &str = r"GameModeExecutor\Watcher";
 /// task that does not exist, which is the whole answer.
 pub fn exists() -> bool {
     schtasks(&["/Query", "/TN", TASK_NAME])
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
+        .and_then(|mut command| Ok(command.output()?))
+        .is_ok_and(|output| output.status.success())
 }
 
 /// The configuration that task passes the watcher, if the task is there and
@@ -120,7 +123,7 @@ pub fn remove_leftover() -> Result<()> {
     if !exists() {
         return Ok(());
     }
-    let output = schtasks(&["/Delete", "/TN", TASK_NAME, "/F"])
+    let output = schtasks(&["/Delete", "/TN", TASK_NAME, "/F"])?
         .output()
         .context("cannot run schtasks.exe")?;
     if !output.status.success() {
@@ -136,22 +139,43 @@ pub fn remove_leftover() -> Result<()> {
     Ok(())
 }
 
-/// `schtasks.exe` with its output captured and no console window of its
-/// own. A console program started from a parent that has no visible console
+/// `schtasks.exe` from the system folder, with its output captured and no
+/// console window of its own. A console program started from a parent that has no visible console
 /// -- the installer's custom action, the windowless watcher -- opens one for
 /// itself, and the user sees it flash: seen on 2026-09-18, on the first
 /// install from the package.
-fn schtasks(args: &[&str]) -> Command {
+fn schtasks(args: &[&str]) -> Result<Command> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut command = Command::new("schtasks");
+    let mut command = Command::new(crate::win::system_dir()?.join("schtasks.exe"));
     command.args(args).creation_flags(CREATE_NO_WINDOW);
-    command
+    Ok(command)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
+
+    /// Windows' own, by a full path in the system folder, whatever sits
+    /// beside the executable.
+    #[test]
+    fn schtasks_is_windows_own_by_full_path() {
+        let command = schtasks(&["/Query", "/TN", TASK_NAME]).unwrap();
+        let program = Path::new(command.get_program());
+        assert!(program.starts_with(crate::win::system_dir().unwrap()));
+        assert!(program.is_file(), "{}", program.display());
+        assert!(program.ends_with("schtasks.exe"));
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["/Query", "/TN", TASK_NAME]
+        );
+        // And it starts: `exists` reads a failed start as no task, so
+        // nothing else would tell.
+        let help = schtasks(&["/Query", "/?"]).unwrap().output().unwrap();
+        assert!(help.status.success(), "{:?}", help.status);
+    }
 
     /// What 0.4's `install-task` wrote, and what a person may have typed.
     #[test]

@@ -177,6 +177,9 @@ This file says how to work here. The *why* is in
   `src/open.rs`.
 - `FindWindow` cannot find a window class registered by another process; use
   `EnumWindows`.
+- `Command::new` given a bare name searches the executable's own folder
+  before System32 and `PATH`: start a Windows program by full path, from
+  `win::system_dir`.
 - A process started after `WM_QUERYENDSESSION` dies with
   `STATUS_DLL_INIT_FAILED`: nothing runs at logoff, so the session marker
   runs the stop commands at the next start.

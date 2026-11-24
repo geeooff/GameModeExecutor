@@ -138,6 +138,13 @@ the single-instance mutex says when it has gone. Still to measure: the
 cost of an uninstall-time prompt, in tables — not built, and not missed
 so far.
 
+*Since 2026-11-24 the hidden shell and `schtasks.exe` start by full path
+from the system folder: given a bare name, std searches the executable's
+own folder first (`Command::new`). Measured that day: the published 0.5.0,
+copied beside a stand-in `schtasks.exe`, ran it while `purge` drew its
+plan, and announced a logon task that does not exist; this build ran
+Windows' own.*
+
 **Run for real on 2026-09-17**, on the maintainer's hand-installed copy,
 after the recipe's `uninstall-tasks.ps1` and `uninstall-task`: it listed
 ten things and did them. Two lessons, both fixed the same evening: the

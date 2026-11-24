@@ -19,6 +19,9 @@ a section is written.
 
 - The log writes Windows paths as Windows does, with single backslashes,
   where its details doubled them; a command's arguments read as typed.
+- Windows PowerShell and `schtasks.exe` are started from Windows' system
+  folder, never found by name: a copy unpacked in Downloads could run a
+  program of that name lying beside it.
 
 ## [0.5.0] - 2026-11-16
 

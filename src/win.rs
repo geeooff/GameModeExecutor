@@ -1,20 +1,23 @@
 //! Thin, safe wrappers around the few Win32 calls the program needs.
 
-use std::ffi::c_void;
+use std::ffi::{OsString, c_void};
+use std::os::windows::ffi::OsStringExt;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use windows::Win32::Foundation::{
-    CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM, LRESULT, WAIT_OBJECT_0,
-    WAIT_TIMEOUT, WPARAM,
+    CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM, LRESULT, MAX_PATH,
+    WAIT_OBJECT_0, WAIT_TIMEOUT, WPARAM,
 };
 use windows::Win32::Storage::FileSystem::{
     FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE,
     FindCloseChangeNotification, FindFirstChangeNotificationW, FindNextChangeNotification,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::SystemInformation::GetSystemDirectoryW;
 use windows::Win32::System::Threading::{
     CreateEventW, CreateMutexW, INFINITE, OpenMutexW, ResetEvent, SYNCHRONIZATION_SYNCHRONIZE,
     SetEvent, WaitForMultipleObjects, WaitForSingleObject,
@@ -504,6 +507,31 @@ pub fn declare_dpi_awareness() {
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
+}
+
+/// The system folder, `C:\Windows\System32` on a stock install, where the
+/// Windows programs this program starts -- Windows PowerShell,
+/// `schtasks.exe` -- are found by full path.
+///
+/// Never by bare name: std then searches the running executable's own
+/// folder before the system folder and `PATH`, as `Command::new` documents,
+/// and a copy unpacked in Downloads would run a `powershell.exe` planted
+/// beside it. Asked of `GetSystemDirectoryW`, not read from `%SystemRoot%`,
+/// which is whatever the parent process passed down; and no fallback to the
+/// name, which would bring the search back.
+pub fn system_dir() -> Result<PathBuf> {
+    // MAX_PATH is the size Microsoft documents for this buffer.
+    let mut buffer = [0u16; MAX_PATH as usize];
+    // SAFETY: the slice is the buffer and passes its own length; the call
+    // writes at most that many characters, the terminating zero included.
+    let len = unsafe { GetSystemDirectoryW(Some(&mut buffer)) } as usize;
+    if len == 0 || len >= buffer.len() {
+        anyhow::bail!(
+            "cannot find the system folder: {}",
+            std::io::Error::last_os_error()
+        );
+    }
+    Ok(PathBuf::from(OsString::from_wide(&buffer[..len])))
 }
 
 /// Pump messages until a quit is posted. Must run on the thread that created
