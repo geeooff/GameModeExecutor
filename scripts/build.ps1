@@ -217,6 +217,39 @@ function Invoke-Tests {
     Write-Host "    $($pages.Count) pages, every link resolves"
 }
 
+# --- reading a PE32+ image --------------------------------------------------
+
+# The RVA of data directory $Index (10, the load configuration).
+function Get-DirectoryRva([byte[]] $Bytes, [int] $Index) {
+    $optional = [BitConverter]::ToInt32($Bytes, 0x3C) + 24
+    if ([BitConverter]::ToUInt16($Bytes, $optional) -ne 0x20B) { Fail "not a PE32+ image" }
+    [BitConverter]::ToUInt32($Bytes, $optional + 0x70 + 8 * $Index)
+}
+
+# The file offset of an RVA, through the section that holds it.
+function Get-FileOffset([byte[]] $Bytes, [uint32] $Rva) {
+    $pe = [BitConverter]::ToInt32($Bytes, 0x3C)
+    $table = $pe + 24 + [BitConverter]::ToUInt16($Bytes, $pe + 20)
+    for ($i = 0; $i -lt [BitConverter]::ToUInt16($Bytes, $pe + 6); $i++) {
+        $section = $table + 40 * $i
+        $start = [BitConverter]::ToUInt32($Bytes, $section + 12)
+        if ($Rva -ge $start -and $Rva -lt $start + [BitConverter]::ToUInt32($Bytes, $section + 8)) {
+            return [int]($Rva - $start + [BitConverter]::ToUInt32($Bytes, $section + 20))
+        }
+    }
+    Fail ("RVA 0x{0:X} is in no section" -f $Rva)
+}
+
+# DependentLoadFlags, the word at 0x4E of IMAGE_LOAD_CONFIG_DIRECTORY64, or 0
+# when the image has none.
+function Get-DependentLoadFlags([byte[]] $Bytes) {
+    $rva = Get-DirectoryRva $Bytes 10
+    if ($rva -eq 0) { return 0 }
+    $offset = Get-FileOffset $Bytes $rva
+    if ([BitConverter]::ToUInt32($Bytes, $offset) -lt 0x50) { return 0 }
+    [int][BitConverter]::ToUInt16($Bytes, $offset + 0x4E)
+}
+
 function Invoke-Build {
     Step "Release build"
     Run 'cargo' @('build', '--release')
@@ -258,6 +291,16 @@ function Invoke-Build {
             Fail "$name is subsystem $subsystem, expected $($expected[$name])"
         }
         Write-Host ("    {0,-24} {1}" -f $name, $label[$subsystem])
+    }
+
+    # build.rs has Windows look for the executables' DLLs in System32 only.
+    # Losing the flag is silent: the program runs the same, and loads an
+    # msi.dll planted beside it again.
+    Step "DLLs are looked for in System32 only"
+    foreach ($name in $expected.Keys | Sort-Object) {
+        $flags = Get-DependentLoadFlags ([System.IO.File]::ReadAllBytes((Join-Path $root "target\release\$name")))
+        if ($flags -ne 0x800) { Fail ("$name has dependent load flags 0x{0:X}, expected 0x800" -f $flags) }
+        Write-Host ("    {0,-24} 0x{1:X}, LOAD_LIBRARY_SEARCH_SYSTEM32" -f $name, $flags)
     }
 
     # build.rs writes a version block into each executable: the Properties

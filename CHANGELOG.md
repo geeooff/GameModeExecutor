@@ -22,6 +22,8 @@ a section is written.
 - Windows PowerShell and `schtasks.exe` are started from Windows' system
   folder, never found by name: a copy unpacked in Downloads could run a
   program of that name lying beside it.
+- The DLLs the program needs are loaded from Windows' system folder only:
+  a copy unpacked in Downloads loaded an `msi.dll` lying beside it.
 
 ## [0.5.0] - 2026-11-16
 

@@ -145,6 +145,17 @@ copied beside a stand-in `schtasks.exe`, ran it while `purge` drew its
 plan, and announced a logon task that does not exist; this build ran
 Windows' own.*
 
+*The same day, the DLLs: those the executables import that are not known
+DLLs — `msi.dll`, `winhttp.dll`, `bcrypt.dll`, `VCRUNTIME140.dll` — were
+looked for in the executable's folder first. `build.rs` now links with
+`/DEPENDENTLOADFLAG:0x800`, System32 only, which Microsoft documents for a
+module's static imports from Windows 10 1607 without saying whether an
+EXE's own count; measured, they do. A stand-in `msi.dll` beside a copy was
+loaded by the published 0.5.0, at `--version`, before `main`, and not by
+this build; a stand-in `bcryptprimitives.dll` by neither, a system DLL
+having already brought Windows' own. `build.ps1 build` reads the flag back
+from both executables.*
+
 **Run for real on 2026-09-17**, on the maintainer's hand-installed copy,
 after the recipe's `uninstall-tasks.ps1` and `uninstall-task`: it listed
 ten things and did them. Two lessons, both fixed the same evening: the

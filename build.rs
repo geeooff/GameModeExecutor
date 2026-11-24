@@ -46,6 +46,23 @@ fn main() {
     println!("cargo:rustc-env=GIT_COMMIT_DISPLAY={display}");
 
     embed_resources(&short, !dirty.is_empty());
+    search_dlls_in_system32_only();
+}
+
+/// Where Windows looks for the DLLs the executables import: in System32
+/// only, `LOAD_LIBRARY_SEARCH_SYSTEM32` in the PE's load configuration,
+/// which Windows 10 1607 and later honour for a module's static imports.
+///
+/// Without it, an import that is not a known DLL -- `msi.dll`, `winhttp.dll`,
+/// `bcrypt.dll` -- is looked for in the executable's own folder first, and a
+/// copy unpacked in Downloads loads whatever lies beside it, before `main`.
+/// Measured on 2026-11-24 with the published 0.5.0 and a stand-in `msi.dll`
+/// (`docs/design/08-distribution.md`). `scripts/build.ps1 build` checks
+/// that the flag is in both executables.
+fn search_dlls_in_system32_only() {
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        println!("cargo:rustc-link-arg-bins=/DEPENDENTLOADFLAG:0x800");
+    }
 }
 
 /// The icon Explorer, the task bar and Alt-Tab show for the executables, and
