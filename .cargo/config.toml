@@ -1,0 +1,7 @@
+# The C runtime linked into the executables, rather than VCRUNTIME140.dll
+# from the Visual C++ Redistributable, which Windows does not carry and the
+# package does not install: without it, the program would not start.
+# `scripts/build.ps1 build` checks that no executable imports a DLL of the
+# Redistributable; docs/design/08-distribution.md has the figures.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]

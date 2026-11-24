@@ -24,6 +24,8 @@ a section is written.
   program of that name lying beside it.
 - The DLLs the program needs are loaded from Windows' system folder only:
   a copy unpacked in Downloads loaded an `msi.dll` lying beside it.
+- The program no longer needs the Visual C++ Redistributable: the C
+  runtime is built in.
 
 ## [0.5.0] - 2026-11-16
 

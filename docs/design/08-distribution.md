@@ -156,6 +156,18 @@ this build; a stand-in `bcryptprimitives.dll` by neither, a system DLL
 having already brought Windows' own. `build.ps1 build` reads the flag back
 from both executables.*
 
+*And the C runtime, linked in since the same day (`+crt-static`,
+`.cargo/config.toml`). `VCRUNTIME140.dll` comes with the Visual C++
+Redistributable, which the package never installed: here the System32
+copy is the Redistributable's, 14.51, and Windows' component store holds
+only .NET's private `vcruntime140_clr0400.dll`. Measured on release
+builds: 1,588,736 bytes dynamic, 1,685,504 static (+97 KB each). A hybrid
+— vcruntime linked in, the UCRT taken from Windows, which services it —
+weighs 1,610,752, at the price of two linker overrides; the static runtime
+was preferred as the one switch Rust documents. Not measured: a start on
+a Windows without the Redistributable; the import table no longer names
+it, and `build.ps1 build` checks that it stays so.*
+
 **Run for real on 2026-09-17**, on the maintainer's hand-installed copy,
 after the recipe's `uninstall-tasks.ps1` and `uninstall-task`: it listed
 ten things and did them. Two lessons, both fixed the same evening: the

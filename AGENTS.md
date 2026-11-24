@@ -112,7 +112,7 @@ This file says how to work here. The *why* is in
 
 ```powershell
 .\scripts\build.ps1 test       # fmt, clippy -D warnings, tests, shipped config.toml files, doc links
-.\scripts\build.ps1 build      # + release build, PE subsystem and DLL search checks
+.\scripts\build.ps1 build      # + release build, PE checks: subsystem, DLL search, C runtime
 .\scripts\build.ps1 release    # + clean tree, stamped commit, dist\ zips, MSI built and validated
 ```
 

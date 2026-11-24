@@ -219,7 +219,7 @@ function Invoke-Tests {
 
 # --- reading a PE32+ image --------------------------------------------------
 
-# The RVA of data directory $Index (10, the load configuration).
+# The RVA of data directory $Index (1, the imports; 10, the load configuration).
 function Get-DirectoryRva([byte[]] $Bytes, [int] $Index) {
     $optional = [BitConverter]::ToInt32($Bytes, 0x3C) + 24
     if ([BitConverter]::ToUInt16($Bytes, $optional) -ne 0x20B) { Fail "not a PE32+ image" }
@@ -248,6 +248,18 @@ function Get-DependentLoadFlags([byte[]] $Bytes) {
     $offset = Get-FileOffset $Bytes $rva
     if ([BitConverter]::ToUInt32($Bytes, $offset) -lt 0x50) { return 0 }
     [int][BitConverter]::ToUInt16($Bytes, $offset + 0x4E)
+}
+
+# The names of the DLLs an image imports: one IMAGE_IMPORT_DESCRIPTOR of 20
+# bytes each, the name's RVA at offset 12, until the empty one.
+function Get-ImportedDlls([byte[]] $Bytes) {
+    $offset = Get-FileOffset $Bytes (Get-DirectoryRva $Bytes 1)
+    while (($name = [BitConverter]::ToUInt32($Bytes, $offset + 12)) -ne 0) {
+        $start = Get-FileOffset $Bytes $name
+        $end = [Array]::IndexOf($Bytes, [byte] 0, $start)
+        [Text.Encoding]::ASCII.GetString($Bytes, $start, $end - $start)
+        $offset += 20
+    }
 }
 
 function Invoke-Build {
@@ -303,6 +315,18 @@ function Invoke-Build {
         Write-Host ("    {0,-24} 0x{1:X}, LOAD_LIBRARY_SEARCH_SYSTEM32" -f $name, $flags)
     }
 
+    # .cargo/config.toml links the C runtime in. Losing it is silent where
+    # the Visual C++ Redistributable is installed, as it is on most
+    # development machines; on a Windows without it, the program would not
+    # start.
+    Step "The C runtime is built in"
+    foreach ($name in $expected.Keys | Sort-Object) {
+        $dlls = @(Get-ImportedDlls ([System.IO.File]::ReadAllBytes((Join-Path $root "target\release\$name"))))
+        $redistributable = $dlls | Where-Object { $_ -match '^(vcruntime|msvcp)\d' }
+        if ($redistributable) { Fail "$name imports $($redistributable -join ', '), from the Visual C++ Redistributable" }
+        Write-Host ("    {0,-24} {1} DLLs imported, none from the Redistributable" -f $name, $dlls.Count)
+    }
+
     # build.rs writes a version block into each executable: the Properties
     # dialog reads it, and Windows Installer's repair and upgrade rules need
     # versioned files. A miss is only a warning at build time, so it is
@@ -320,7 +344,7 @@ function Invoke-Build {
     }
 
     # The release profile -- opt-level z, LTO, strip, panic = abort -- keeps
-    # each binary near 1.1 MB. Losing it is silent: everything still builds and
+    # each binary near 1.6 MB, the C runtime included. Losing it is silent: everything still builds and
     # runs, only twice as large and unwinding on panic, which the FATAL hook was
     # not designed for. It happened once, from an editing slip in Cargo.toml.
     Step "Binaries are release-profile sized"
